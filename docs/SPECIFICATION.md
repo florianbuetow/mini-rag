@@ -1,12 +1,14 @@
 # mini-rag Specification
 
-**Version:** 1.0
+**Version:** 2.2
 **Status:** Draft
 **Date:** 2026-02-07
 
 ## 1. Overview
 
-mini-rag is a minimalist Retrieval-Augmented Generation (RAG) system implemented as a FastAPI service. It provides document indexing and retrieval through vector similarity search, lexical (full-text) search, and hybrid search combining both approaches. The system is fully configuration-driven, with no hardcoded default values anywhere in the codebase.
+mini-rag is a minimalist Retrieval-Augmented Generation (RAG) system implemented as a FastAPI service. It provides document indexing and retrieval through three search modes: dense vector search (semantic similarity), sparse lexical search (BM25 keyword matching), and hybrid search combining both approaches with configurable weighting.
+
+The system is fully configuration-driven, with no hardcoded default values anywhere in the codebase. All backend components are accessed through abstraction interfaces, making them independently swappable.
 
 In its first iteration, mini-rag focuses exclusively on retrieval. The generation layer (sending retrieved chunks to an LLM for answer synthesis) is planned for a future iteration.
 
@@ -20,26 +22,84 @@ mini-rag follows a modular client-server architecture:
 - **Python clients** (`IndexingClient`, `QueryClient`) communicate with the service over HTTP, providing a clean programmatic interface for external scripts and tools.
 - **Helper scripts** (e.g., the ingestion script) use the clients to interact with the system.
 
-### 2.2 Key Components
+### 2.2 Backend Components
+
+The service layer is built on three independent backend components, each accessed through an abstraction interface:
+
+- **Storage** (interface) — document and chunk persistence. Implemented by `SQLiteStorage`.
+- **DenseRetrieval** (interface) — vector similarity search using embeddings. Implemented by `FAISSDense`.
+- **SparseRetrieval** (interface) — lexical full-text search using BM25 scoring. Implemented by `TantivySparse`.
+
+Each interface defines a contract for indexing, searching, and destroying data. The concrete implementations (SQLite, FAISS, Tantivy) can be swapped out independently without affecting the rest of the system.
+
+### 2.3 Orchestration Layer
+
+A single **Orchestration** class (`orchestration.py` at the `minirag/` package root) coordinates all operations across the three backend components:
+
+**Indexing operations:**
+
+- `index_document(text)` — the full pipeline: store document in Storage → chunk text → store chunks in Storage → generate embeddings → index in DenseRetrieval → index in SparseRetrieval. Returns document ID and list of chunk IDs.
+- `destroy_index()` — wipes all three backends (Storage, DenseRetrieval, SparseRetrieval).
+
+**Search operations:**
+
+- `search_dense(query, top_k)` — embed query → search DenseRetrieval → look up chunk text from Storage.
+- `search_sparse(query, top_k)` — search SparseRetrieval → look up chunk text from Storage.
+- `search_hybrid(query, top_k)` — run both dense and sparse search → pass results to the hybrid merge function → return merged results.
+
+The orchestration layer does not contain search logic or merge logic. It delegates to the appropriate components and pipes data between them.
+
+At startup, the `Config` and `Orchestration` instances are created once and stored on `app.state` (`app.state.config`, `app.state.orchestration`). Route handlers access them via `request.app.state`. This is FastAPI's built-in mechanism for sharing application-wide singletons with route handlers without global variables.
+
+### 2.4 Other Key Components
 
 - **Config** — Pydantic-based configuration loader, parsing `config.yaml` with strict validation and no optional values.
 - **FastAPI Service** — REST API with versioned endpoints (`/v1/...`), running on Uvicorn with configurable reload.
-- **ChromaDB Facade** — Wraps ChromaDB using the facade pattern, delegating vector and lexical queries directly and implementing hybrid search merge logic.
-- **FastText Embeddings** — Custom `EmbeddingFunction` wrapper for ChromaDB using Facebook's FastText library for local, portable dense embeddings.
+- **FastText Embeddings** — Generates dense vector embeddings using Facebook's FastText library. Vectors are normalized to unit length so that inner product equals cosine similarity.
 - **Chunker** — Word-based text chunking with configurable chunk size and overlap.
-- **Hybrid Merge** — Score normalization and re-ranking logic for combining vector and lexical search results using a configurable alpha weight.
+- **Hybrid Merge** — A pure function in `search/hybrid.py` that takes dense and sparse result sets, normalizes scores, applies alpha weighting, and re-ranks.
+- **API Models** — Pydantic request and response models in `api/models/`, used for input validation and serialization on all endpoints.
 - **Clients** — HTTP clients (`IndexingClient`, `QueryClient`) with health-check-before-operation behavior.
 
-### 2.3 Technology Stack
+### 2.5 Technology Stack
 
 - Python 3.12+
 - FastAPI + Uvicorn (ASGI server)
-- Pydantic (configuration validation)
-- ChromaDB with `PersistentClient` (local, in-process, no external server)
+- Pydantic (configuration validation and API request/response models)
+- SQLite (document and chunk storage)
+- FAISS (dense vector index with HNSW search)
+- Tantivy via tantivy-py (sparse lexical index with BM25 scoring, stemming, tokenization)
 - FastText (`cc.en.300.bin` — 300-dimensional Common Crawl embeddings)
 - PyYAML (configuration file parsing)
+- httpx (HTTP client library)
 - uv (package manager)
 - just (task runner)
+
+### 2.6 Component Interaction Diagram
+
+```
+FastAPI Routes (api/)
+    │
+    ├──► API Models (api/models/) — Pydantic request/response validation
+    │
+    ▼
+  Orchestration (minirag/orchestration.py)
+    │
+    ├──► Chunker (text → chunks)
+    ├──► Embeddings (text → vectors, normalized to unit length)
+    │
+    ├──► Storage (interface)           ──► SQLiteStorage
+    │       insert_document / insert_chunk / get_chunk / destroy
+    │
+    ├──► DenseRetrieval (interface)    ──► FAISSDense
+    │       index / search / destroy
+    │
+    ├──► SparseRetrieval (interface)   ──► TantivySparse
+    │       index / search / destroy
+    │
+    └──► HybridMerge (pure function)
+            normalize + alpha-weight + re-rank
+```
 
 ## 3. Project Structure
 
@@ -48,19 +108,35 @@ src/
 ├── main.py                            # Entry point (starts uvicorn)
 └── minirag/
     ├── __init__.py
-    ├── config.py                      # Config class — parses config.yaml
-    ├── server/                        # FastAPI service layer
+    ├── config.py                      # Config class — parses config.yaml, model_dump()
+    ├── orchestration.py               # Orchestration layer for indexing and search
+    ├── api/                           # FastAPI service layer
     │   ├── __init__.py
     │   ├── app.py                     # FastAPI app creation & lifecycle
     │   ├── routes_index.py            # POST /index, DELETE /index
-    │   ├── routes_query.py            # POST /query/vector, /query/lexical, /query/hybrid
+    │   ├── routes_query.py            # GET /query/dense, /query/sparse, /query/hybrid
     │   ├── routes_admin.py            # GET /health, GET /info, POST /shutdown
-    │   └── utils.py                   # Response envelope helper methods
-    ├── search/                        # Search & retrieval layer
+    │   ├── utils.py                   # Response envelope helpers + ensure_healthy() guard
+    │   └── models/                    # Pydantic request/response models
+    │       ├── __init__.py
+    │       ├── index.py               # IndexRequest, IndexResponse
+    │       ├── query.py               # QueryRequest, QueryResponse
+    │       └── info.py                # HealthResponse, InfoResponse, ShutdownResponse
+    ├── search/                        # Search utilities
     │   ├── __init__.py
-    │   ├── facade.py                  # ChromaDB facade (delegates + hybrid merge)
-    │   ├── hybrid.py                  # Score normalization & re-ranking logic
-    │   └── embeddings.py              # FastText EmbeddingFunction wrapper
+    │   ├── hybrid.py                  # Score normalization & re-ranking (pure function)
+    │   ├── embeddings.py              # FastText embedding generation + unit normalization
+    │   └── types.py                   # SearchResult dataclass
+    ├── storage/                       # Storage abstraction
+    │   ├── __init__.py
+    │   ├── interface.py               # Storage interface definition
+    │   └── sqlite.py                  # SQLiteStorage implementation
+    ├── retrieval/                     # Retrieval abstractions
+    │   ├── __init__.py
+    │   ├── dense_interface.py         # DenseRetrieval interface definition
+    │   ├── sparse_interface.py        # SparseRetrieval interface definition
+    │   ├── faiss_dense.py             # FAISSDense implementation
+    │   └── tantivy_sparse.py          # TantivySparse implementation
     ├── ingestion/                     # Document processing
     │   ├── __init__.py
     │   └── chunker.py                 # Word-based chunking
@@ -68,7 +144,7 @@ src/
         ├── __init__.py
         ├── base.py                    # Shared HTTP logic (host, port, error handling)
         ├── indexing.py                # IndexingClient (index doc, destroy index)
-        └── query.py                   # QueryClient (vector, lexical, hybrid search)
+        └── query.py                   # QueryClient (dense, sparse, hybrid search)
 
 scripts/
 └── ingest.py                          # Reads data/input/txt/, uses IndexingClient
@@ -87,6 +163,7 @@ config.yaml                            # Local config (gitignored, created by ju
 - `just init` copies the template to `config.yaml` only if it does not already exist.
 - The `Config` class in `config.py` uses nested Pydantic models with no optional values — every field is required.
 - Components access only their relevant sub-config via typed getter methods (e.g., `config.get_service_config()` returns a `ServiceConfig` object).
+- The `Config` class exposes the full configuration as a dictionary via Pydantic's `model_dump()` method, used by the `/v1/info` endpoint.
 
 ### 4.2 Configuration Structure
 
@@ -109,19 +186,24 @@ index:
     model_name: "cc.en.300.bin"
     dimension: 300
 
-  chromadb:
-    persist_dir: "chroma"
-    collection_name: "minirag"
-    distance_metric: "cosine"
-    hnsw_m: 16
-    hnsw_construction_ef: 100
-    hnsw_search_ef: 10
-    hnsw_num_threads: 4
-    hnsw_batch_size: 100
+  storage:
+    db_filename: "minirag.db"
+
+  faiss:
+    index_type: "IndexFlatIP"
+    nprobe: 1
+
+  tantivy:
+    language: "en"
+    stemming: true
 
 search:
-  chromadb:
-    hybrid_alpha: 0.5
+  hybrid:
+    alpha: 0.5
+
+  dense: {}
+
+  sparse: {}
 ```
 
 ### 4.3 Pydantic Model Hierarchy
@@ -134,9 +216,13 @@ The configuration is parsed into the following nested Pydantic models:
   - `IndexConfig`
     - `ChunkingConfig` — chunk_size, overlap
     - `EmbeddingsConfig` — model_name, dimension
-    - `IndexChromaDBConfig` — persist_dir, collection_name, distance_metric, HNSW parameters
+    - `StorageConfig` — db_filename
+    - `FAISSConfig` — index_type, nprobe
+    - `TantivyConfig` — language, stemming
   - `SearchConfig`
-    - `SearchChromaDBConfig` — hybrid_alpha
+    - `HybridConfig` — alpha
+    - `DenseSearchConfig` — (reserved for future query-time settings)
+    - `SparseSearchConfig` — (reserved for future query-time settings)
 
 ### 4.4 Path Resolution
 
@@ -144,11 +230,29 @@ The `data_dir` in the `DataConfig` serves as the base path. Other components der
 
 - Input text files: `{data_dir}/input/txt/`
 - FastText model: `{data_dir}/models/{model_name}`
-- ChromaDB persistence: `{data_dir}/{persist_dir}/`
+- SQLite database: `{data_dir}/storage/{db_filename}`
+- FAISS index: `{data_dir}/index/faiss/`
+- Tantivy index: `{data_dir}/index/tantivy/`
 
 Components only know their own subdirectory conventions (e.g., the ingestion module knows about `input/txt/`, the embeddings module knows about `models/`). The base `data_dir` comes from the config.
 
-### 4.5 Startup Validation
+### 4.5 Data Directory Layout
+
+```
+data/
+├── input/
+│   ├── txt/                  # Plain text files for ingestion
+│   └── md/                   # Markdown files (future)
+├── models/                   # FastText embedding models
+│   └── cc.en.300.bin
+├── storage/                  # SQLite document/chunk database
+│   └── minirag.db
+└── index/
+    ├── faiss/                # FAISS vector index files
+    └── tantivy/              # Tantivy lexical index files
+```
+
+### 4.6 Startup Validation
 
 At service startup, the `Config` class performs full validation:
 
@@ -163,7 +267,7 @@ At service startup, the `Config` class performs full validation:
 
 - All endpoints are prefixed with `/v1`.
 - All endpoints are synchronous (query-and-wait) — the response is returned only after the operation completes.
-- All request bodies are JSON.
+- All request bodies are JSON, validated by Pydantic request models defined in `api/models/`.
 - All responses follow a uniform envelope format.
 - HTTP status codes are used correctly and mirrored inside the JSON response body.
 
@@ -189,7 +293,7 @@ At service startup, the `Config` class performs full validation:
 
 Every response contains `status`. Successful responses contain `data`. Error responses contain `error` instead. The `error` string is the internal exception message — no sanitization or rewriting.
 
-Response construction happens exclusively in route handlers, never in business logic. Helper methods in `server/utils.py` provide `success_response(status, data)` and `error_response(status, message)` for uniform construction.
+Response construction happens exclusively in route handlers, never in business logic. Helper methods in `api/utils.py` provide `success_response(status, data)` and `error_response(status, message)` for uniform construction.
 
 ### 5.3 HTTP Status Codes
 
@@ -198,18 +302,18 @@ Response construction happens exclusively in route handlers, never in business l
 | 200  | Successful operation |
 | 400  | Malformed JSON or unparseable request body |
 | 422  | Valid JSON but missing or invalid fields |
-| 500  | Internal server error (ChromaDB failure, FastText failure, etc.) |
-| 503  | Service is shutting down |
+| 500  | Internal server error (FAISS failure, Tantivy failure, embedding failure, etc.) |
+| 503  | Service unavailable (app state is not healthy) |
 
 ### 5.4 Endpoints
 
 #### GET /v1/health
 
-Returns the health status of the service.
+Returns the current app state. This endpoint is always available, regardless of app state.
 
 **Request:** No body.
 
-**Response:**
+**Response when healthy:**
 
 ```json
 {
@@ -218,7 +322,7 @@ Returns the health status of the service.
 }
 ```
 
-During shutdown:
+**Response when shutting down:**
 
 ```json
 {
@@ -229,7 +333,7 @@ During shutdown:
 
 #### GET /v1/info
 
-Returns the complete service configuration.
+Returns the complete service configuration. This endpoint is always available, regardless of app state.
 
 **Request:** No body.
 
@@ -246,7 +350,7 @@ Returns the complete service configuration.
 
 #### POST /v1/shutdown
 
-Initiates a graceful shutdown. The health status changes to `"shutting_down"` before the process exits. Any endpoint hit during shutdown returns HTTP 503.
+Initiates a graceful shutdown. Sets `app.state.app_status` to `"shutting_down"` before scheduling the process exit. Once the app state changes, all guarded endpoints reject requests with HTTP 503.
 
 **Request:** No body.
 
@@ -261,7 +365,11 @@ Initiates a graceful shutdown. The health status changes to `"shutting_down"` be
 
 #### POST /v1/index
 
-Indexes a single document. The service handles chunking, embedding, and storing in ChromaDB. The response is returned only after all chunks are indexed.
+Indexes a single document. The service handles the full pipeline: store document → chunk → store chunks → embed → index in dense and sparse indices. The response is returned only after all steps complete.
+
+Empty or whitespace-only document text is rejected with HTTP 422 before any processing begins.
+
+If any step in the indexing pipeline fails, the service returns an error immediately. No rollback is performed; partial state may remain. Use `DELETE /v1/index` to clean up before re-indexing.
 
 **Request:**
 
@@ -276,13 +384,19 @@ Indexes a single document. The service handles chunking, embedding, and storing 
 ```json
 {
   "status": 200,
-  "data": { "chunks_indexed": 5 }
+  "data": {
+    "document_id": 1,
+    "chunks_indexed": 5,
+    "chunk_ids": [1, 2, 3, 4, 5]
+  }
 }
 ```
 
+The `chunk_ids` field returns all chunk IDs assigned by the storage layer during indexing. This aids debugging and enables integration tests to verify that chunks were stored correctly. `chunks_indexed` equals `len(chunk_ids)`.
+
 #### DELETE /v1/index
 
-Destroys the entire index.
+Destroys the entire index across all three backends (Storage, DenseRetrieval, SparseRetrieval).
 
 **Request:** No body.
 
@@ -295,9 +409,9 @@ Destroys the entire index.
 }
 ```
 
-#### POST /v1/query/vector
+#### GET /v1/query/dense
 
-Performs vector similarity search using dense embeddings.
+Performs dense vector similarity search using FastText embeddings and FAISS. Uses GET because this is a data retrieval operation (the JSON body carries query parameters, not data to be stored).
 
 **Request:**
 
@@ -308,7 +422,7 @@ Performs vector similarity search using dense embeddings.
 }
 ```
 
-**Response:**
+**Response (with results):**
 
 ```json
 {
@@ -322,82 +436,239 @@ Performs vector similarity search using dense embeddings.
 }
 ```
 
-Scores are normalized between 0 and 1, with higher values indicating greater relevance.
+**Response (no results):**
 
-#### POST /v1/query/lexical
+```json
+{
+  "status": 200,
+  "data": {
+    "results": []
+  }
+}
+```
 
-Performs full-text lexical search. Same request and response format as `/v1/query/vector`.
+Scores are normalized between 0 and 1, with higher values indicating greater relevance. For dense search, scores are cosine similarities computed via inner product on unit-normalized embeddings. An empty results list is returned when no matches are found or when the index is empty — this is not an error.
 
-#### POST /v1/query/hybrid
+#### GET /v1/query/sparse
 
-Performs hybrid search combining vector and lexical results with score normalization, alpha-weighted merging, and re-ranking. Same request and response format as `/v1/query/vector`.
+Performs sparse lexical search using Tantivy's BM25 scoring. Same request and response format as `/v1/query/dense`.
 
-The balance between vector and lexical results is controlled by the `hybrid_alpha` configuration parameter (0.0 = pure lexical, 1.0 = pure vector).
+Scores are BM25 relevance scores normalized to [0, 1] by dividing by the maximum score in the result set.
 
-## 6. Search Architecture
+#### GET /v1/query/hybrid
 
-### 6.1 ChromaDB Integration
+Performs hybrid search combining dense and sparse results with score normalization, alpha-weighted merging, and re-ranking. Same request and response format as `/v1/query/dense`.
 
-mini-rag uses ChromaDB in `PersistentClient` mode — fully local, in-process, no external server required. Data persists to disk between service restarts.
+The balance between dense and sparse results is controlled by the `search.hybrid.alpha` configuration parameter (0.0 = pure sparse/lexical, 1.0 = pure dense/vector).
 
-ChromaDB provides:
+**Hybrid merge behavior for edge cases:**
 
-- **Vector search** via `collection.query()` — uses HNSW index with cosine distance for dense retrieval.
-- **Full-text search** via `collection.get()` with `where_document` — uses SQLite FTS5 for lexical retrieval.
+- If a chunk appears in only one result set (dense or sparse but not both), its missing score is treated as 0.0.
+- If a result set is empty, only the other set's scores contribute (scaled by the respective alpha weight).
+- If both result sets are empty, an empty results list is returned.
+- Querying an empty index returns an empty results list (not an error).
 
-### 6.2 ChromaDB Facade
+### 5.5 Pydantic API Models
 
-The facade pattern (`search/facade.py`) provides a clean interface between the FastAPI routes and ChromaDB:
+All API request and response payloads are defined as Pydantic models in `api/models/`. Each file maps to a route group:
 
-- `search_vector(query, top_k)` — delegates directly to ChromaDB's `collection.query()`.
-- `search_lexical(query, top_k)` — delegates directly to ChromaDB's `collection.get()` with `where_document`.
-- `search_hybrid(query, top_k)` — calls both vector and lexical search, then invokes the hybrid merge logic to combine results.
+- `api/models/index.py` — `IndexRequest` (document field, validates non-empty text), `IndexResponse` (document_id, chunks_indexed, chunk_ids).
+- `api/models/query.py` — `QueryRequest` (query string, top_k as positive integer), `QueryResponse` (results list).
+- `api/models/info.py` — `HealthResponse`, `InfoResponse`, `ShutdownResponse`.
 
-All three methods return results in the same format, so upstream consumers handle them uniformly.
+FastAPI uses these models to automatically validate incoming JSON. Invalid payloads are rejected with HTTP 422 and the Pydantic validation error message is included in the error response envelope.
 
-### 6.3 Hybrid Search Merge
+### 5.6 App State Management
 
-Since ChromaDB's local `PersistentClient` does not provide native hybrid search with result fusion, mini-rag implements its own merge in `search/hybrid.py`:
+The service maintains a formal app state stored on `app.state.app_status`. The possible values are:
 
-1. Execute vector search and lexical search independently.
-2. Normalize scores from both result sets to a 0–1 range.
-3. Apply alpha weighting: `final_score = alpha * vector_score + (1 - alpha) * lexical_score`.
-4. Re-rank by final score.
-5. Return the top-K results.
+- `"healthy"` — the service is running normally and accepting all requests.
+- `"shutting_down"` — a shutdown has been initiated; only informational endpoints remain available.
 
-### 6.4 FastText Embeddings
+**Guard function:** A helper function `ensure_healthy(request)` in `api/utils.py` checks `request.app.state.app_status`. If the state is not `"healthy"`, it immediately returns an error response:
 
-Dense embeddings are generated using Facebook's FastText library with the `cc.en.300.bin` model (300-dimensional, trained on Common Crawl, English). The embedding wrapper (`search/embeddings.py`) implements ChromaDB's `EmbeddingFunction` interface, allowing ChromaDB to use FastText for both indexing and query embedding.
+```json
+{
+  "status": 503,
+  "error": "service is shutting_down"
+}
+```
+
+**Guarded endpoints** — every route handler for these endpoints calls `ensure_healthy()` as its first action:
+
+- POST /v1/index
+- DELETE /v1/index
+- GET /v1/query/dense
+- GET /v1/query/sparse
+- GET /v1/query/hybrid
+- POST /v1/shutdown
+
+**Unguarded endpoints** — these are always available regardless of app state:
+
+- GET /v1/health (reports the current app state)
+- GET /v1/info (returns the configuration)
+
+The health endpoint reflects the current app state in its response. When the state is `"healthy"`, it returns HTTP 200. When the state is `"shutting_down"`, it returns HTTP 503 with the state value in the response body.
+
+## 6. Storage Layer
+
+### 6.1 Storage Interface
+
+The Storage interface (`storage/interface.py`) defines the contract for document and chunk persistence:
+
+- `insert_document(content: str) -> int` — stores the full document text and returns an auto-assigned document ID.
+- `insert_chunk(document_id: int, content: str) -> int` — stores a chunk with a foreign key reference to its document and returns an auto-assigned chunk ID.
+- `get_document(document_id: int) -> str` — retrieves document content by ID.
+- `get_chunk(chunk_id: int) -> tuple[int, str]` — retrieves a chunk by ID, returning (document_id, chunk_content).
+- `destroy() -> None` — wipes all stored data.
+
+### 6.2 SQLite Implementation
+
+`storage/sqlite.py` implements the Storage interface using SQLite:
+
+**Documents table:**
+
+| Column | Type | Constraint |
+|--------|------|------------|
+| `document_id` | INTEGER | PRIMARY KEY AUTOINCREMENT |
+| `content` | TEXT | NOT NULL |
+
+**Chunks table:**
+
+| Column | Type | Constraint |
+|--------|------|------------|
+| `chunk_id` | INTEGER | PRIMARY KEY AUTOINCREMENT |
+| `document_id` | INTEGER | FOREIGN KEY → documents(document_id), NOT NULL |
+| `content` | TEXT | NOT NULL |
+
+The SQLite database file is stored at `{data_dir}/storage/{db_filename}`.
+
+Document and chunk IDs are assigned automatically by SQLite's autoincrement mechanism. ID assignment is fully internal to the service and transparent to clients.
+
+## 7. Dense Retrieval (Vector Search)
+
+### 7.1 DenseRetrieval Interface
+
+The DenseRetrieval interface (`retrieval/dense_interface.py`) defines the contract for vector search:
+
+- `index(chunk_id: int, embedding: list[float]) -> None` — adds a vector to the index, associated with a chunk ID.
+- `search(query_embedding: list[float], top_k: int) -> list[tuple[int, float]]` — returns a list of (chunk_id, score) tuples, sorted by score descending.
+- `destroy() -> None` — wipes the entire vector index.
+
+The interface guarantees scores in [0, 1] with higher = more relevant.
+
+### 7.2 FAISS Implementation
+
+`retrieval/faiss_dense.py` implements DenseRetrieval using Facebook's FAISS library:
+
+- Uses `IndexIDMap` wrapping `IndexFlatIP` (inner product) as the base index.
+- All input embeddings are expected to be unit-normalized (done by the embeddings module), so inner product equals cosine similarity and scores are naturally in [0, 1].
+- Chunk IDs are mapped directly to FAISS's ID system via `IndexIDMap`.
+- The FAISS index is persisted to `{data_dir}/index/faiss/` and loaded on service startup.
+
+### 7.3 FastText Embeddings
+
+Dense embeddings are generated using Facebook's FastText library with the `cc.en.300.bin` model (300-dimensional, trained on Common Crawl, English).
+
+The embeddings module (`search/embeddings.py`):
+
+- Loads the FastText model from `{data_dir}/models/{model_name}`.
+- **Validates at load time** that the model's output dimension matches the configured `index.embeddings.dimension`. Raises an error on mismatch (fail-fast).
+- Generates sentence vectors for input text.
+- **Normalizes all vectors to unit length** before returning, ensuring that FAISS inner product computes cosine similarity directly.
+- Is used for both indexing (chunk embeddings) and querying (query embedding).
+
+### 7.4 Model Download
 
 The FastText model is downloaded during `just init` and stored at `{data_dir}/models/{model_name}`.
 
-## 7. Ingestion Pipeline
+Download URL: `https://dl.fbaipublicfiles.com/fasttext/vectors-crawl/cc.en.300.bin.gz`
 
-### 7.1 Document Flow
+The `just init` recipe downloads the compressed model via `wget` (or `curl` as fallback) and decompresses it with `gunzip`. If the uncompressed model file already exists, the download is skipped.
+
+## 8. Sparse Retrieval (Lexical Search)
+
+### 8.1 SparseRetrieval Interface
+
+The SparseRetrieval interface (`retrieval/sparse_interface.py`) defines the contract for lexical search:
+
+- `index(chunk_id: int, content: str) -> None` — adds text content to the lexical index, associated with a chunk ID.
+- `search(query: str, top_k: int) -> list[tuple[int, float]]` — returns a list of (chunk_id, score) tuples, sorted by score descending.
+- `destroy() -> None` — wipes the entire lexical index.
+
+The interface guarantees scores in [0, 1] with higher = more relevant.
+
+### 8.2 Tantivy Implementation
+
+`retrieval/tantivy_sparse.py` implements SparseRetrieval using the Tantivy full-text search engine (via tantivy-py):
+
+- Uses BM25 scoring for relevance ranking.
+- Performs tokenization, stemming (configurable, English by default), and stopword removal as part of the Tantivy pipeline.
+- A `chunk_id` field is stored in the Tantivy schema as a unique identifier for deletion support.
+- Scores are normalized to [0, 1] by dividing by the maximum score in the result set. A single result normalizes to 1.0.
+- The Tantivy index is persisted to `{data_dir}/index/tantivy/` and loaded on service startup.
+
+## 9. Hybrid Search Merge
+
+The hybrid merge function (`search/hybrid.py`) is a pure function that combines dense and sparse result sets:
+
+1. Accept two result sets: `dense_results` and `sparse_results`, each as `list[tuple[chunk_id, score]]`.
+2. Both sets are already normalized to [0, 1] by their respective retrieval implementations.
+3. Build a combined score for each chunk: `final_score = alpha * dense_score + (1 - alpha) * sparse_score`.
+4. If a chunk appears in only one set, its missing score is 0.0.
+5. Re-rank all chunks by `final_score` descending.
+6. Return the top-K results.
+
+**Edge cases:**
+
+- `alpha` must be in [0.0, 1.0] — values outside this range raise a `ValueError`.
+- `top_k` must be a positive integer.
+- Empty result sets are handled gracefully — the other set's scores contribute alone.
+- Both sets empty returns an empty list.
+- All scores identical within a set: normalization preserves them as-is (they were already normalized by the retrieval layer).
+
+## 10. Ingestion Pipeline
+
+### 10.1 Document Flow
 
 1. Text files are placed in `{data_dir}/input/txt/`.
 2. The `scripts/ingest.py` helper script reads all `.txt` files from that directory.
 3. For each file, the script uses the `IndexingClient` to POST the document text to the service.
-4. The service receives the text, chunks it (word-based, 300 words, 30% overlap), generates embeddings, and stores the chunks in ChromaDB.
+4. The service receives the text and the orchestration layer runs the full indexing pipeline:
+   a. Store the full document in Storage → get `document_id`.
+   b. Chunk the text (word-based, configurable size and overlap) → get list of chunks.
+   c. Store each chunk in Storage → get `chunk_id` for each.
+   d. Generate embeddings for all chunks (FastText, unit-normalized).
+   e. Index each chunk in DenseRetrieval (chunk_id + embedding).
+   f. Index each chunk in SparseRetrieval (chunk_id + chunk text).
+   g. Return `document_id` and list of `chunk_ids`.
 
-### 7.2 Chunking Strategy
+### 10.2 Chunking Strategy
 
 Word-based chunking is implemented in `ingestion/chunker.py`:
 
 - **Chunk size:** 300 words (configurable via `index.chunking.chunk_size`).
 - **Overlap:** 30% (configurable via `index.chunking.overlap`).
 - Words are counted by whitespace splitting.
+- Empty or whitespace-only input text is rejected with a `ValueError`.
+- Invalid chunk parameters (non-positive chunk size, overlap outside [0.0, 1.0), overlap yielding non-positive step) are rejected with a `ValueError`.
 
-### 7.3 Ingestion Behavior
+### 10.3 Ingestion Behavior
 
 - The `just ingest` target destroys the existing index before indexing.
+- Files are sorted alphanumerically by filename for deterministic, reproducible ordering.
 - Files are indexed one at a time, with progress reported to the console (which file is currently being indexed).
 - If any file fails to index, the process stops immediately (fail-hard) — no continuing with remaining files.
-- There are no update operations — only index, destroy, and query.
+- If any step within the indexing pipeline fails, the error is surfaced immediately. No automatic rollback of partial state is performed.
+- There are no update or deduplication operations — only index, destroy, and query.
 
-## 8. Clients
+### 10.4 Indexing Error Behavior
 
-### 8.1 Base Client
+The ingestion script (`scripts/ingest.py`) follows the fail-hard policy defined in this specification. This is an explicit exception to the general "continue and count failures" pattern described in `AGENTS.md` for scripts. The rationale: a partial index could be misleading, and the destroy-and-reingest pattern means the user simply reruns `just ingest` after fixing the issue.
+
+## 11. Clients
+
+### 11.1 Base Client
 
 `clients/base.py` provides shared HTTP logic:
 
@@ -405,24 +676,44 @@ Word-based chunking is implemented in `ingestion/chunker.py`:
 - Checks the `/v1/health` endpoint before any operation — if the service is not healthy, the client aborts with an exception.
 - Handles HTTP errors and surfaces them as exceptions.
 
-### 8.2 IndexingClient
+### 11.2 IndexingClient
 
 `clients/indexing.py` provides:
 
 - `index_document(text)` — POSTs a document to `/v1/index`.
 - `destroy_index()` — sends DELETE to `/v1/index`.
 
-### 8.3 QueryClient
+### 11.3 QueryClient
 
 `clients/query.py` provides:
 
-- `search_vector(query, top_k)` — POSTs to `/v1/query/vector`.
-- `search_lexical(query, top_k)` — POSTs to `/v1/query/lexical`.
-- `search_hybrid(query, top_k)` — POSTs to `/v1/query/hybrid`.
+- `search_dense(query, top_k)` — sends GET to `/v1/query/dense`.
+- `search_sparse(query, top_k)` — sends GET to `/v1/query/sparse`.
+- `search_hybrid(query, top_k)` — sends GET to `/v1/query/hybrid`.
 
 All three methods return results in the same format.
 
-## 9. Just Targets
+## 12. SearchResult Type
+
+All search results throughout the system use a consistent `SearchResult` type defined as a dataclass in a shared location (`search/types.py`):
+
+```python
+@dataclass
+class SearchResult:
+    text: str
+    score: float
+```
+
+This type is used by:
+
+- The orchestration layer's search methods (return `list[SearchResult]`).
+- The hybrid merge function (accepts and returns `list[SearchResult]`).
+- The client methods (return `list[SearchResult]` parsed from JSON).
+- The API response serialization (converts to `{"text": ..., "score": ...}`).
+
+Retrieval interfaces return `list[tuple[int, float]]` (chunk_id, score). The orchestration layer resolves chunk IDs to text via the Storage layer and constructs `SearchResult` objects.
+
+## 13. Just Targets
 
 | Target | Description |
 |--------|-------------|
@@ -434,52 +725,55 @@ All three methods return results in the same format.
 | `just destroy` | Remove the virtual environment |
 | `just help` | Show all available commands |
 
-Existing CI targets (`just ci`, `just ci-quiet`, etc.) remain unchanged.
+The existing `just run` target is replaced by `just start` for the service. Existing CI targets (`just ci`, `just ci-quiet`, etc.) remain unchanged.
 
-## 10. Error Handling
+## 14. Error Handling
 
-### 10.1 Principles
+### 14.1 Principles
 
 - **Fail fast** — if something is wrong, report it immediately and stop.
 - **No error masking** — no degraded states, no silent fallbacks, no default values.
 - **Exceptions bubble up** — business logic raises exceptions with descriptive messages. Route handlers catch them and wrap them in the error response envelope.
 - **Internal error messages are exposed as-is** — no sanitization or rewriting for the client. This is a minimalist system.
+- **No automatic rollback** — if an indexing step fails partway through, partial state may remain. Use `DELETE /v1/index` to clean up.
 
-### 10.2 Startup Failures
+### 14.2 Startup Failures
 
 The service refuses to start if:
 
 - `config.yaml` is missing.
 - Configuration validation fails (missing keys, wrong types).
 - The FastText model file does not exist.
-- ChromaDB cannot be initialized.
+- SQLite database cannot be initialized.
+- FAISS index cannot be initialized.
+- Tantivy index cannot be initialized.
 
-### 10.3 Runtime Errors
+### 14.3 Runtime Errors
 
-All runtime errors (ChromaDB failures, embedding failures, etc.) are caught by route handlers and returned as error responses with HTTP 500 and the exception message.
+All runtime errors (FAISS failures, Tantivy failures, SQLite failures, embedding failures, etc.) are caught by route handlers and returned as error responses with HTTP 500 and the exception message.
 
-## 11. Logging
+## 15. Logging
 
-- All logging goes through Python's standard `logging` module — never `print()`.
+- All logging goes through Python's standard `logging` module — never `print()`. This applies to both `src/` and `scripts/`.
 - The log level is configurable via `service.log_level` in `config.yaml`.
 - The committed template defaults to `INFO`. Developers can switch to `DEBUG` locally.
 - All errors, warnings, info, and debug messages use the logger.
 
-## 12. Testing
+## 16. Testing
 
-### 12.1 Current Requirements
+### 16.1 Current Requirements
 
 - Foundational components must have unit tests from the start: config parsing, chunker, hybrid merge logic, response utilities.
 - The CI pipeline enforces 80% test coverage.
 - Tests run with `just test` (unit tests) and `just test-coverage` (with threshold enforcement).
 
-### 12.2 Test Configuration
+### 16.2 Test Configuration
 
 - pytest with randomized test order (pytest-randomly).
 - 30-second timeout per test (pytest-timeout).
 - Async support via pytest-asyncio.
 
-## 13. CI Pipeline
+## 17. CI Pipeline
 
 The CI pipeline is set in stone and runs the following steps in order:
 
@@ -495,14 +789,15 @@ The CI pipeline is set in stone and runs the following steps in order:
 10. `test` — Unit tests
 11. `code-lspchecks` — Strict type checking (pyright)
 
-## 14. Future To-Do
+## 18. Future To-Do
 
 The following items are out of scope for the first iteration but planned for future work:
 
-1. **Custom document IDs for traceability** — Provide our own document IDs during indexing to enable tracing chunks back to source files.
-2. **LLM generation layer** — Send retrieved chunks along with the user's query to an LLM to produce synthesized answers (completing the "G" in RAG).
-3. **Markdown file support** — Support `.md` files in addition to `.txt` for ingestion (from `{data_dir}/input/md/`).
-4. **Increase test coverage to 90%** — Tighten test coverage requirements once the design stabilizes.
-5. **Index lifecycle management** — Detect configuration changes that invalidate the existing index (e.g., embedding model, chunk size) and trigger or recommend a rebuild.
-6. **CORS middleware** — Add configurable Cross-Origin Resource Sharing middleware for browser-based clients.
-7. **Uvicorn config file watching** — Optionally watch `config.yaml` for changes and auto-restart the service (with awareness that index invalidation may be required).
+1. **LLM generation layer** — Send retrieved chunks along with the user's query to an LLM to produce synthesized answers (completing the "G" in RAG).
+2. **Markdown file support** — Support `.md` files in addition to `.txt` for ingestion (from `{data_dir}/input/md/`).
+3. **Increase test coverage to 90%** — Tighten test coverage requirements once the design stabilizes.
+4. **Index lifecycle management** — Detect configuration changes that invalidate the existing index (e.g., embedding model, chunk size) and trigger or recommend a rebuild.
+5. **CORS middleware** — Add configurable Cross-Origin Resource Sharing middleware for browser-based clients.
+6. **Uvicorn config file watching** — Optionally watch `config.yaml` for changes and auto-restart the service (with awareness that index invalidation may be required).
+7. **Per-document rollback** — On indexing failure, automatically roll back partial state across all three backends.
+8. **Idempotent indexing** — Detect duplicate documents via content hashing and skip re-indexing.

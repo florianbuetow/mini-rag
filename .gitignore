@@ -70,3 +70,9 @@ reports/
 
 # The awesome guard file from the guard tool: https://github.com/florianbuetow/guard
 .guardfile
+
+# Local config (created from config.yaml.template by just init)
+config.yaml
+
+# Data directory (models, indices, storage, input files)
+data/

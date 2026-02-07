@@ -1,8 +1,8 @@
 # mini-rag
 
-A minimalist Retrieval-Augmented Generation (RAG) system built as a FastAPI service. mini-rag provides document indexing and retrieval through three search modes: vector similarity search (dense retrieval), full-text search (sparse retrieval), and hybrid search combining both with configurable weighting.
+A minimalist Retrieval-Augmented Generation (RAG) system built as a FastAPI service. mini-rag provides document indexing and retrieval through three search modes: dense vector search (semantic similarity via FAISS), sparse lexical search (BM25 keyword matching via Tantivy), and hybrid search combining both with configurable weighting.
 
-The system is fully configuration-driven — no hardcoded default values anywhere. It uses Facebook's FastText for local, portable embeddings and ChromaDB for persistent vector and full-text storage, all running in-process with no external services required.
+The system is fully configuration-driven — no hardcoded default values anywhere. It uses Facebook's FastText for local, portable embeddings, FAISS for dense vector search, Tantivy for BM25 lexical search, and SQLite for document and chunk storage — all running in-process with no external services required.
 
 For the full technical specification, see [docs/SPECIFICATION.md](docs/SPECIFICATION.md).
 
@@ -37,7 +37,7 @@ Key configuration sections:
 
 - **service** — Host, port, reload behavior, log level
 - **data** — Base data directory
-- **index** — Chunking, embeddings, and ChromaDB index settings (including HNSW tuning)
+- **index** — Chunking, embeddings, storage (SQLite), FAISS, and Tantivy settings
 - **search** — Search behavior including hybrid search alpha weighting
 
 ## Usage
@@ -97,9 +97,9 @@ All endpoints are prefixed with `/v1` and accept/return JSON.
 | POST | `/v1/shutdown` | Graceful shutdown |
 | POST | `/v1/index` | Index a single document |
 | DELETE | `/v1/index` | Destroy the entire index |
-| POST | `/v1/query/vector` | Vector similarity search |
-| POST | `/v1/query/lexical` | Full-text lexical search |
-| POST | `/v1/query/hybrid` | Hybrid search (vector + lexical) |
+| GET | `/v1/query/dense` | Dense vector similarity search |
+| GET | `/v1/query/sparse` | Sparse lexical (BM25) search |
+| GET | `/v1/query/hybrid` | Hybrid search (dense + sparse) |
 
 ## Network Configuration
 
@@ -114,31 +114,31 @@ service:
 
 When bound to `0.0.0.0`, the service accepts connections from any network interface. Other machines can reach it using your machine's IP address (e.g., `http://192.168.1.100:7001`). Be aware that this exposes the service to your entire network — there is currently no authentication or CORS middleware.
 
-## Index Tuning
+## Search Architecture
 
-mini-rag uses ChromaDB with an HNSW (Hierarchical Navigable Small World) index for vector search. The HNSW parameters can be tuned in `config.yaml` under `index.chromadb` to balance search accuracy, speed, and memory usage.
+mini-rag uses three independent backend components for storage and retrieval, each accessible through an abstraction interface:
 
-### HNSW Parameters
+- **SQLite** — Document and chunk persistence (`index.storage` in config)
+- **FAISS** — Dense vector index using `IndexFlatIP` with unit-normalized embeddings for cosine similarity (`index.faiss` in config)
+- **Tantivy** — Sparse lexical index with BM25 scoring, stemming, and tokenization (`index.tantivy` in config)
 
-**`hnsw_m`** (default: 16) — Maximum number of neighbor connections per node in the graph. Higher values improve search recall (accuracy) but increase memory usage and indexing time. Typical range: 12–48. For small datasets, 16 is usually sufficient. For large datasets where recall is critical, consider 32 or higher.
+All three components persist their data under the `data/` directory and are loaded on service startup.
 
-**`hnsw_construction_ef`** (default: 100) — Number of neighbors explored when adding a new vector during index construction. Higher values produce a better-quality graph but slow down indexing. Should be at least `2 * hnsw_m`. Typical range: 100–500. Increase this if you need higher recall and can tolerate slower index builds.
+### Dense Search (FAISS)
 
-**`hnsw_search_ef`** (default: 10) — Number of neighbors explored during search. Higher values improve recall at the cost of query latency. This is the most useful parameter to tune at query time. Typical range: 10–500. Start low for fast queries and increase if results are not relevant enough.
+FAISS uses `IndexIDMap` wrapping `IndexFlatIP` (inner product). All embeddings are unit-normalized by the FastText embedding module, so inner product equals cosine similarity and scores are naturally in [0, 1]. The FAISS index is configured under `index.faiss` in `config.yaml`.
 
-**`hnsw_num_threads`** (default: 4) — Number of threads used by the HNSW algorithm. Set this based on your available CPU cores. More threads speed up both indexing and search on multi-core machines.
+### Sparse Search (Tantivy)
 
-**`hnsw_batch_size`** (default: 100) — Number of vectors held in the brute-force buffer before being transferred to the HNSW index. Smaller values mean vectors are searchable sooner; larger values may improve bulk indexing throughput.
-
-**`distance_metric`** (default: cosine) — The distance function used for vector comparison. Options include `cosine`, `l2` (Euclidean), and `ip` (inner product). Cosine distance is the standard choice for text embeddings. This cannot be changed after index creation — changing it requires destroying and rebuilding the index.
+Tantivy provides BM25-scored full-text search with stemming (English by default) and tokenization. Scores are normalized to [0, 1] by dividing by the maximum score in the result set. Configuration lives under `index.tantivy` in `config.yaml`.
 
 ### Hybrid Search Tuning
 
-The `hybrid_alpha` parameter under `search.chromadb` controls the balance between vector and lexical search in hybrid mode:
+The `alpha` parameter under `search.hybrid` controls the balance between dense and sparse search in hybrid mode:
 
-- `0.0` — Pure lexical search (keyword matching only)
+- `0.0` — Pure sparse search (BM25 keyword matching only)
 - `0.5` — Equal weight to both (default)
-- `1.0` — Pure vector search (semantic similarity only)
+- `1.0` — Pure dense search (semantic similarity only)
 
 Start with 0.5 and adjust based on your data and query patterns. Text-heavy queries with specific terms may benefit from a lower alpha, while conceptual or paraphrased queries benefit from a higher alpha.
 
@@ -189,6 +189,14 @@ See [AGENTS.md](AGENTS.md) for detailed development guidelines including:
 - Git commit guidelines
 - Testing requirements
 - Project structure conventions
+
+## Resources
+
+- [FastText English word vectors](https://fasttext.cc/docs/en/english-vectors.html) — Pre-trained embeddings documentation
+- [FastText Common Crawl vectors](https://fasttext.cc/docs/en/crawl-vectors.html) — Download page for `cc.en.300.bin`
+- [FAISS](https://github.com/facebookresearch/faiss) — Dense vector search library
+- [Tantivy](https://github.com/quickwit-oss/tantivy) — Full-text search engine (Rust)
+- [tantivy-py](https://github.com/quickwit-oss/tantivy-py) — Python bindings for Tantivy
 
 ## License
 

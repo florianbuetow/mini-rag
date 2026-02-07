@@ -20,7 +20,7 @@ This file provides guidance to AI agents and AI-assisted development tools when 
 
 ## Testing
 - After **every change** to the code, the tests must be executed
-- Always verify the program runs correctly with `just run` after modifications
+- Always verify the service runs correctly with `just start` after modifications
 
 ## Python Execution Rules
 - Python code must be executed **only** via `uv run ...`
@@ -33,7 +33,10 @@ This file provides guidance to AI agents and AI-assisted development tools when 
 ## Justfile Rules
 - All Python execution in the justfile uses `uv run`, never `python` directly
 - Use `just init` to set up the project
-- Use `just run` to execute the main program
+- Use `just start` to start the mini-rag service (foreground)
+- Use `just stop` to stop the running service
+- Use `just status` to check service status and configuration
+- Use `just ingest` to ingest all text files into the index
 - Use `just destroy` to remove the virtual environment
 - Use `just help` to see all available recipes with descriptions
 - Use `just` (with no arguments) to see a list of all recipes
@@ -44,8 +47,9 @@ This file provides guidance to AI agents and AI-assisted development tools when 
 - All source code lives in `src/`
 - Test scripts and utilities go in `scripts/`
 - Prompt templates go in `prompts/`
-- **Input data is organized**: `data/input/`
-- **Output data is organized**: `data/output/`
+- **Input data is organized**: `data/input/txt/`
+- **Models are stored in**: `data/models/`
+- **Storage and indices are in**: `data/storage/`, `data/index/`
 - **Never create Python files in the project root directory**
   - Wrong: `./test.py`, `./helper.py`
   - Correct: `./src/helper.py`, `./scripts/test.py`
