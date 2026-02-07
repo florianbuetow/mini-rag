@@ -15,22 +15,77 @@ help:
 
 # Initialize the development environment
 init:
+    #!/usr/bin/env bash
+    set -e
+    echo ""
+    echo "\033[0;34m=== Initializing Development Environment ===\033[0m"
+    mkdir -p reports/coverage
+    mkdir -p reports/security
+    mkdir -p reports/pyright
+    mkdir -p reports/deptry
+    mkdir -p data/input/txt
+    mkdir -p data/models
+    mkdir -p data/storage
+    mkdir -p data/index/faiss
+    mkdir -p data/index/tantivy
+    mkdir -p scripts
+    mkdir -p prompts
+    echo "Installing Python dependencies..."
+    uv sync --all-extras
+    if [ ! -f config.yaml ]; then
+        cp config.yaml.template config.yaml
+        echo "Copied config.yaml.template to config.yaml"
+    fi
+    if [ ! -f data/models/cc.en.300.bin ]; then
+        echo "Downloading FastText model..."
+        MODEL_URL="https://dl.fbaipublicfiles.com/fasttext/vectors-crawl/cc.en.300.bin.gz"
+        MODEL_TMP_GZ=$(mktemp)
+        if command -v wget >/dev/null 2>&1; then
+            wget -O "$MODEL_TMP_GZ" "$MODEL_URL"
+        elif command -v curl >/dev/null 2>&1; then
+            curl -L "$MODEL_URL" -o "$MODEL_TMP_GZ"
+        else
+            echo "Neither wget nor curl is available"
+            exit 1
+        fi
+        gunzip -c "$MODEL_TMP_GZ" > data/models/cc.en.300.bin
+        rm -f "$MODEL_TMP_GZ"
+    fi
+    echo "\033[0;32m✓ Development environment ready\033[0m"
+    echo ""
+
+# Start the mini-rag service
+start:
     @echo ""
-    @echo "\033[0;34m=== Initializing Development Environment ===\033[0m"
-    @mkdir -p reports/coverage
-    @mkdir -p reports/security
-    @mkdir -p reports/pyright
-    @mkdir -p reports/deptry
-    @echo "Installing Python dependencies..."
-    @uv sync --all-extras
-    @echo "\033[0;32m✓ Development environment ready\033[0m"
+    @echo "\033[0;34m=== Starting mini-rag Service ===\033[0m"
+    @uv run src/main.py
     @echo ""
 
-# Run the main application
-run:
+# Stop the running service
+stop:
+    #!/usr/bin/env bash
+    set -e
+    SERVICE_HOST=$(uv run python -c "import yaml; print(yaml.safe_load(open('config.yaml', encoding='utf-8'))['service']['host'])")
+    SERVICE_PORT=$(uv run python -c "import yaml; print(yaml.safe_load(open('config.yaml', encoding='utf-8'))['service']['port'])")
+    curl -sS -X POST "http://${SERVICE_HOST}:${SERVICE_PORT}/v1/shutdown" -H "Content-Type: application/json"
+
+# Check service status and show config
+status:
+    #!/usr/bin/env bash
+    set -e
+    SERVICE_HOST=$(uv run python -c "import yaml; print(yaml.safe_load(open('config.yaml', encoding='utf-8'))['service']['host'])")
+    SERVICE_PORT=$(uv run python -c "import yaml; print(yaml.safe_load(open('config.yaml', encoding='utf-8'))['service']['port'])")
+    if curl -fsS "http://${SERVICE_HOST}:${SERVICE_PORT}/v1/health" >/dev/null 2>&1; then
+        curl -fsS "http://${SERVICE_HOST}:${SERVICE_PORT}/v1/info" | uv run python -c "import json,sys; print(json.dumps(json.load(sys.stdin), indent=2))"
+    else
+        echo "service is not running"
+    fi
+
+# Destroy and re-ingest all .txt files
+ingest:
     @echo ""
-    @echo "\033[0;34m=== Running Application ===\033[0m"
-    @uv run src/main.py
+    @echo "\033[0;34m=== Ingesting Documents ===\033[0m"
+    @uv run scripts/ingest.py
     @echo ""
 
 # Destroy the virtual environment
