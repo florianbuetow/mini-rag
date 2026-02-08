@@ -23,6 +23,7 @@ init:
     mkdir -p reports/security
     mkdir -p reports/pyright
     mkdir -p reports/deptry
+    mkdir -p data/input/md
     mkdir -p data/input/txt
     mkdir -p data/models
     mkdir -p data/storage
