@@ -7,7 +7,7 @@ help:
     @echo ""
     @clear
     @echo ""
-    @echo "\033[0;34m=== minirag ===$(NC)\033[0m"
+    @printf "%b\n" "\033[0;34m=== minirag ===\033[0m"
     @echo ""
     @echo "Available commands:"
     @just --list
@@ -18,7 +18,7 @@ init:
     #!/usr/bin/env bash
     set -e
     echo ""
-    echo "\033[0;34m=== Initializing Development Environment ===\033[0m"
+    printf "%b\n" "\033[0;34m=== Initializing Development Environment ===\033[0m"
     mkdir -p reports/coverage
     mkdir -p reports/security
     mkdir -p reports/pyright
@@ -51,13 +51,13 @@ init:
         gunzip -c "$MODEL_TMP_GZ" > data/models/cc.en.300.bin
         rm -f "$MODEL_TMP_GZ"
     fi
-    echo "\033[0;32m✓ Development environment ready\033[0m"
+    printf "%b\n" "\033[0;32m✓ Development environment ready\033[0m"
     echo ""
 
 # Start the mini-rag service
 start:
     @echo ""
-    @echo "\033[0;34m=== Starting mini-rag Service ===\033[0m"
+    @printf "%b\n" "\033[0;34m=== Starting mini-rag Service ===\033[0m"
     @uv run src/main.py
     @echo ""
 
@@ -84,131 +84,131 @@ status:
 # Destroy and re-ingest all .txt files
 ingest:
     @echo ""
-    @echo "\033[0;34m=== Ingesting Documents ===\033[0m"
+    @printf "%b\n" "\033[0;34m=== Ingesting Documents ===\033[0m"
     @uv run scripts/ingest.py
     @echo ""
 
 # Destroy the virtual environment
 destroy:
     @echo ""
-    @echo "\033[0;34m=== Destroying Virtual Environment ===\033[0m"
+    @printf "%b\n" "\033[0;34m=== Destroying Virtual Environment ===\033[0m"
     @rm -rf .venv
-    @echo "\033[0;32m✓ Virtual environment removed\033[0m"
+    @printf "%b\n" "\033[0;32m✓ Virtual environment removed\033[0m"
     @echo ""
 
 # Check code style and formatting (read-only)
 code-style:
     @echo ""
-    @echo "\033[0;34m=== Checking Code Style ===\033[0m"
+    @printf "%b\n" "\033[0;34m=== Checking Code Style ===\033[0m"
     @uv run ruff check .
     @echo ""
     @uv run ruff format --check .
     @echo ""
-    @echo "\033[0;32m✓ Style checks passed\033[0m"
+    @printf "%b\n" "\033[0;32m✓ Style checks passed\033[0m"
     @echo ""
 
 # Auto-fix code style and formatting
 code-format:
     @echo ""
-    @echo "\033[0;34m=== Formatting Code ===\033[0m"
+    @printf "%b\n" "\033[0;34m=== Formatting Code ===\033[0m"
     @uv run ruff check . --fix
     @echo ""
     @uv run ruff format .
     @echo ""
-    @echo "\033[0;32m✓ Code formatted\033[0m"
+    @printf "%b\n" "\033[0;32m✓ Code formatted\033[0m"
     @echo ""
 
 # Run static type checking with mypy
 code-typecheck:
     @echo ""
-    @echo "\033[0;34m=== Running Type Checks ===\033[0m"
+    @printf "%b\n" "\033[0;34m=== Running Type Checks ===\033[0m"
     @uv run mypy src/
     @echo ""
-    @echo "\033[0;32m✓ Type checks passed\033[0m"
+    @printf "%b\n" "\033[0;32m✓ Type checks passed\033[0m"
     @echo ""
 
 # Run strict type checking with Pyright (LSP-based)
 code-lspchecks:
     @echo ""
-    @echo "\033[0;34m=== Running Pyright Type Checks ===\033[0m"
+    @printf "%b\n" "\033[0;34m=== Running Pyright Type Checks ===\033[0m"
     @mkdir -p reports/pyright
     @uv run pyright --project pyrightconfig.json > reports/pyright/pyright.txt 2>&1 || true
     @uv run pyright --project pyrightconfig.json
     @echo ""
-    @echo "\033[0;32m✓ Pyright checks passed\033[0m"
+    @printf "%b\n" "\033[0;32m✓ Pyright checks passed\033[0m"
     @echo "  Report: reports/pyright/pyright.txt"
     @echo ""
 
 # Run security checks with bandit
 code-security:
     @echo ""
-    @echo "\033[0;34m=== Running Security Checks ===\033[0m"
+    @printf "%b\n" "\033[0;34m=== Running Security Checks ===\033[0m"
     @mkdir -p reports/security
     @uv run bandit -c pyproject.toml -r src -f txt -o reports/security/bandit.txt || true
     @uv run bandit -c pyproject.toml -r src
     @echo ""
-    @echo "\033[0;32m✓ Security checks passed\033[0m"
+    @printf "%b\n" "\033[0;32m✓ Security checks passed\033[0m"
     @echo ""
 
 # Check dependency hygiene with deptry
 code-deptry:
     @echo ""
-    @echo "\033[0;34m=== Checking Dependencies ===\033[0m"
+    @printf "%b\n" "\033[0;34m=== Checking Dependencies ===\033[0m"
     @mkdir -p reports/deptry
     @uv run deptry src
     @echo ""
-    @echo "\033[0;32m✓ Dependency checks passed\033[0m"
+    @printf "%b\n" "\033[0;32m✓ Dependency checks passed\033[0m"
     @echo ""
 
 # Generate code statistics with pygount
 code-stats:
     @echo ""
-    @echo "\033[0;34m=== Code Statistics ===\033[0m"
+    @printf "%b\n" "\033[0;34m=== Code Statistics ===\033[0m"
     @mkdir -p reports
     @uv run pygount src/ tests/ scripts/ prompts/ *.md *.toml --suffix=py,md,txt,toml,yaml,yml --format=summary
     @echo ""
     @uv run pygount src/ tests/ scripts/ prompts/ *.md *.toml --suffix=py,md,txt,toml,yaml,yml --format=summary > reports/code-stats.txt
-    @echo "\033[0;32m✓ Report saved to reports/code-stats.txt\033[0m"
+    @printf "%b\n" "\033[0;32m✓ Report saved to reports/code-stats.txt\033[0m"
     @echo ""
 
 # Check spelling in code and documentation
 code-spell:
     @echo ""
-    @echo "\033[0;34m=== Checking Spelling ===\033[0m"
+    @printf "%b\n" "\033[0;34m=== Checking Spelling ===\033[0m"
     @uv run codespell src tests scripts prompts *.md *.toml
     @echo ""
-    @echo "\033[0;32m✓ Spelling checks passed\033[0m"
+    @printf "%b\n" "\033[0;32m✓ Spelling checks passed\033[0m"
     @echo ""
 
 # Scan dependencies for known vulnerabilities
 code-audit:
     @echo ""
-    @echo "\033[0;34m=== Scanning Dependencies for Vulnerabilities ===\033[0m"
+    @printf "%b\n" "\033[0;34m=== Scanning Dependencies for Vulnerabilities ===\033[0m"
     @uv run pip-audit
     @echo ""
-    @echo "\033[0;32m✓ No known vulnerabilities found\033[0m"
+    @printf "%b\n" "\033[0;32m✓ No known vulnerabilities found\033[0m"
     @echo ""
 
 # Run Semgrep static analysis
 code-semgrep:
     @echo ""
-    @echo "\033[0;34m=== Running Semgrep Static Analysis ===\033[0m"
+    @printf "%b\n" "\033[0;34m=== Running Semgrep Static Analysis ===\033[0m"
     @uv run semgrep --config config/semgrep/ --error src
     @echo ""
-    @echo "\033[0;32m✓ Semgrep checks passed\033[0m"
+    @printf "%b\n" "\033[0;32m✓ Semgrep checks passed\033[0m"
     @echo ""
 
 # Run unit tests only (fast)
 test:
     @echo ""
-    @echo "\033[0;34m=== Running Unit Tests ===\033[0m"
+    @printf "%b\n" "\033[0;34m=== Running Unit Tests ===\033[0m"
     @uv run pytest tests/ -v
     @echo ""
 
 # Run unit tests with coverage report and threshold check
 test-coverage: init
     @echo ""
-    @echo "\033[0;34m=== Running Unit Tests with Coverage ===\033[0m"
+    @printf "%b\n" "\033[0;34m=== Running Unit Tests with Coverage ===\033[0m"
     @uv run pytest tests/ -v \
         --cov=src \
         --cov-report=html:reports/coverage/html \
@@ -216,7 +216,7 @@ test-coverage: init
         --cov-report=xml:reports/coverage/coverage.xml \
         --cov-fail-under=80
     @echo ""
-    @echo "\033[0;32m✓ Coverage threshold met\033[0m"
+    @printf "%b\n" "\033[0;32m✓ Coverage threshold met\033[0m"
     @echo "  HTML: reports/coverage/html/index.html"
     @echo ""
 
@@ -225,7 +225,7 @@ ci:
     #!/usr/bin/env bash
     set -e
     echo ""
-    echo "\033[0;34m=== Running CI Checks ===\033[0m"
+    printf "%b\n" "\033[0;34m=== Running CI Checks ===\033[0m"
     echo ""
     just init
     just code-format
@@ -239,50 +239,50 @@ ci:
     just test
     just code-lspchecks
     echo ""
-    echo "\033[0;32m✓ All CI checks passed\033[0m"
+    printf "%b\n" "\033[0;32m✓ All CI checks passed\033[0m"
     echo ""
 
 # Run ALL validation checks silently (only show output on errors)
 ci-quiet:
     #!/usr/bin/env bash
     set -e
-    echo "\033[0;34m=== Running CI Checks (Quiet Mode) ===\033[0m"
+    printf "%b\n" "\033[0;34m=== Running CI Checks (Quiet Mode) ===\033[0m"
     TMPFILE=$(mktemp)
     trap "rm -f $TMPFILE" EXIT
 
-    just init > $TMPFILE 2>&1 || { echo "\033[0;31m✗ Init failed\033[0m"; cat $TMPFILE; exit 1; }
-    echo "\033[0;32m✓ Init passed\033[0m"
+    just init > $TMPFILE 2>&1 || { printf "%b\n" "\033[0;31m✗ Init failed\033[0m"; cat $TMPFILE; exit 1; }
+    printf "%b\n" "\033[0;32m✓ Init passed\033[0m"
 
-    just code-format > $TMPFILE 2>&1 || { echo "\033[0;31m✗ Code-format failed\033[0m"; cat $TMPFILE; exit 1; }
-    echo "\033[0;32m✓ Code-format passed\033[0m"
+    just code-format > $TMPFILE 2>&1 || { printf "%b\n" "\033[0;31m✗ Code-format failed\033[0m"; cat $TMPFILE; exit 1; }
+    printf "%b\n" "\033[0;32m✓ Code-format passed\033[0m"
 
-    just code-style > $TMPFILE 2>&1 || { echo "\033[0;31m✗ Code-style failed\033[0m"; cat $TMPFILE; exit 1; }
-    echo "\033[0;32m✓ Code-style passed\033[0m"
+    just code-style > $TMPFILE 2>&1 || { printf "%b\n" "\033[0;31m✗ Code-style failed\033[0m"; cat $TMPFILE; exit 1; }
+    printf "%b\n" "\033[0;32m✓ Code-style passed\033[0m"
 
-    just code-typecheck > $TMPFILE 2>&1 || { echo "\033[0;31m✗ Code-typecheck failed\033[0m"; cat $TMPFILE; exit 1; }
-    echo "\033[0;32m✓ Code-typecheck passed\033[0m"
+    just code-typecheck > $TMPFILE 2>&1 || { printf "%b\n" "\033[0;31m✗ Code-typecheck failed\033[0m"; cat $TMPFILE; exit 1; }
+    printf "%b\n" "\033[0;32m✓ Code-typecheck passed\033[0m"
 
-    just code-security > $TMPFILE 2>&1 || { echo "\033[0;31m✗ Code-security failed\033[0m"; cat $TMPFILE; exit 1; }
-    echo "\033[0;32m✓ Code-security passed\033[0m"
+    just code-security > $TMPFILE 2>&1 || { printf "%b\n" "\033[0;31m✗ Code-security failed\033[0m"; cat $TMPFILE; exit 1; }
+    printf "%b\n" "\033[0;32m✓ Code-security passed\033[0m"
 
-    just code-deptry > $TMPFILE 2>&1 || { echo "\033[0;31m✗ Code-deptry failed\033[0m"; cat $TMPFILE; exit 1; }
-    echo "\033[0;32m✓ Code-deptry passed\033[0m"
+    just code-deptry > $TMPFILE 2>&1 || { printf "%b\n" "\033[0;31m✗ Code-deptry failed\033[0m"; cat $TMPFILE; exit 1; }
+    printf "%b\n" "\033[0;32m✓ Code-deptry passed\033[0m"
 
-    just code-spell > $TMPFILE 2>&1 || { echo "\033[0;31m✗ Code-spell failed\033[0m"; cat $TMPFILE; exit 1; }
-    echo "\033[0;32m✓ Code-spell passed\033[0m"
+    just code-spell > $TMPFILE 2>&1 || { printf "%b\n" "\033[0;31m✗ Code-spell failed\033[0m"; cat $TMPFILE; exit 1; }
+    printf "%b\n" "\033[0;32m✓ Code-spell passed\033[0m"
 
-    just code-semgrep > $TMPFILE 2>&1 || { echo "\033[0;31m✗ Code-semgrep failed\033[0m"; cat $TMPFILE; exit 1; }
-    echo "\033[0;32m✓ Code-semgrep passed\033[0m"
+    just code-semgrep > $TMPFILE 2>&1 || { printf "%b\n" "\033[0;31m✗ Code-semgrep failed\033[0m"; cat $TMPFILE; exit 1; }
+    printf "%b\n" "\033[0;32m✓ Code-semgrep passed\033[0m"
 
-    just code-audit > $TMPFILE 2>&1 || { echo "\033[0;31m✗ Code-audit failed\033[0m"; cat $TMPFILE; exit 1; }
-    echo "\033[0;32m✓ Code-audit passed\033[0m"
+    just code-audit > $TMPFILE 2>&1 || { printf "%b\n" "\033[0;31m✗ Code-audit failed\033[0m"; cat $TMPFILE; exit 1; }
+    printf "%b\n" "\033[0;32m✓ Code-audit passed\033[0m"
 
-    just test > $TMPFILE 2>&1 || { echo "\033[0;31m✗ Test failed\033[0m"; cat $TMPFILE; exit 1; }
-    echo "\033[0;32m✓ Test passed\033[0m"
+    just test > $TMPFILE 2>&1 || { printf "%b\n" "\033[0;31m✗ Test failed\033[0m"; cat $TMPFILE; exit 1; }
+    printf "%b\n" "\033[0;32m✓ Test passed\033[0m"
 
-    just code-lspchecks > $TMPFILE 2>&1 || { echo "\033[0;31m✗ Code-lspchecks failed\033[0m"; cat $TMPFILE; exit 1; }
-    echo "\033[0;32m✓ Code-lspchecks passed\033[0m"
+    just code-lspchecks > $TMPFILE 2>&1 || { printf "%b\n" "\033[0;31m✗ Code-lspchecks failed\033[0m"; cat $TMPFILE; exit 1; }
+    printf "%b\n" "\033[0;32m✓ Code-lspchecks passed\033[0m"
 
     echo ""
-    echo "\033[0;32m✓ All CI checks passed\033[0m"
+    printf "%b\n" "\033[0;32m✓ All CI checks passed\033[0m"
     echo ""
