@@ -47,13 +47,25 @@ class Orchestration:
         )
 
         chunk_ids: list[int] = []
-        for chunk in chunks:
-            chunk_id = self._storage.insert_chunk(document_id=document_id, content=chunk)
-            chunk_ids.append(chunk_id)
+        for chunk_index, chunk in enumerate(chunks):
+            try:
+                chunk_id = self._storage.insert_chunk(document_id=document_id, content=chunk)
+                chunk_ids.append(chunk_id)
 
-            chunk_embedding = self._embeddings.embed([chunk])[0]
-            self._dense.index(chunk_id=chunk_id, embedding=chunk_embedding)
-            self._sparse.index(chunk_id=chunk_id, content=chunk)
+                chunk_embedding = self._embeddings.embed([chunk])[0]
+                self._dense.index(chunk_id=chunk_id, embedding=chunk_embedding)
+                self._sparse.index(chunk_id=chunk_id, content=chunk)
+            except Exception as exc:
+                logger.error(
+                    "Failed to index chunk %d of document_id=%s: %s",
+                    chunk_index,
+                    document_id,
+                    exc,
+                )
+                raise RuntimeError(f"failed to index chunk {chunk_index} of document_id={document_id}") from exc
+
+        self._dense.persist()
+        self._sparse.persist()
 
         logger.info("Indexed document_id=%s with %s chunks", document_id, len(chunk_ids))
         return (document_id, chunk_ids)
@@ -69,8 +81,12 @@ class Orchestration:
         """Resolve chunk IDs from retrieval engines into SearchResult payloads."""
         resolved_results: list[SearchResult] = []
         for chunk_id, score in scored_chunk_ids:
-            _, chunk_text_value = self._storage.get_chunk(chunk_id=chunk_id)
-            resolved_results.append(SearchResult(text=chunk_text_value, score=score))
+            try:
+                _, chunk_text_value = self._storage.get_chunk(chunk_id=chunk_id)
+            except ValueError:
+                logger.warning("Skipping stale chunk_id=%s: not found in storage", chunk_id)
+                continue
+            resolved_results.append(SearchResult(chunk_id=chunk_id, text=chunk_text_value, score=score))
         return resolved_results
 
     def search_dense(self, query: str, top_k: int) -> list[SearchResult]:
