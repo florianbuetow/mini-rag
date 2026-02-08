@@ -1,13 +1,14 @@
-# mini-rag
+# MiniRAG + MCP
 
-A minimalist Retrieval-Augmented Generation (RAG) system built as a FastAPI service. mini-rag provides document indexing and retrieval through three search modes: dense vector search (semantic similarity via FAISS), sparse lexical search (BM25 keyword matching via Tantivy), and hybrid search combining both with configurable weighting.
+A minimalistic hybrid search engine for your `.md` and `.txt` documents that runs locally without any cloud services and provides a fast MCP server for searching your documents with hybrid search (lexical + vector) for great search quality. This gives your AI agents super fast access to custom knowledge. Think books on refactoring, prompting, system architecture, or information that you want a personal assistant (like Claude) to have access to when generating stuff for you. Unlimited possibilities.
 
-The system is fully configuration-driven — no hardcoded default values anywhere. It uses Facebook's FastText for local, portable embeddings, FAISS for dense vector search, Tantivy for BM25 lexical search, and SQLite for document and chunk storage — all running in-process with no external services required.
+Under the hood, MiniRAG uses Facebook's FastText for local embeddings, FAISS for dense vector search, Tantivy for BM25 lexical search, and SQLite for document and chunk storage — all running in-process with no external services required. The system is fully configuration-driven with no hardcoded defaults.
 
 | Document | Description |
 |----------|-------------|
 | [Specification](docs/SPECIFICATION.md) | Full technical specification |
 | [Data Flow](docs/SPECIFICATION-DATA-FLOW.md) | Indexing and search data flow |
+| [MCP Server](mcp/README.md) | MCP server setup and client configuration |
 
 ## Prerequisites
 
@@ -97,7 +98,7 @@ All endpoints are prefixed with `/v1` and accept/return JSON.
 
 ## Search Architecture
 
-mini-rag uses three backend components, each accessible through an abstraction interface:
+MiniRAG uses three backend components, each accessible through an abstraction interface:
 
 - **SQLite** — Document and chunk persistence
 - **FAISS** — Dense vector index using `IndexFlatIP` with unit-normalized embeddings (cosine similarity, scores in [0, 1])
