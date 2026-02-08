@@ -51,7 +51,7 @@ class BaseClient:
         if require_healthy:
             self._ensure_healthy()
 
-        with httpx.Client(base_url=self._base_url, timeout=10.0) as client:
+        with httpx.Client(base_url=self._base_url, timeout=30.0) as client:
             response = client.request(method=method, url=path, json=payload)
 
         try:
