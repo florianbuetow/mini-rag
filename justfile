@@ -103,6 +103,20 @@ search:
     @uv run scripts/search.py
     @echo ""
 
+# Inspect document chunks across all stores
+inspect document_id="":
+    #!/usr/bin/env bash
+    set -e
+    echo ""
+    printf "%b\n" "\033[0;34m=== Inspecting Document ===\033[0m"
+    DOC_ID="{{document_id}}"
+    if [ -z "$DOC_ID" ]; then
+        printf "Enter document ID: "
+        read DOC_ID
+    fi
+    uv run scripts/export_chunks.py "$DOC_ID"
+    echo ""
+
 # Destroy the virtual environment
 destroy:
     @echo ""
