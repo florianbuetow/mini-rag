@@ -1,0 +1,36 @@
+service:
+  host: "127.0.0.1"
+  port: 7001
+  reload: true
+  log_level: "INFO"
+
+data:
+  data_dir: "data"
+
+index:
+  chunking:
+    chunk_size: 300
+    overlap: 0.3
+
+  embeddings:
+    model_name: "cc.en.300.bin"
+    dimension: 300
+
+  storage:
+    db_filename: "minirag.db"
+
+  faiss:
+    index_type: "IndexFlatIP"
+    nprobe: 1
+
+  tantivy:
+    language: "en"
+    stemming: true
+
+search:
+  hybrid:
+    alpha: 0.5
+
+  dense: {}
+
+  sparse: {}
