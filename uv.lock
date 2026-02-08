@@ -834,27 +834,20 @@ wheels = [
 [[package]]
 name = "minirag"
 version = "0.0.1"
-source = { editable = "." }
+source = { virtual = "." }
 dependencies = [
+    { name = "bandit" },
+    { name = "codespell" },
+    { name = "deptry" },
     { name = "faiss-cpu" },
     { name = "fastapi" },
     { name = "fasttext-wheel" },
     { name = "httpx" },
-    { name = "numpy" },
-    { name = "pydantic" },
-    { name = "pyyaml" },
-    { name = "tantivy" },
-    { name = "uvicorn" },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "bandit" },
-    { name = "codespell" },
-    { name = "deptry" },
     { name = "mypy" },
+    { name = "numpy" },
     { name = "pip-audit" },
     { name = "pre-commit" },
+    { name = "pydantic" },
     { name = "pygount" },
     { name = "pyright" },
     { name = "pytest" },
@@ -862,40 +855,42 @@ dev = [
     { name = "pytest-cov" },
     { name = "pytest-randomly" },
     { name = "pytest-timeout" },
+    { name = "pyyaml" },
     { name = "ruff" },
     { name = "semgrep" },
+    { name = "tantivy" },
     { name = "types-pyyaml" },
+    { name = "uvicorn" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "bandit", extras = ["toml"], marker = "extra == 'dev'", specifier = ">=1.7.8" },
-    { name = "codespell", marker = "extra == 'dev'", specifier = ">=2.3.0" },
-    { name = "deptry", marker = "extra == 'dev'", specifier = ">=0.20.0" },
+    { name = "bandit", extras = ["toml"], specifier = ">=1.7.8" },
+    { name = "codespell", specifier = ">=2.3.0" },
+    { name = "deptry", specifier = ">=0.20.0" },
     { name = "faiss-cpu", specifier = ">=1.8.0" },
     { name = "fastapi", specifier = ">=0.115.0" },
     { name = "fasttext-wheel", specifier = ">=0.9.2" },
     { name = "httpx", specifier = ">=0.27.0" },
-    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.7.0" },
+    { name = "mypy", specifier = ">=1.7.0" },
     { name = "numpy", specifier = ">=1.26.0" },
-    { name = "pip-audit", marker = "extra == 'dev'", specifier = ">=2.7.0" },
-    { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.6.0" },
+    { name = "pip-audit", specifier = ">=2.7.0" },
+    { name = "pre-commit", specifier = ">=3.6.0" },
     { name = "pydantic", specifier = ">=2.7.0" },
-    { name = "pygount", marker = "extra == 'dev'", specifier = ">=1.6.4" },
-    { name = "pyright", marker = "extra == 'dev'", specifier = ">=1.1.0" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.4.0" },
-    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.21.0" },
-    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.1.0" },
-    { name = "pytest-randomly", marker = "extra == 'dev'", specifier = ">=3.15.0" },
-    { name = "pytest-timeout", marker = "extra == 'dev'", specifier = ">=2.2.0" },
+    { name = "pygount", specifier = ">=1.6.4" },
+    { name = "pyright", specifier = ">=1.1.0" },
+    { name = "pytest", specifier = ">=7.4.0" },
+    { name = "pytest-asyncio", specifier = ">=0.21.0" },
+    { name = "pytest-cov", specifier = ">=4.1.0" },
+    { name = "pytest-randomly", specifier = ">=3.15.0" },
+    { name = "pytest-timeout", specifier = ">=2.2.0" },
     { name = "pyyaml", specifier = ">=6.0.1" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
-    { name = "semgrep", marker = "extra == 'dev'", specifier = ">=1.144.0" },
+    { name = "ruff", specifier = ">=0.1.0" },
+    { name = "semgrep", specifier = ">=1.144.0" },
     { name = "tantivy", specifier = ">=0.24.0" },
-    { name = "types-pyyaml", marker = "extra == 'dev'", specifier = ">=6.0.12" },
+    { name = "types-pyyaml", specifier = ">=6.0.12" },
     { name = "uvicorn", specifier = ">=0.30.0" },
 ]
-provides-extras = ["dev"]
 
 [[package]]
 name = "msgpack"
