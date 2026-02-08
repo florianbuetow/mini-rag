@@ -82,6 +82,13 @@ status:
         echo "service is not running"
     fi
 
+# Convert markdown files to plain text
+md2txt:
+    @echo ""
+    @printf "%b\n" "\033[0;34m=== Converting Markdown to Text ===\033[0m"
+    @uv run scripts/md2txt.py
+    @echo ""
+
 # Destroy and re-ingest all .txt files
 ingest:
     @echo ""
