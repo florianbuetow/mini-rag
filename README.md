@@ -4,89 +4,83 @@ A minimalist Retrieval-Augmented Generation (RAG) system built as a FastAPI serv
 
 The system is fully configuration-driven — no hardcoded default values anywhere. It uses Facebook's FastText for local, portable embeddings, FAISS for dense vector search, Tantivy for BM25 lexical search, and SQLite for document and chunk storage — all running in-process with no external services required.
 
-For the full technical specification, see [docs/SPECIFICATION.md](docs/SPECIFICATION.md).
+| Document | Description |
+|----------|-------------|
+| [Specification](docs/SPECIFICATION.md) | Full technical specification |
+| [Data Flow](docs/SPECIFICATION-DATA-FLOW.md) | Indexing and search data flow |
 
 ## Prerequisites
 
-- **Python 3.12+** — Programming language
-- **uv** — Python package manager ([installation guide](https://docs.astral.sh/uv/getting-started/installation/))
-- **just** — Command runner ([installation guide](https://github.com/casey/just#installation))
+- **Python 3.12+**
+- **uv** — Python package manager ([install](https://docs.astral.sh/uv/getting-started/installation/))
+- **just** — Command runner ([install](https://github.com/casey/just#installation))
+
+## Project Structure
+
+```
+.
+├── src/                    # Application source code
+│   └── minirag/
+├── tests/                  # Unit tests
+├── tests_e2e/              # End-to-end tests
+├── scripts/                # Utility scripts (md2txt, ingest, search)
+├── prompts/                # Prompt templates
+├── docs/                   # Specification and data flow docs
+├── config/                 # Semgrep rules
+├── data/
+│   ├── input/
+│   │   ├── md/             # Markdown source documents
+│   │   └── txt/            # Plain text files (ingested by the service)
+│   ├── models/             # FastText embedding model
+│   ├── storage/            # SQLite document/chunk store
+│   └── index/
+│       ├── faiss/          # Dense vector index
+│       └── tantivy/        # Sparse lexical index
+├── config.yaml             # Local configuration (gitignored)
+├── config.yaml.template    # Configuration template
+├── justfile                # Command recipes
+└── pyproject.toml          # Project metadata and dependencies
+```
 
 ## Setup
-
-Initialize the project environment:
 
 ```bash
 just init
 ```
 
-This will:
-
-- Create necessary directories (reports/, data/models/, etc.)
-- Install all dependencies via `uv sync --all-extras`
-- Download the FastText embedding model to `data/models/`
-- Copy `config.yaml.template` to `config.yaml` if it does not already exist
+Creates all directories shown above, installs dependencies via `uv sync --all-extras`, downloads the FastText model to `data/models/`, and copies `config.yaml.template` to `config.yaml` if it does not already exist.
 
 ## Configuration
 
-All configuration lives in `config.yaml` at the project root. A ready-to-go template (`config.yaml.template`) is provided and copied during `just init`. The template contains sensible defaults for all parameters.
+All configuration lives in `config.yaml` at the project root. A template (`config.yaml.template`) is provided and copied during `just init`. The file is gitignored.
 
-The `config.yaml` file is gitignored so you can maintain your own local configuration without affecting others. See the template for all available parameters.
-
-Key configuration sections:
-
-- **service** — Host, port, reload behavior, log level
-- **data** — Base data directory
-- **index** — Chunking, embeddings, storage (SQLite), FAISS, and Tantivy settings
-- **search** — Search behavior including hybrid search alpha weighting
+Key sections: **service** (host, port, log level), **data** (base directory), **index** (chunking, embeddings, SQLite, FAISS, Tantivy), **search** (hybrid alpha weighting).
 
 ## Usage
 
-### Starting the Service
+| Command | Description |
+|---------|-------------|
+| `just start` | Start the service (foreground, Ctrl+C to stop) |
+| `just stop` | Stop the running service |
+| `just status` | Show service configuration or "not running" |
+| `just md2txt` | Convert markdown files to plain text |
+| `just ingest` | Destroy index and re-ingest all text files |
+| `just search` | Interactive search query loop |
+| `just destroy` | Remove virtual environment |
 
-```bash
-just start
-```
+### Document Pipeline
 
-This starts the FastAPI service in the foreground on the configured host and port (default: `127.0.0.1:7001`). Press Ctrl+C to stop, or use `just stop` from another terminal.
+1. Place `.md` files in `data/input/md/` (subdirectories supported)
+2. Run `just md2txt` — converts to `.txt` in `data/input/txt/`, mirroring the subdirectory structure
+3. Run `just start` to start the service
+4. Run `just ingest` — recursively finds all `.txt` files under `data/input/txt/` and indexes them
+5. Run `just search` to query the index interactively
 
-### Checking Service Status
+Both `md2txt` and `ingest` scan subdirectories recursively and skip symbolic links.
 
-```bash
-just status
-```
+## API
 
-Displays the full service configuration if running, or "service is not running" if not.
-
-### Stopping the Service
-
-```bash
-just stop
-```
-
-Sends a shutdown request to the running service via the `/v1/shutdown` endpoint.
-
-### Ingesting Documents
-
-Place `.txt` files in `data/input/txt/`, then:
-
-```bash
-just ingest
-```
-
-This destroys any existing index and re-indexes all text files. Progress is reported per file.
-
-### Available Commands
-
-- `just init` — Initialize development environment
-- `just start` — Start the mini-rag service
-- `just stop` — Stop the running service
-- `just status` — Check service status and configuration
-- `just ingest` — Ingest all text files into the index
-- `just destroy` — Remove virtual environment
-- `just help` — Show all available commands
-
-## API Endpoints
+FastAPI auto-generates interactive docs at `/docs` (Swagger) and `/redoc` (ReDoc) when the service is running.
 
 All endpoints are prefixed with `/v1` and accept/return JSON.
 
@@ -101,99 +95,57 @@ All endpoints are prefixed with `/v1` and accept/return JSON.
 | GET | `/v1/query/sparse` | Sparse lexical (BM25) search |
 | GET | `/v1/query/hybrid` | Hybrid search (dense + sparse) |
 
-## Network Configuration
-
-By default, the service binds to `127.0.0.1` (localhost only), meaning it is only accessible from the local machine. This is the recommended setting for development.
-
-To make the service accessible from other machines on your local network, change the `host` parameter in `config.yaml`:
-
-```yaml
-service:
-  host: "0.0.0.0"
-```
-
-When bound to `0.0.0.0`, the service accepts connections from any network interface. Other machines can reach it using your machine's IP address (e.g., `http://192.168.1.100:7001`). Be aware that this exposes the service to your entire network — there is currently no authentication or CORS middleware.
-
 ## Search Architecture
 
-mini-rag uses three independent backend components for storage and retrieval, each accessible through an abstraction interface:
+mini-rag uses three backend components, each accessible through an abstraction interface:
 
-- **SQLite** — Document and chunk persistence (`index.storage` in config)
-- **FAISS** — Dense vector index using `IndexFlatIP` with unit-normalized embeddings for cosine similarity (`index.faiss` in config)
-- **Tantivy** — Sparse lexical index with BM25 scoring, stemming, and tokenization (`index.tantivy` in config)
+- **SQLite** — Document and chunk persistence
+- **FAISS** — Dense vector index using `IndexFlatIP` with unit-normalized embeddings (cosine similarity, scores in [0, 1])
+- **Tantivy** — Sparse lexical index with BM25 scoring, stemming, and tokenization (scores normalized to [0, 1])
 
-All three components persist their data under the `data/` directory and are loaded on service startup.
-
-### Dense Search (FAISS)
-
-FAISS uses `IndexIDMap` wrapping `IndexFlatIP` (inner product). All embeddings are unit-normalized by the FastText embedding module, so inner product equals cosine similarity and scores are naturally in [0, 1]. The FAISS index is configured under `index.faiss` in `config.yaml`.
-
-### Sparse Search (Tantivy)
-
-Tantivy provides BM25-scored full-text search with stemming (English by default) and tokenization. Scores are normalized to [0, 1] by dividing by the maximum score in the result set. Configuration lives under `index.tantivy` in `config.yaml`.
+All three persist under `data/` and are loaded on startup.
 
 ### Hybrid Search Tuning
 
-The `alpha` parameter under `search.hybrid` controls the balance between dense and sparse search in hybrid mode:
+The `alpha` parameter under `search.hybrid` controls the dense/sparse balance:
 
-- `0.0` — Pure sparse search (BM25 keyword matching only)
-- `0.5` — Equal weight to both (default)
-- `1.0` — Pure dense search (semantic similarity only)
-
-Start with 0.5 and adjust based on your data and query patterns. Text-heavy queries with specific terms may benefit from a lower alpha, while conceptual or paraphrased queries benefit from a higher alpha.
+- `0.0` — Pure sparse (BM25 only)
+- `0.5` — Equal weight (default)
+- `1.0` — Pure dense (semantic only)
 
 ## Development
 
 ### Code Quality
 
-- `just code-style` — Check code style (read-only)
-- `just code-format` — Auto-fix code style
-- `just code-typecheck` — Run type checking (mypy)
-- `just code-lspchecks` — Run strict type checking (pyright)
-- `just code-security` — Run security checks (bandit)
-- `just code-deptry` — Check dependency hygiene
-- `just code-stats` — Generate code statistics
-- `just code-spell` — Check spelling
-- `just code-audit` — Scan for vulnerabilities
-- `just code-semgrep` — Run custom static analysis
+| Command | Description |
+|---------|-------------|
+| `just code-style` | Check code style (read-only) |
+| `just code-format` | Auto-fix code style |
+| `just code-typecheck` | Type checking (mypy) |
+| `just code-lspchecks` | Strict type checking (pyright) |
+| `just code-security` | Security checks (bandit) |
+| `just code-deptry` | Dependency hygiene |
+| `just code-spell` | Spell checking |
+| `just code-audit` | Vulnerability scanning |
+| `just code-semgrep` | Custom static analysis (semgrep) |
+| `just code-stats` | Code statistics |
 
 ### Testing
 
-- `just test` — Run unit tests
-- `just test-coverage` — Run tests with coverage (80% threshold)
+| Command | Description |
+|---------|-------------|
+| `just test` | Unit tests |
+| `just test-e2e` | End-to-end tests (starts service, indexes, searches) |
+| `just test-coverage` | Unit tests with coverage (80% threshold) |
 
-### CI Pipeline
+### CI
 
-- `just ci` — Run all validation checks (verbose)
+- `just ci` — Run all checks (verbose)
 - `just ci-quiet` — Run all checks (silent, fail-fast)
-
-The CI pipeline runs the following steps in order:
-
-1. `init` — Initialize environment
-2. `code-format` — Auto-format code
-3. `code-style` — Verify formatting
-4. `code-typecheck` — Type checking (mypy)
-5. `code-security` — Security scan (bandit)
-6. `code-deptry` — Dependency hygiene
-7. `code-spell` — Spell checking
-8. `code-semgrep` — Custom static analysis
-9. `code-audit` — Vulnerability scanning
-10. `test` — Unit tests
-11. `code-lspchecks` — Strict type checking (pyright)
-
-## Project Rules
-
-See [AGENTS.md](AGENTS.md) for detailed development guidelines including:
-
-- Python execution rules (use `uv run` exclusively)
-- Git commit guidelines
-- Testing requirements
-- Project structure conventions
 
 ## Resources
 
-- [FastText English word vectors](https://fasttext.cc/docs/en/english-vectors.html) — Pre-trained embeddings documentation
-- [FastText Common Crawl vectors](https://fasttext.cc/docs/en/crawl-vectors.html) — Download page for `cc.en.300.bin`
+- [FastText Common Crawl vectors](https://fasttext.cc/docs/en/crawl-vectors.html) — Pre-trained word embeddings
 - [FAISS](https://github.com/facebookresearch/faiss) — Dense vector search library
 - [Tantivy](https://github.com/quickwit-oss/tantivy) — Full-text search engine (Rust)
 - [tantivy-py](https://github.com/quickwit-oss/tantivy-py) — Python bindings for Tantivy

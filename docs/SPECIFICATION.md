@@ -67,7 +67,7 @@ At startup, the `Config` and `Orchestration` instances are created once and stor
 - FastAPI + Uvicorn (ASGI server)
 - Pydantic (configuration validation and API request/response models)
 - SQLite (document and chunk storage)
-- FAISS (dense vector index with HNSW search)
+- FAISS (dense vector index with flat inner product search)
 - Tantivy via tantivy-py (sparse lexical index with BM25 scoring, stemming, tokenization)
 - FastText (`cc.en.300.bin` — 300-dimensional Common Crawl embeddings)
 - PyYAML (configuration file parsing)
@@ -114,8 +114,8 @@ src/
     │   ├── __init__.py
     │   ├── app.py                     # FastAPI app creation & lifecycle
     │   ├── routes_index.py            # POST /index, DELETE /index
-    │   ├── routes_query.py            # GET /query/dense, /query/sparse, /query/hybrid
-    │   ├── routes_admin.py            # GET /health, GET /info, POST /shutdown
+    │   ├── routes_query.py            # POST /query/dense, /query/sparse, /query/hybrid
+    │   ├── routes_info.py            # GET /health, GET /info, POST /shutdown
     │   ├── utils.py                   # Response envelope helpers + ensure_healthy() guard
     │   └── models/                    # Pydantic request/response models
     │       ├── __init__.py
@@ -409,9 +409,9 @@ Destroys the entire index across all three backends (Storage, DenseRetrieval, Sp
 }
 ```
 
-#### GET /v1/query/dense
+#### POST /v1/query/dense
 
-Performs dense vector similarity search using FastText embeddings and FAISS. Uses GET because this is a data retrieval operation (the JSON body carries query parameters, not data to be stored).
+Performs dense vector similarity search using FastText embeddings and FAISS.
 
 **Request:**
 
@@ -449,13 +449,13 @@ Performs dense vector similarity search using FastText embeddings and FAISS. Use
 
 Scores are normalized between 0 and 1, with higher values indicating greater relevance. For dense search, scores are cosine similarities computed via inner product on unit-normalized embeddings. An empty results list is returned when no matches are found or when the index is empty — this is not an error.
 
-#### GET /v1/query/sparse
+#### POST /v1/query/sparse
 
 Performs sparse lexical search using Tantivy's BM25 scoring. Same request and response format as `/v1/query/dense`.
 
 Scores are BM25 relevance scores normalized to [0, 1] by dividing by the maximum score in the result set.
 
-#### GET /v1/query/hybrid
+#### POST /v1/query/hybrid
 
 Performs hybrid search combining dense and sparse results with score normalization, alpha-weighted merging, and re-ranking. Same request and response format as `/v1/query/dense`.
 
@@ -498,9 +498,9 @@ The service maintains a formal app state stored on `app.state.app_status`. The p
 
 - POST /v1/index
 - DELETE /v1/index
-- GET /v1/query/dense
-- GET /v1/query/sparse
-- GET /v1/query/hybrid
+- POST /v1/query/dense
+- POST /v1/query/sparse
+- POST /v1/query/hybrid
 - POST /v1/shutdown
 
 **Unguarded endpoints** — these are always available regardless of app state:
@@ -520,6 +520,7 @@ The Storage interface (`storage/interface.py`) defines the contract for document
 - `insert_chunk(document_id: int, content: str) -> int` — stores a chunk with a foreign key reference to its document and returns an auto-assigned chunk ID.
 - `get_document(document_id: int) -> str` — retrieves document content by ID.
 - `get_chunk(chunk_id: int) -> tuple[int, str]` — retrieves a chunk by ID, returning (document_id, chunk_content).
+- `close() -> None` — closes the underlying database connection.
 - `destroy() -> None` — wipes all stored data.
 
 ### 6.2 SQLite Implementation
@@ -552,7 +553,8 @@ Document and chunk IDs are assigned automatically by SQLite's autoincrement mech
 The DenseRetrieval interface (`retrieval/dense_interface.py`) defines the contract for vector search:
 
 - `index(chunk_id: int, embedding: list[float]) -> None` — adds a vector to the index, associated with a chunk ID.
-- `search(query_embedding: list[float], top_k: int) -> list[tuple[int, float]]` — returns a list of (chunk_id, score) tuples, sorted by score descending.
+- `search(query_embedding: list[float], top_k: int) -> list[ScoredChunk]` — returns a list of `ScoredChunk(chunk_id, score)` tuples, sorted by score descending.
+- `persist() -> None` — flushes the in-memory index to disk.
 - `destroy() -> None` — wipes the entire vector index.
 
 The interface guarantees scores in [0, 1] with higher = more relevant.
@@ -593,7 +595,8 @@ The `just init` recipe downloads the compressed model via `wget` (or `curl` as f
 The SparseRetrieval interface (`retrieval/sparse_interface.py`) defines the contract for lexical search:
 
 - `index(chunk_id: int, content: str) -> None` — adds text content to the lexical index, associated with a chunk ID.
-- `search(query: str, top_k: int) -> list[tuple[int, float]]` — returns a list of (chunk_id, score) tuples, sorted by score descending.
+- `search(query: str, top_k: int) -> list[ScoredChunk]` — returns a list of `ScoredChunk(chunk_id, score)` tuples, sorted by score descending.
+- `persist() -> None` — flushes the in-memory index to disk.
 - `destroy() -> None` — wipes the entire lexical index.
 
 The interface guarantees scores in [0, 1] with higher = more relevant.
@@ -658,13 +661,13 @@ Word-based chunking is implemented in `ingestion/chunker.py`:
 - The `just ingest` target destroys the existing index before indexing.
 - Files are sorted alphanumerically by filename for deterministic, reproducible ordering.
 - Files are indexed one at a time, with progress reported to the console (which file is currently being indexed).
-- If any file fails to index, the process stops immediately (fail-hard) — no continuing with remaining files.
-- If any step within the indexing pipeline fails, the error is surfaced immediately. No automatic rollback of partial state is performed.
+- If any file fails to index, the script continues processing remaining files and tracks the failure count. At the end, it exits with code 1 if any files failed.
+- If any step within the indexing pipeline fails for a single file, the error is logged and the script moves on to the next file. No automatic rollback of partial state is performed.
 - There are no update or deduplication operations — only index, destroy, and query.
 
 ### 10.4 Indexing Error Behavior
 
-The ingestion script (`scripts/ingest.py`) follows the fail-hard policy defined in this specification. This is an explicit exception to the general "continue and count failures" pattern described in `AGENTS.md` for scripts. The rationale: a partial index could be misleading, and the destroy-and-reingest pattern means the user simply reruns `just ingest` after fixing the issue.
+The ingestion script (`scripts/ingest.py`) continues processing all files even when individual files fail. It tracks success and failure counts, reports a summary at the end, and exits with code 1 if any files failed. This follows the general "continue and count failures" pattern: the user can inspect the log to see which files failed and why, then fix the issues and re-run `just ingest`.
 
 ## 11. Clients
 
@@ -687,9 +690,9 @@ The ingestion script (`scripts/ingest.py`) follows the fail-hard policy defined 
 
 `clients/query.py` provides:
 
-- `search_dense(query, top_k)` — sends GET to `/v1/query/dense`.
-- `search_sparse(query, top_k)` — sends GET to `/v1/query/sparse`.
-- `search_hybrid(query, top_k)` — sends GET to `/v1/query/hybrid`.
+- `search_dense(query, top_k)` — sends POST to `/v1/query/dense`.
+- `search_sparse(query, top_k)` — sends POST to `/v1/query/sparse`.
+- `search_hybrid(query, top_k)` — sends POST to `/v1/query/hybrid`.
 
 All three methods return results in the same format.
 
@@ -700,6 +703,7 @@ All search results throughout the system use a consistent `SearchResult` type de
 ```python
 @dataclass
 class SearchResult:
+    chunk_id: int
     text: str
     score: float
 ```
