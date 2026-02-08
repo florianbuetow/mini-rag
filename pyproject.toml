@@ -93,6 +93,7 @@ convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["D", "ANN"]
+"tests_e2e/**/*.py" = ["D", "ANN"]
 
 [tool.ruff.format]
 quote-style = "double"

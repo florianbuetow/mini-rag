@@ -88,6 +88,13 @@ ingest:
     @uv run scripts/ingest.py
     @echo ""
 
+# Interactive search query loop
+search:
+    @echo ""
+    @printf "%b\n" "\033[0;34m=== Interactive Search ===\033[0m"
+    @uv run scripts/search.py
+    @echo ""
+
 # Destroy the virtual environment
 destroy:
     @echo ""
@@ -203,6 +210,15 @@ test:
     @echo ""
     @printf "%b\n" "\033[0;34m=== Running Unit Tests ===\033[0m"
     @uv run pytest tests/ -v
+    @echo ""
+
+# Run end-to-end tests (starts service, indexes documents, searches)
+test-e2e:
+    @echo ""
+    @printf "%b\n" "\033[0;34m=== Running End-to-End Tests ===\033[0m"
+    @uv run pytest tests_e2e/ -v --timeout=300 -p no:randomly
+    @echo ""
+    @printf "%b\n" "\033[0;32m✓ End-to-end tests passed\033[0m"
     @echo ""
 
 # Run unit tests with coverage report and threshold check
