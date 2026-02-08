@@ -35,9 +35,7 @@ class TantivySearchResult(Protocol):
 class TantivySearcher(Protocol):
     """Subset of Tantivy searcher methods used by this adapter."""
 
-    def num_docs(self) -> int:
-        """Return total indexed documents."""
-        ...
+    num_docs: int
 
     def search(self, query: object, limit: int) -> TantivySearchResult:
         """Search query and return hits."""
@@ -157,7 +155,6 @@ class TantivySparse(SparseRetrieval):
 
         self._tantivy_module = importlib.import_module("tantivy")
         self._index = self._open_or_create_index()
-        self._writer = self._index.writer(heap_size=50000000, num_threads=1)
 
         logger.info(
             "Initialized Tantivy sparse index at %s with language=%s stemming=%s",
@@ -165,6 +162,10 @@ class TantivySparse(SparseRetrieval):
             self._language,
             self._stemming,
         )
+
+    def _new_writer(self) -> TantivyIndexWriter:
+        """Create a fresh Tantivy writer instance."""
+        return self._index.writer(heap_size=50000000, num_threads=1)
 
     def _module_attribute(self, attribute_name: str) -> object:
         """Get a required attribute from tantivy module."""
@@ -208,9 +209,10 @@ class TantivySparse(SparseRetrieval):
             raise ValueError("content must not be empty")
 
         document = self._create_document(chunk_id, content)
-        self._writer.add_document(document)
-        self._writer.commit()
-        self._writer.wait_merging_threads()
+        writer = self._new_writer()
+        writer.add_document(document)
+        writer.commit()
+        writer.wait_merging_threads()
         self._index.reload()
 
     def _extract_chunk_id(self, document: TantivyDocument) -> int:
@@ -257,7 +259,7 @@ class TantivySparse(SparseRetrieval):
             raise ValueError("top_k must be greater than 0")
 
         searcher = self._index.searcher()
-        if searcher.num_docs() == 0:
+        if searcher.num_docs == 0:
             return []
 
         parsed_query = self._index.parse_query(query, ["content"])
@@ -280,8 +282,9 @@ class TantivySparse(SparseRetrieval):
 
     def destroy(self) -> None:
         """Remove all indexed sparse documents."""
-        self._writer.delete_all_documents()
-        self._writer.commit()
-        self._writer.wait_merging_threads()
+        writer = self._new_writer()
+        writer.delete_all_documents()
+        writer.commit()
+        writer.wait_merging_threads()
         self._index.reload()
         logger.info("Destroyed Tantivy index contents at %s", self._index_dir)
