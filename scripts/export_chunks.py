@@ -117,14 +117,12 @@ def main() -> None:
     print(header)
     print(separator)
 
-    sqlite_count = 0
     faiss_count = 0
     tantivy_count = 0
     any_missing = False
 
     for chunk_id, content in chunks:
         in_sqlite = True
-        sqlite_count += 1
 
         in_faiss = check_faiss(dense, embeddings, chunk_id, content)
         if in_faiss:

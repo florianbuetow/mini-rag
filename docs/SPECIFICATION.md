@@ -660,14 +660,13 @@ Word-based chunking is implemented in `ingestion/chunker.py`:
 
 - The `just ingest` target destroys the existing index before indexing.
 - Files are sorted alphanumerically by filename for deterministic, reproducible ordering.
-- Files are indexed one at a time, with progress reported to the console (which file is currently being indexed).
-- If any file fails to index, the script continues processing remaining files and tracks the failure count. At the end, it exits with code 1 if any files failed.
-- If any step within the indexing pipeline fails for a single file, the error is logged and the script moves on to the next file. No automatic rollback of partial state is performed.
+- Files are indexed one at a time, with progress reported to the console (including the filename being indexed).
+- If any file fails to index, the script fails immediately with the original error. No further files are processed.
 - There are no update or deduplication operations — only index, destroy, and query.
 
 ### 10.4 Indexing Error Behavior
 
-The ingestion script (`scripts/ingest.py`) continues processing all files even when individual files fail. It tracks success and failure counts, reports a summary at the end, and exits with code 1 if any files failed. This follows the general "continue and count failures" pattern: the user can inspect the log to see which files failed and why, then fix the issues and re-run `just ingest`.
+The ingestion script (`scripts/ingest.py`) follows a fail-fast approach. If any file fails to index, the error propagates immediately and the script aborts. Partial state from the failed file may remain — use `DELETE /v1/index` to clean up before re-indexing.
 
 ## 11. Clients
 
