@@ -31,21 +31,43 @@ def resolve_input_dir(data_dir: Path) -> Path:
 
 def ingest_files(client: IndexingClient, input_dir: Path) -> None:
     """Destroy existing index and ingest all .txt files in sorted order."""
-    text_files = sorted(input_dir.glob("*.txt"), key=lambda file_path: file_path.name)
+    text_files = sorted(
+        [f for f in input_dir.rglob("*.txt") if not f.is_symlink()],
+        key=lambda file_path: file_path.name,
+    )
+
+    logger.info("Found %d text file(s) in %s", len(text_files), input_dir)
+    for file_path in text_files:
+        logger.info("  - %s (%d bytes)", file_path.name, file_path.stat().st_size)
+
+    if len(text_files) == 0:
+        logger.warning("No .txt files found, nothing to ingest")
+        return
 
     logger.info("Destroying existing index before ingestion")
     client.destroy_index()
 
-    for file_path in text_files:
-        logger.info("Indexing %s", file_path.name)
+    total_chunks = 0
+    for i, file_path in enumerate(text_files, start=1):
+        file_size = file_path.stat().st_size
+        logger.info("[%d/%d] Sending %s (%d bytes)", i, len(text_files), file_path.name, file_size)
         file_text = file_path.read_text(encoding="utf-8")
         document_id, chunk_ids = client.index_document(file_text)
+        total_chunks += len(chunk_ids)
         logger.info(
-            "Indexed file=%s document_id=%s chunks_indexed=%s",
-            file_path.name,
+            "[%d/%d] Response: document_id=%s chunk_ids=%s",
+            i,
+            len(text_files),
             document_id,
-            len(chunk_ids),
+            chunk_ids,
         )
+
+    logger.info(
+        "Summary: %d file(s) ingested, %d document(s) created, %d chunk(s) indexed",
+        len(text_files),
+        len(text_files),
+        total_chunks,
+    )
 
 
 def main() -> None:
