@@ -134,11 +134,13 @@ def e2e_config_path(e2e_data_dir):
 def e2e_server(e2e_config_path):
     """Start the mini-rag service and yield the base URL."""
     launcher = PROJECT_ROOT / "tests_e2e" / "start_server.py"
+    env = {**os.environ, "PYTHONPATH": str(PROJECT_ROOT / "src")}
     proc = subprocess.Popen(
         ["uv", "run", str(launcher), str(e2e_config_path)],
         cwd=str(PROJECT_ROOT),
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
+        env=env,
     )
 
     base_url = f"http://{E2E_HOST}:{E2E_PORT}"
