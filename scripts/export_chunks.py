@@ -1,0 +1,164 @@
+"""Export and verify document chunks across all stores (SQLite, FAISS, Tantivy)."""
+
+import os
+import sqlite3
+import sys
+from pathlib import Path
+
+from minirag.config import Config
+from minirag.retrieval.faiss_dense import FAISSDense
+from minirag.retrieval.tantivy_sparse import TantivySparse
+from minirag.search.embeddings import FastTextEmbeddings
+
+
+def parse_document_id() -> int:
+    """Parse and validate the document ID from CLI arguments."""
+    if len(sys.argv) != 2:
+        print("Usage: uv run scripts/export_chunks.py <document_id>", file=sys.stderr)
+        raise SystemExit(1)
+
+    raw = sys.argv[1]
+    if not raw.isdigit() or int(raw) <= 0:
+        print(f"Error: document_id must be a positive integer, got: {raw}", file=sys.stderr)
+        raise SystemExit(1)
+
+    return int(raw)
+
+
+def fetch_chunks(db_path: Path, document_id: int) -> list[tuple[int, str]]:
+    """Query SQLite for all chunks belonging to a document.
+
+    Returns a list of (chunk_id, content) tuples.
+    """
+    connection = sqlite3.connect(str(db_path), timeout=5.0)
+    cursor = connection.cursor()
+    cursor.execute(
+        "SELECT chunk_id, content FROM chunks WHERE document_id = ? ORDER BY chunk_id",
+        (document_id,),
+    )
+    rows = cursor.fetchall()
+    connection.close()
+    return [(int(row[0]), str(row[1])) for row in rows]
+
+
+def check_faiss(dense: FAISSDense, embeddings: FastTextEmbeddings, chunk_id: int, content: str) -> bool:
+    """Check whether a chunk is retrievable from the FAISS index."""
+    try:
+        vectors = embeddings.embed([content])
+        results = dense.search(query_embedding=vectors[0], top_k=1)
+        return any(r.chunk_id == chunk_id for r in results)
+    except Exception:
+        return False
+
+
+def check_tantivy(sparse: TantivySparse, chunk_id: int) -> bool:
+    """Check whether a chunk_id exists in the Tantivy index."""
+    try:
+        searcher = sparse._index.searcher()
+        query = sparse._index.parse_query(f"chunk_id:{chunk_id}", ["content"])
+        result = searcher.search(query, limit=1)
+        for _score, doc_address in result.hits:
+            doc = searcher.doc(doc_address)
+            doc_data = doc.to_dict()
+            chunk_values = doc_data.get("chunk_id", [])
+            if isinstance(chunk_values, list) and chunk_id in chunk_values:
+                return True
+        return False
+    except Exception:
+        return False
+
+
+def main() -> None:
+    """Export chunks and verify presence across all stores."""
+    document_id = parse_document_id()
+
+    project_root = Path(__file__).resolve().parent.parent
+    config = Config.from_yaml(project_root / "config.yaml")
+    data_dir = config.resolve_data_dir(project_root)
+    index_config = config.get_index_config()
+
+    db_path = data_dir / "storage" / index_config.storage.db_filename
+
+    stderr_fd = sys.stderr.fileno()
+    old_stderr = os.dup(stderr_fd)
+    os.dup2(os.open(os.devnull, os.O_WRONLY), stderr_fd)
+    try:
+        embeddings = FastTextEmbeddings(
+            model_path=data_dir / "models" / index_config.embeddings.model_name,
+            expected_dimension=index_config.embeddings.dimension,
+        )
+    finally:
+        os.dup2(old_stderr, stderr_fd)
+        os.close(old_stderr)
+    dense = FAISSDense(
+        dimension=index_config.embeddings.dimension,
+        index_dir=data_dir / "index" / "faiss",
+        nprobe=index_config.faiss.nprobe,
+    )
+    sparse = TantivySparse(
+        index_dir=data_dir / "index" / "tantivy",
+        language=index_config.tantivy.language,
+        stemming=index_config.tantivy.stemming,
+    )
+
+    chunks = fetch_chunks(db_path, document_id)
+    if len(chunks) == 0:
+        print(f"Error: no chunks found for document_id {document_id}", file=sys.stderr)
+        raise SystemExit(1)
+
+    print(f"Document {document_id}: {len(chunks)} chunks found in SQLite")
+    print()
+
+    export_dir = project_root / "data" / "export" / str(document_id)
+    export_dir.mkdir(parents=True, exist_ok=True)
+
+    header = f"{'chunk_id':<10}| {'SQLite':^6} | {'FAISS':^5} | {'Tantivy':^7} | Exported"
+    separator = f"{'-' * 10}|{'-' * 8}|{'-' * 7}|{'-' * 9}|{'-' * 8}"
+    print(header)
+    print(separator)
+
+    sqlite_count = 0
+    faiss_count = 0
+    tantivy_count = 0
+    any_missing = False
+
+    for chunk_id, content in chunks:
+        in_sqlite = True
+        sqlite_count += 1
+
+        in_faiss = check_faiss(dense, embeddings, chunk_id, content)
+        if in_faiss:
+            faiss_count += 1
+
+        in_tantivy = check_tantivy(sparse, chunk_id)
+        if in_tantivy:
+            tantivy_count += 1
+
+        export_path = export_dir / f"{chunk_id}.txt"
+        export_path.write_text(content, encoding="utf-8")
+        relative_export = f"data/export/{document_id}/{chunk_id}.txt"
+
+        sqlite_mark = "\u2713" if in_sqlite else "\u2717"
+        faiss_mark = "\u2713" if in_faiss else "\u2717"
+        tantivy_mark = "\u2713" if in_tantivy else "\u2717"
+
+        print(f"{chunk_id:<10}|   {sqlite_mark}    |   {faiss_mark}   |    {tantivy_mark}    | {relative_export}")
+
+        if not in_faiss or not in_tantivy:
+            any_missing = True
+
+    total = len(chunks)
+    print()
+    print(f"{faiss_count} out of {total} chunk IDs were found in the FAISS dense index")
+    print(f"{tantivy_count} out of {total} chunk IDs were found in the Tantivy sparse index")
+
+    if faiss_count < total:
+        print(f"Error: {total - faiss_count} chunk(s) missing from FAISS dense index", file=sys.stderr)
+    if tantivy_count < total:
+        print(f"Error: {total - tantivy_count} chunk(s) missing from Tantivy sparse index", file=sys.stderr)
+    if any_missing:
+        raise SystemExit(1)
+
+
+if __name__ == "__main__":
+    main()
