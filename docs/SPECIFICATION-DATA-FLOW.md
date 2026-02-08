@@ -26,7 +26,7 @@ flowchart TD
     CFG --> APP["api/app.py<br/>(FastAPI App Factory)"]
     CFG --> ORCH["orchestration.py<br/>(Orchestration)"]
 
-    APP --> RA["api/routes_admin.py"]
+    APP --> RA["api/routes_info.py"]
     APP --> RI["api/routes_index.py"]
     APP --> RQ["api/routes_query.py"]
 
@@ -90,7 +90,7 @@ FastAPI App (api/app.py)
     ├── app.state.config         → Config
     ├── app.state.orchestration  → Orchestration
     ├── app.state.app_status     → "healthy" | "shutting_down"
-    ├── router: routes_admin.py  → health, info, shutdown
+    ├── router: routes_info.py  → health, info, shutdown
     ├── router: routes_index.py  → index, destroy
     └── router: routes_query.py  → dense, sparse, hybrid
 ```
@@ -565,7 +565,7 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant C as Client
-    participant RA as routes_admin.py
+    participant RA as routes_info.py
     participant U as utils.py
     participant APP as app.state
     participant C2 as Any subsequent client

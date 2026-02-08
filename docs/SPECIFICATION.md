@@ -115,7 +115,7 @@ src/
     │   ├── app.py                     # FastAPI app creation & lifecycle
     │   ├── routes_index.py            # POST /index, DELETE /index
     │   ├── routes_query.py            # GET /query/dense, /query/sparse, /query/hybrid
-    │   ├── routes_admin.py            # GET /health, GET /info, POST /shutdown
+    │   ├── routes_info.py            # GET /health, GET /info, POST /shutdown
     │   ├── utils.py                   # Response envelope helpers + ensure_healthy() guard
     │   └── models/                    # Pydantic request/response models
     │       ├── __init__.py
