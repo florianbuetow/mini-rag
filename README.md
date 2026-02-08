@@ -86,6 +86,16 @@ This destroys any existing index and re-indexes all text files. Progress is repo
 - `just destroy` — Remove virtual environment
 - `just help` — Show all available commands
 
+## API Documentation
+
+FastAPI auto-generates interactive API documentation. With the service running (`just start`), open any of these in your browser:
+
+- **Swagger UI** — `http://127.0.0.1:7001/docs`
+- **ReDoc** — `http://127.0.0.1:7001/redoc`
+- **OpenAPI JSON** — `http://127.0.0.1:7001/openapi.json`
+
+Replace `127.0.0.1:7001` with your configured host and port if changed in `config.yaml`.
+
 ## API Endpoints
 
 All endpoints are prefixed with `/v1` and accept/return JSON.
@@ -160,6 +170,7 @@ Start with 0.5 and adjust based on your data and query patterns. Text-heavy quer
 ### Testing
 
 - `just test` — Run unit tests
+- `just test-e2e` — Run end-to-end tests (starts service, indexes documents, searches)
 - `just test-coverage` — Run tests with coverage (80% threshold)
 
 ### CI Pipeline
