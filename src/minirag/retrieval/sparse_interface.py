@@ -15,5 +15,9 @@ class SparseRetrieval(ABC):
         """Search by query text and return scored chunk IDs."""
 
     @abstractmethod
+    def persist(self) -> None:
+        """Persist the in-memory index to disk."""
+
+    @abstractmethod
     def destroy(self) -> None:
         """Destroy the sparse index contents."""

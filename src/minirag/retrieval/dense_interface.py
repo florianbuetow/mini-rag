@@ -15,5 +15,9 @@ class DenseRetrieval(ABC):
         """Search by query embedding and return scored chunk IDs."""
 
     @abstractmethod
+    def persist(self) -> None:
+        """Persist the in-memory index to disk."""
+
+    @abstractmethod
     def destroy(self) -> None:
         """Destroy the dense index contents."""

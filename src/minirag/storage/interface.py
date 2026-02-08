@@ -23,5 +23,9 @@ class Storage(ABC):
         """Return (document_id, chunk_content) for the given chunk ID."""
 
     @abstractmethod
+    def close(self) -> None:
+        """Close the storage connection."""
+
+    @abstractmethod
     def destroy(self) -> None:
         """Destroy all stored data."""
