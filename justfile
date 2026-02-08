@@ -213,6 +213,15 @@ code-semgrep:
     @printf "%b\n" "\033[0;32m✓ Semgrep checks passed\033[0m"
     @echo ""
 
+# Detect unused dead code
+code-deadcode:
+    @echo ""
+    @printf "%b\n" "\033[0;34m=== Detecting Dead Code ===\033[0m"
+    @uv run deadcode src tests tests_e2e scripts
+    @echo ""
+    @printf "%b\n" "\033[0;32m✓ Dead code checks passed\033[0m"
+    @echo ""
+
 # Run unit tests only (fast)
 test:
     @echo ""
@@ -259,6 +268,7 @@ ci:
     just code-deptry
     just code-spell
     just code-semgrep
+    just code-deadcode
     just code-audit
     just test
     just code-lspchecks
@@ -297,6 +307,9 @@ ci-quiet:
 
     just code-semgrep > $TMPFILE 2>&1 || { printf "%b\n" "\033[0;31m✗ Code-semgrep failed\033[0m"; cat $TMPFILE; exit 1; }
     printf "%b\n" "\033[0;32m✓ Code-semgrep passed\033[0m"
+
+    just code-deadcode > $TMPFILE 2>&1 || { printf "%b\n" "\033[0;31m✗ Code-deadcode failed\033[0m"; cat $TMPFILE; exit 1; }
+    printf "%b\n" "\033[0;32m✓ Code-deadcode passed\033[0m"
 
     just code-audit > $TMPFILE 2>&1 || { printf "%b\n" "\033[0;31m✗ Code-audit failed\033[0m"; cat $TMPFILE; exit 1; }
     printf "%b\n" "\033[0;32m✓ Code-audit passed\033[0m"

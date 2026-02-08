@@ -249,10 +249,6 @@ class Config(BaseModel):
         """Return service configuration."""
         return self.service
 
-    def get_data_config(self) -> DataConfig:
-        """Return data configuration."""
-        return self.data
-
     def get_index_config(self) -> IndexConfig:
         """Return index configuration."""
         return self.index

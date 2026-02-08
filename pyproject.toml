@@ -32,6 +32,7 @@ dependencies = [
 
     # Security & Quality
     "bandit[toml]>=1.7.8",
+    "deadcode>=2.4.0",
     "deptry>=0.20.0",
     "pygount>=1.6.4",
     "codespell>=2.3.0",
@@ -227,6 +228,7 @@ DEP002 = [
     "deptry",
     "pygount",
     "codespell",
+    "deadcode",
     "pip-audit",
     "semgrep",
     "pre-commit",
@@ -242,3 +244,42 @@ skip = ".git,.venv,venv,build,dist,reports,*.lock,uv.lock"
 
 # Use external ignore file for maintainability
 ignore-words = "config/codespell/ignore.txt"
+
+[tool.deadcode]
+exclude = [
+    ".venv",
+    ".git",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    "stubs",
+    "data",
+    "reports",
+    "config",
+    "prompts",
+    "docs",
+]
+
+# Abstract methods, pytest fixtures, lifespan managers
+ignore-definitions-if-decorated-with = [
+    "abstractmethod",
+    "pytest.fixture",
+    "asynccontextmanager",
+]
+
+# Pydantic field validators (called by metaclass) and model_config attributes
+ignore-names = [
+    "validate_*",
+    "model_config",
+]
+
+# Pydantic model fields (used via serialization) and ABC bodies (used via subclasses)
+ignore-bodies-if-inherits-from = [
+    "BaseModel",
+    "ABC",
+]
+
+# FastAPI route files — functions are registered by decorators, not called directly
+ignore-names-in-files = [
+    "src/minirag/api/routes_*.py",
+]

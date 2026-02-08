@@ -29,7 +29,6 @@ Document 2: 105 words -> 3 chunks
 # ---------- chunk config used by e2e tests ----------
 E2E_CHUNK_SIZE = 50
 E2E_OVERLAP = 0.3
-E2E_STEP = int(E2E_CHUNK_SIZE * (1.0 - E2E_OVERLAP))  # 35
 
 # ---------- Document 1 (70 words -> 2 chunks) ----------
 DOCUMENT_1 = (

@@ -22,8 +22,6 @@ class BaseClient:
         if port > 65535:
             raise ValueError("port must be less than or equal to 65535")
 
-        self._host = host
-        self._port = port
         self._base_url = f"http://{host}:{port}"
 
     def _as_object_map(self, value: object, context: str) -> dict[str, object]:
