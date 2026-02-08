@@ -1,6 +1,7 @@
 """Index management routes."""
 
 import json
+import logging
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
@@ -8,6 +9,8 @@ from pydantic import ValidationError
 
 from minirag.api.models.index import IndexRequest, IndexResponse
 from minirag.api.utils import ensure_healthy, error_response, get_orchestration, success_response
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1")
 
@@ -40,8 +43,11 @@ async def index_document(request: Request) -> JSONResponse:
 
     try:
         document_id, chunk_ids = orchestration.index_document(parsed_payload.document)
-    except Exception as exc:
-        return error_response(status=500, message=str(exc))
+    except ValueError as exc:
+        return error_response(status=400, message=str(exc))
+    except Exception:
+        logger.exception("Failed to index document")
+        return error_response(status=500, message="Internal server error")
 
     response_model = IndexResponse(
         document_id=document_id,
@@ -61,7 +67,10 @@ async def destroy_index(request: Request) -> JSONResponse:
     orchestration = get_orchestration(request)
     try:
         orchestration.destroy_index()
-    except Exception as exc:
-        return error_response(status=500, message=str(exc))
+    except ValueError as exc:
+        return error_response(status=400, message=str(exc))
+    except Exception:
+        logger.exception("Failed to destroy index")
+        return error_response(status=500, message="Internal server error")
 
     return success_response(status=200, data={"message": "index destroyed"})

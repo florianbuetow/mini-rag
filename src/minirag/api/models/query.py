@@ -29,10 +29,11 @@ class QueryRequest(BaseModel):
 
 
 class QueryResult(BaseModel):
-    """One query result item with text and relevance score."""
+    """One query result item with chunk ID, text, and relevance score."""
 
     model_config = ConfigDict(extra="forbid")
 
+    chunk_id: int
     text: str
     score: float
 

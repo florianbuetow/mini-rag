@@ -1,5 +1,8 @@
 """FastAPI application factory."""
 
+import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -16,11 +19,22 @@ from minirag.retrieval.tantivy_sparse import TantivySparse
 from minirag.search.embeddings import FastTextEmbeddings
 from minirag.storage.sqlite import SQLiteStorage
 
+logger = logging.getLogger(__name__)
+
 
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """Wrap uncaught errors in the standard error envelope."""
     del request
-    return error_response(status=500, message=str(exc))
+    logger.exception("Unhandled exception")
+    return error_response(status=500, message="Internal server error")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Manage application lifecycle — close storage on shutdown."""
+    yield
+    if hasattr(app.state, "storage"):
+        app.state.storage.close()
 
 
 def create_app(config: Config, project_root: Path) -> FastAPI:
@@ -55,8 +69,9 @@ def create_app(config: Config, project_root: Path) -> FastAPI:
         search_config=config.get_search_config(),
     )
 
-    app = FastAPI()
+    app = FastAPI(lifespan=lifespan)
     app.state.config = config
+    app.state.storage = storage
     app.state.orchestration = orchestration
     app.state.app_status = "healthy"
     app.add_exception_handler(Exception, unhandled_exception_handler)
