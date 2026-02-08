@@ -17,6 +17,7 @@ This file provides guidance to AI agents and AI-assisted development tools when 
 - Keep commit messages professional and focused on the changes made
 - Commit messages should describe what changed and why, without mentioning AI assistance
 - **ALWAYS run `git push` after creating a commit to push changes to the remote repository**
+- **NEVER use `git -C <path>`** — always run git commands from the project root directory
 
 ## Testing
 - After **every change** to the code, the tests must be executed
@@ -55,10 +56,9 @@ This file provides guidance to AI agents and AI-assisted development tools when 
   - Correct: `./src/helper.py`, `./scripts/test.py`
 
 ## Error Handling
-- Scripts should continue processing other items even if one fails
-- Failed/invalid outputs should be handled gracefully
-- Scripts should track and report success/failure counts
-- Exit with code 1 if any items failed, 0 if all succeeded
+- **Fail fast** — if something is wrong, report it immediately and stop
+- **No error masking** — never swallow exceptions or continue processing after a failure
+- Errors must propagate immediately with descriptive messages
 
 ## Optimization
 - **Skip processing if output already exists** - Don't reprocess unnecessarily
