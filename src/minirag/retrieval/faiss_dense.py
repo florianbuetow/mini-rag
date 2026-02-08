@@ -110,6 +110,9 @@ class FAISSDense(DenseRetrieval):
         vector_matrix = self._to_normalized_matrix(embedding)
         id_vector = np.array([chunk_id], dtype=np.int64)
         self._index.add_with_ids(vector_matrix, id_vector)
+
+    def persist(self) -> None:
+        """Persist the in-memory FAISS index to disk."""
         self._persist_index()
 
     def search(self, query_embedding: list[float], top_k: int) -> list[tuple[int, float]]:

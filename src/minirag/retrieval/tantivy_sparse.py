@@ -155,6 +155,7 @@ class TantivySparse(SparseRetrieval):
 
         self._tantivy_module = importlib.import_module("tantivy")
         self._index = self._open_or_create_index()
+        self._writer: TantivyIndexWriter | None = None
 
         logger.info(
             "Initialized Tantivy sparse index at %s with language=%s stemming=%s",
@@ -209,10 +210,17 @@ class TantivySparse(SparseRetrieval):
             raise ValueError("content must not be empty")
 
         document = self._create_document(chunk_id, content)
-        writer = self._new_writer()
-        writer.add_document(document)
-        writer.commit()
-        writer.wait_merging_threads()
+        if self._writer is None:
+            self._writer = self._new_writer()
+        self._writer.add_document(document)
+
+    def persist(self) -> None:
+        """Commit pending writes and reload the index."""
+        if self._writer is None:
+            return
+        self._writer.commit()
+        self._writer.wait_merging_threads()
+        self._writer = None
         self._index.reload()
 
     def _extract_chunk_id(self, document: TantivyDocument) -> int:
@@ -282,6 +290,7 @@ class TantivySparse(SparseRetrieval):
 
     def destroy(self) -> None:
         """Remove all indexed sparse documents."""
+        self._writer = None
         writer = self._new_writer()
         writer.delete_all_documents()
         writer.commit()

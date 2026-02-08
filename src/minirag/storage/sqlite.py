@@ -25,7 +25,7 @@ class SQLiteStorage(Storage):
             timeout=5.0,
             detect_types=0,
             isolation_level="DEFERRED",
-            check_same_thread=True,
+            check_same_thread=False,
         )
         self._connection.execute("PRAGMA foreign_keys = ON")
         self._create_tables()
@@ -134,6 +134,10 @@ class SQLiteStorage(Storage):
             raise ValueError(f"chunk content is not text for chunk ID: {chunk_id}")
 
         return (document_id_value, content_value)
+
+    def close(self) -> None:
+        """Close the SQLite database connection."""
+        self._connection.close()
 
     def destroy(self) -> None:
         """Delete all rows from documents and chunks."""
