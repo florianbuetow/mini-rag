@@ -286,6 +286,11 @@ class Config(BaseModel):
             raise ValueError(f"embedding model path is not a file: {model_path}")
 
         probe_path = data_dir / ".minirag_write_probe"
-        with probe_path.open("w", encoding="utf-8") as file_handle:
-            file_handle.write("probe")
-        probe_path.unlink()
+        try:
+            with probe_path.open("w", encoding="utf-8") as file_handle:
+                file_handle.write("probe")
+        except OSError as exc:
+            raise OSError(f"data directory is not writable: {data_dir}") from exc
+        finally:
+            if probe_path.exists():
+                probe_path.unlink()
