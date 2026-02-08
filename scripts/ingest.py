@@ -60,8 +60,9 @@ def ingest_files(client: IndexingClient, input_dir: Path, data_dir: Path) -> Non
             if not file_text.strip():
                 skipped_count += 1
                 remaining = num_files - indexed_count - skipped_count
-                logger.warning("[%d/%d] Skipping %s (empty content) — %d indexed, %d remaining",
-                               i, num_files, relative_path, indexed_count, remaining)
+                logger.warning(
+                    "[%d/%d] Skipping %s (empty content) — %d indexed, %d remaining", i, num_files, relative_path, indexed_count, remaining
+                )
                 continue
             _document_id, chunk_ids = client.index_document(file_text)
             indexed_count += 1

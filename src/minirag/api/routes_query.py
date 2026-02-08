@@ -47,6 +47,9 @@ async def query_dense(request: Request) -> JSONResponse:
     if isinstance(parsed_payload, JSONResponse):
         return parsed_payload
 
+    query_display = parsed_payload.query[:120] + "..." if len(parsed_payload.query) > 120 else parsed_payload.query
+    logger.debug('query="%s" top_k=%d', query_display, parsed_payload.top_k)
+
     orchestration = get_orchestration(request)
     try:
         results = await asyncio.to_thread(
@@ -78,6 +81,9 @@ async def query_sparse(request: Request) -> JSONResponse:
     if isinstance(parsed_payload, JSONResponse):
         return parsed_payload
 
+    query_display = parsed_payload.query[:120] + "..." if len(parsed_payload.query) > 120 else parsed_payload.query
+    logger.debug('query="%s" top_k=%d', query_display, parsed_payload.top_k)
+
     orchestration = get_orchestration(request)
     try:
         results = await asyncio.to_thread(
@@ -108,6 +114,9 @@ async def query_hybrid(request: Request) -> JSONResponse:
     parsed_payload = await _parse_query_request(request)
     if isinstance(parsed_payload, JSONResponse):
         return parsed_payload
+
+    query_display = parsed_payload.query[:120] + "..." if len(parsed_payload.query) > 120 else parsed_payload.query
+    logger.debug('query="%s" top_k=%d', query_display, parsed_payload.top_k)
 
     orchestration = get_orchestration(request)
     try:
