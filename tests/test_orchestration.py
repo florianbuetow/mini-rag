@@ -47,6 +47,9 @@ class FakeStorage:
     def get_chunk(self, chunk_id: int) -> tuple[int, str]:
         return self.chunks[chunk_id]
 
+    def close(self) -> None:
+        pass
+
     def destroy(self) -> None:
         self.documents = {}
         self.chunks = {}
@@ -60,6 +63,9 @@ class FakeDense:
 
     def index(self, chunk_id: int, embedding: list[float]) -> None:
         self.indexed[chunk_id] = embedding
+
+    def persist(self) -> None:
+        pass
 
     def search(self, query_embedding: list[float], top_k: int) -> list[tuple[int, float]]:
         del query_embedding
@@ -78,6 +84,9 @@ class FakeSparse:
 
     def index(self, chunk_id: int, content: str) -> None:
         self.indexed[chunk_id] = content
+
+    def persist(self) -> None:
+        pass
 
     def search(self, query: str, top_k: int) -> list[tuple[int, float]]:
         del query

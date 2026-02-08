@@ -42,15 +42,15 @@ class FakeOrchestration:
 
     def search_dense(self, query: str, top_k: int) -> list[SearchResult]:
         del query, top_k
-        return [SearchResult(text="dense", score=0.9)]
+        return [SearchResult(chunk_id=1, text="dense", score=0.9)]
 
     def search_sparse(self, query: str, top_k: int) -> list[SearchResult]:
         del query, top_k
-        return [SearchResult(text="sparse", score=0.8)]
+        return [SearchResult(chunk_id=2, text="sparse", score=0.8)]
 
     def search_hybrid(self, query: str, top_k: int) -> list[SearchResult]:
         del query, top_k
-        return [SearchResult(text="hybrid", score=0.85)]
+        return [SearchResult(chunk_id=3, text="hybrid", score=0.85)]
 
 
 def make_test_client() -> TestClient:
@@ -88,13 +88,13 @@ def test_index_and_query_routes() -> None:
     assert index_response.status_code == 200
     assert index_response.json()["data"]["chunks_indexed"] == 2
 
-    dense_response = client.request("GET", "/v1/query/dense", json={"query": "hello", "top_k": 3})
+    dense_response = client.post("/v1/query/dense", json={"query": "hello", "top_k": 3})
     assert dense_response.status_code == 200
 
-    sparse_response = client.request("GET", "/v1/query/sparse", json={"query": "hello", "top_k": 3})
+    sparse_response = client.post("/v1/query/sparse", json={"query": "hello", "top_k": 3})
     assert sparse_response.status_code == 200
 
-    hybrid_response = client.request("GET", "/v1/query/hybrid", json={"query": "hello", "top_k": 3})
+    hybrid_response = client.post("/v1/query/hybrid", json={"query": "hello", "top_k": 3})
     assert hybrid_response.status_code == 200
 
 

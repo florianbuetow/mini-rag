@@ -14,6 +14,7 @@ def test_faiss_dense_index_search_and_destroy(tmp_path: Path) -> None:
 
     dense.index(chunk_id=1, embedding=[1.0, 0.0, 0.0])
     dense.index(chunk_id=2, embedding=[0.0, 1.0, 0.0])
+    dense.persist()
 
     results = dense.search(query_embedding=[1.0, 0.0, 0.0], top_k=2)
     assert len(results) >= 1

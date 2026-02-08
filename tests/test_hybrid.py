@@ -9,12 +9,12 @@ from minirag.search.types import SearchResult
 def test_merge_hybrid_results_combines_scores() -> None:
     """Hybrid merge should combine dense and sparse scores by alpha."""
     dense = [
-        SearchResult(text="a", score=1.0),
-        SearchResult(text="b", score=0.5),
+        SearchResult(chunk_id=1, text="a", score=1.0),
+        SearchResult(chunk_id=2, text="b", score=0.5),
     ]
     sparse = [
-        SearchResult(text="a", score=0.2),
-        SearchResult(text="c", score=1.0),
+        SearchResult(chunk_id=1, text="a", score=0.2),
+        SearchResult(chunk_id=3, text="c", score=1.0),
     ]
 
     merged = merge_hybrid_results(dense_results=dense, sparse_results=sparse, alpha=0.5, top_k=3)

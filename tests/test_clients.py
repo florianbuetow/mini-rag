@@ -89,7 +89,9 @@ def test_indexing_and_query_clients_parse_payloads(monkeypatch: pytest.MonkeyPat
             return {"document_id": 1, "chunk_ids": [1, 2, 3]}
         if method == "DELETE" and path == "/v1/index":
             return {"message": "index destroyed"}
-        return {"results": [{"text": "x", "score": 0.9}]}
+        if method == "POST" and path.startswith("/v1/query/"):
+            return {"results": [{"chunk_id": 1, "text": "x", "score": 0.9}]}
+        return {"results": [{"chunk_id": 1, "text": "x", "score": 0.9}]}
 
     monkeypatch.setattr(BaseClient, "_request", fake_request)
 

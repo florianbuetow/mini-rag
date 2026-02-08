@@ -16,6 +16,7 @@ def test_tantivy_sparse_index_search_and_destroy(tmp_path: Path) -> None:
 
     sparse.index(chunk_id=1, content="hello world")
     sparse.index(chunk_id=2, content="world value")
+    sparse.persist()
 
     results = sparse.search(query="hello", top_k=5)
     assert len(results) >= 1

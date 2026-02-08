@@ -100,6 +100,7 @@ def test_create_app_wires_state_and_routes(monkeypatch: pytest.MonkeyPatch, tmp_
 
     assert isinstance(app, FastAPI)
     assert hasattr(app.state, "config")
+    assert hasattr(app.state, "storage")
     assert hasattr(app.state, "orchestration")
     assert app.state.app_status == "healthy"
 
