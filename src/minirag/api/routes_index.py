@@ -51,8 +51,8 @@ async def index_document(request: Request) -> JSONResponse:
 
     response_model = IndexResponse(
         document_id=document_id,
-        chunks_indexed=len(chunk_ids),
         chunk_ids=chunk_ids,
+        chunks_indexed=len(chunk_ids),
     )
     return success_response(status=200, data=response_model.model_dump())
 

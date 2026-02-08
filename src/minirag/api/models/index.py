@@ -25,5 +25,5 @@ class IndexResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     document_id: int
-    chunks_indexed: int
     chunk_ids: list[int]
+    chunks_indexed: int

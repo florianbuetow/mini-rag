@@ -2,6 +2,8 @@
 
 from abc import ABC, abstractmethod
 
+from minirag.search.types import ScoredChunk
+
 
 class DenseRetrieval(ABC):
     """Contract for dense vector indexing and search."""
@@ -11,7 +13,7 @@ class DenseRetrieval(ABC):
         """Index one chunk embedding with its chunk ID."""
 
     @abstractmethod
-    def search(self, query_embedding: list[float], top_k: int) -> list[tuple[int, float]]:
+    def search(self, query_embedding: list[float], top_k: int) -> list[ScoredChunk]:
         """Search by query embedding and return scored chunk IDs."""
 
     @abstractmethod

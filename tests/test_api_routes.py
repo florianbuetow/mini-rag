@@ -112,3 +112,143 @@ def test_shutdown_and_guarded_routes(monkeypatch: Any) -> None:
 
     blocked_response = client.post("/v1/index", json={"document": "x"})
     assert blocked_response.status_code == 503
+
+
+class ErrorOrchestration:
+    """Orchestration fake that raises on all methods."""
+
+    def __init__(self, error: Exception) -> None:
+        self._error = error
+
+    def index_document(self, text: str) -> tuple[int, list[int]]:
+        del text
+        raise self._error
+
+    def destroy_index(self) -> None:
+        raise self._error
+
+    def search_dense(self, query: str, top_k: int) -> list[SearchResult]:
+        del query, top_k
+        raise self._error
+
+    def search_sparse(self, query: str, top_k: int) -> list[SearchResult]:
+        del query, top_k
+        raise self._error
+
+    def search_hybrid(self, query: str, top_k: int) -> list[SearchResult]:
+        del query, top_k
+        raise self._error
+
+
+def _make_error_client(error: Exception) -> TestClient:
+    app = FastAPI()
+    app.state.app_status = "healthy"
+    app.state.config = FakeConfig()
+    app.state.orchestration = ErrorOrchestration(error)
+    app.add_exception_handler(Exception, unhandled_exception_handler)
+    app.include_router(info_router)
+    app.include_router(index_router)
+    app.include_router(query_router)
+    return TestClient(app)
+
+
+def test_index_value_error_returns_400() -> None:
+    """ValueError from orchestration should return 400."""
+    client = _make_error_client(ValueError("bad input"))
+
+    resp = client.post("/v1/index", json={"document": "hello world"})
+    assert resp.status_code == 400
+    assert "bad input" in resp.json()["error"]
+
+
+def test_index_unexpected_error_returns_500() -> None:
+    """Unexpected exception from orchestration should return 500."""
+    client = _make_error_client(RuntimeError("boom"))
+
+    resp = client.post("/v1/index", json={"document": "hello world"})
+    assert resp.status_code == 500
+    assert resp.json()["error"] == "Internal server error"
+
+
+def test_query_dense_value_error_returns_400() -> None:
+    """ValueError from dense search should return 400."""
+    client = _make_error_client(ValueError("bad query"))
+
+    resp = client.post("/v1/query/dense", json={"query": "hello", "top_k": 3})
+    assert resp.status_code == 400
+    assert "bad query" in resp.json()["error"]
+
+
+def test_query_dense_unexpected_error_returns_500() -> None:
+    """Unexpected exception from dense search should return 500."""
+    client = _make_error_client(RuntimeError("boom"))
+
+    resp = client.post("/v1/query/dense", json={"query": "hello", "top_k": 3})
+    assert resp.status_code == 500
+    assert resp.json()["error"] == "Internal server error"
+
+
+def test_destroy_index_success() -> None:
+    """DELETE /v1/index should return 200 with success message."""
+    client = make_test_client()
+
+    resp = client.delete("/v1/index")
+    assert resp.status_code == 200
+    assert resp.json()["data"]["message"] == "index destroyed"
+
+
+def test_destroy_index_error_returns_500() -> None:
+    """Exception from destroy should return 500."""
+    client = _make_error_client(RuntimeError("disk failure"))
+
+    resp = client.delete("/v1/index")
+    assert resp.status_code == 500
+    assert resp.json()["error"] == "Internal server error"
+
+
+def test_destroy_index_when_shutting_down_returns_503(monkeypatch: Any) -> None:
+    """DELETE /v1/index should return 503 when shutting down."""
+
+    def no_op_shutdown(reload_enabled: bool) -> None:
+        del reload_enabled
+
+    monkeypatch.setattr(routes_info, "_shutdown_process_tree", no_op_shutdown)
+    client = make_test_client()
+    client.post("/v1/shutdown")
+
+    resp = client.delete("/v1/index")
+    assert resp.status_code == 503
+
+
+def test_malformed_json_returns_400() -> None:
+    """Malformed JSON body should return 400."""
+    client = make_test_client()
+
+    resp = client.post("/v1/index", content=b"not json", headers={"Content-Type": "application/json"})
+    assert resp.status_code == 400
+    assert "error" in resp.json()
+
+    resp = client.post("/v1/query/dense", content=b"{bad}", headers={"Content-Type": "application/json"})
+    assert resp.status_code == 400
+
+
+def test_missing_required_fields_returns_422() -> None:
+    """Missing required fields should return 422."""
+    client = make_test_client()
+
+    resp = client.post("/v1/index", json={"wrong_key": "x"})
+    assert resp.status_code == 422
+
+    resp = client.post("/v1/query/dense", json={"query": "hello"})
+    assert resp.status_code == 422
+
+
+def test_invalid_field_values_return_422() -> None:
+    """Invalid field values should return 422."""
+    client = make_test_client()
+
+    resp = client.post("/v1/index", json={"document": "   "})
+    assert resp.status_code == 422
+
+    resp = client.post("/v1/query/dense", json={"query": "hello", "top_k": 0})
+    assert resp.status_code == 422

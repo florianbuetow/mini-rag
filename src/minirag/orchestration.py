@@ -8,7 +8,7 @@ from minirag.retrieval.dense_interface import DenseRetrieval
 from minirag.retrieval.sparse_interface import SparseRetrieval
 from minirag.search.embeddings import FastTextEmbeddings
 from minirag.search.hybrid import merge_hybrid_results
-from minirag.search.types import SearchResult
+from minirag.search.types import ScoredChunk, SearchResult
 from minirag.storage.interface import Storage
 
 logger = logging.getLogger(__name__)
@@ -77,7 +77,7 @@ class Orchestration:
         self._sparse.destroy()
         logger.info("Destroyed full mini-rag index")
 
-    def _resolve_results(self, scored_chunk_ids: list[tuple[int, float]]) -> list[SearchResult]:
+    def _resolve_results(self, scored_chunk_ids: list[ScoredChunk]) -> list[SearchResult]:
         """Resolve chunk IDs from retrieval engines into SearchResult payloads."""
         resolved_results: list[SearchResult] = []
         for chunk_id, score in scored_chunk_ids:

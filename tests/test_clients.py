@@ -114,3 +114,79 @@ def test_base_client_rejects_invalid_connection_params() -> None:
 
     with pytest.raises(ValueError):
         DummyClient(host="127.0.0.1", port=0)
+
+
+class BrokenJsonResponse(FakeResponse):
+    """Fake response that raises on json()."""
+
+    def __init__(self, status_code: int) -> None:
+        super().__init__(status_code, {})
+        self.text = "not json"
+
+    def json(self) -> object:
+        raise ValueError("invalid json")
+
+
+def test_invalid_json_response_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Invalid JSON from service should raise RuntimeError."""
+    responses = {
+        ("GET", "/v1/health"): FakeResponse(200, {"status": 200, "data": {"status": "healthy"}}),
+        ("POST", "/v1/test"): BrokenJsonResponse(200),
+    }
+
+    def fake_factory(*_: Any, **__: Any) -> FakeHttpClient:
+        return FakeHttpClient(responses)
+
+    monkeypatch.setattr(base_module.httpx, "Client", fake_factory)
+    client = DummyClient(host="127.0.0.1", port=7001)
+
+    with pytest.raises(RuntimeError, match="invalid JSON response"):
+        client.send_request(method="POST", path="/v1/test", payload=None, require_healthy=False)
+
+
+def test_status_mismatch_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    """HTTP status code mismatch with envelope status should raise RuntimeError."""
+    responses = {
+        ("POST", "/v1/test"): FakeResponse(200, {"status": 201, "data": {"ok": True}}),
+    }
+
+    def fake_factory(*_: Any, **__: Any) -> FakeHttpClient:
+        return FakeHttpClient(responses)
+
+    monkeypatch.setattr(base_module.httpx, "Client", fake_factory)
+    client = DummyClient(host="127.0.0.1", port=7001)
+
+    with pytest.raises(RuntimeError, match="status mismatch"):
+        client.send_request(method="POST", path="/v1/test", payload=None, require_healthy=False)
+
+
+def test_error_status_raises_with_message(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Error response (>=400) should raise RuntimeError with error message."""
+    responses = {
+        ("POST", "/v1/test"): FakeResponse(422, {"status": 422, "error": "field missing"}),
+    }
+
+    def fake_factory(*_: Any, **__: Any) -> FakeHttpClient:
+        return FakeHttpClient(responses)
+
+    monkeypatch.setattr(base_module.httpx, "Client", fake_factory)
+    client = DummyClient(host="127.0.0.1", port=7001)
+
+    with pytest.raises(RuntimeError, match="field missing"):
+        client.send_request(method="POST", path="/v1/test", payload=None, require_healthy=False)
+
+
+def test_unhealthy_service_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Health check returning unhealthy status should raise RuntimeError."""
+    responses = {
+        ("GET", "/v1/health"): FakeResponse(503, {"status": 503, "data": {"status": "shutting_down"}}),
+    }
+
+    def fake_factory(*_: Any, **__: Any) -> FakeHttpClient:
+        return FakeHttpClient(responses)
+
+    monkeypatch.setattr(base_module.httpx, "Client", fake_factory)
+    client = DummyClient(host="127.0.0.1", port=7001)
+
+    with pytest.raises(RuntimeError, match="shutting_down"):
+        client.send_request(method="POST", path="/v1/test", payload=None, require_healthy=True)

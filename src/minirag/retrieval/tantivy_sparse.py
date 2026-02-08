@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Protocol, cast
 
 from minirag.retrieval.sparse_interface import SparseRetrieval
+from minirag.search.types import ScoredChunk
 
 logger = logging.getLogger(__name__)
 
@@ -142,8 +143,8 @@ class TantivySparse(SparseRetrieval):
 
         Args:
             index_dir: Directory for Tantivy index persistence.
-            language: Configured language code.
-            stemming: Whether stemming is enabled in config.
+            language: Stored from config for future tokenizer customization (not yet used).
+            stemming: Stored from config for future tokenizer customization (not yet used).
         """
         if language.strip() == "":
             raise ValueError("language must not be empty")
@@ -258,7 +259,7 @@ class TantivySparse(SparseRetrieval):
 
         return normalized_score
 
-    def search(self, query: str, top_k: int) -> list[tuple[int, float]]:
+    def search(self, query: str, top_k: int) -> list[ScoredChunk]:
         """Search lexical matches and normalize BM25 scores to [0, 1]."""
         if query.strip() == "":
             raise ValueError("query must not be empty")
@@ -278,13 +279,13 @@ class TantivySparse(SparseRetrieval):
             return []
 
         max_score = max(score for score, _ in hits)
-        results: list[tuple[int, float]] = []
+        results: list[ScoredChunk] = []
 
         for raw_score, document_address in hits:
             document = searcher.doc(document_address)
             chunk_id_value = self._extract_chunk_id(document)
             normalized_score = self._normalize_score(raw_score, max_score)
-            results.append((chunk_id_value, normalized_score))
+            results.append(ScoredChunk(chunk_id=chunk_id_value, score=normalized_score))
 
         return results
 

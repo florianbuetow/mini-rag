@@ -9,7 +9,7 @@ from minirag.orchestration import Orchestration
 from minirag.retrieval.dense_interface import DenseRetrieval
 from minirag.retrieval.sparse_interface import SparseRetrieval
 from minirag.search.embeddings import FastTextEmbeddings
-from minirag.search.types import SearchResult
+from minirag.search.types import ScoredChunk, SearchResult
 from minirag.storage.interface import Storage
 
 
@@ -67,10 +67,10 @@ class FakeDense:
     def persist(self) -> None:
         pass
 
-    def search(self, query_embedding: list[float], top_k: int) -> list[tuple[int, float]]:
+    def search(self, query_embedding: list[float], top_k: int) -> list[ScoredChunk]:
         del query_embedding
         sorted_ids = sorted(self.indexed.keys())
-        return [(chunk_id, 1.0 - 0.1 * idx) for idx, chunk_id in enumerate(sorted_ids[:top_k])]
+        return [ScoredChunk(chunk_id=chunk_id, score=1.0 - 0.1 * idx) for idx, chunk_id in enumerate(sorted_ids[:top_k])]
 
     def destroy(self) -> None:
         self.indexed = {}
@@ -88,10 +88,10 @@ class FakeSparse:
     def persist(self) -> None:
         pass
 
-    def search(self, query: str, top_k: int) -> list[tuple[int, float]]:
+    def search(self, query: str, top_k: int) -> list[ScoredChunk]:
         del query
         sorted_ids = sorted(self.indexed.keys(), reverse=True)
-        return [(chunk_id, 1.0 - 0.1 * idx) for idx, chunk_id in enumerate(sorted_ids[:top_k])]
+        return [ScoredChunk(chunk_id=chunk_id, score=1.0 - 0.1 * idx) for idx, chunk_id in enumerate(sorted_ids[:top_k])]
 
     def destroy(self) -> None:
         self.indexed = {}

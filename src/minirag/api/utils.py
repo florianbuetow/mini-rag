@@ -20,7 +20,7 @@ def error_response(status: int, message: str) -> JSONResponse:
 
 
 def ensure_healthy(request: Request) -> JSONResponse | None:
-    """Return a 503 envelope when app state is not healthy."""
+    """Return a 503 envelope when app state is not healthy, or None when healthy."""
     app_status = request.app.state.app_status
     if app_status != "healthy":
         return error_response(status=503, message=f"service is {app_status}")

@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, field_validator
 class ServiceConfig(BaseModel):
     """Service process settings."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     host: str
     port: int
@@ -46,7 +46,7 @@ class ServiceConfig(BaseModel):
 class DataConfig(BaseModel):
     """Data directory settings."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     data_dir: str
 
@@ -62,7 +62,7 @@ class DataConfig(BaseModel):
 class ChunkingConfig(BaseModel):
     """Chunking strategy settings."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     chunk_size: int
     overlap: float
@@ -89,7 +89,7 @@ class ChunkingConfig(BaseModel):
 class EmbeddingsConfig(BaseModel):
     """Embedding model settings."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     model_name: str
     dimension: int
@@ -114,7 +114,7 @@ class EmbeddingsConfig(BaseModel):
 class StorageConfig(BaseModel):
     """Storage settings."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     db_filename: str
 
@@ -130,7 +130,7 @@ class StorageConfig(BaseModel):
 class FAISSConfig(BaseModel):
     """FAISS index settings."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     index_type: str
     nprobe: int
@@ -155,7 +155,7 @@ class FAISSConfig(BaseModel):
 class TantivyConfig(BaseModel):
     """Tantivy index settings."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     language: str
     stemming: bool
@@ -172,7 +172,7 @@ class TantivyConfig(BaseModel):
 class IndexConfig(BaseModel):
     """Indexing subsystem settings."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     chunking: ChunkingConfig
     embeddings: EmbeddingsConfig
@@ -184,7 +184,7 @@ class IndexConfig(BaseModel):
 class HybridConfig(BaseModel):
     """Hybrid search weighting settings."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     alpha: float
 
@@ -200,21 +200,21 @@ class HybridConfig(BaseModel):
 
 
 class DenseSearchConfig(BaseModel):
-    """Dense search query-time configuration placeholder."""
+    """Dense search query-time configuration."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
 
 class SparseSearchConfig(BaseModel):
-    """Sparse search query-time configuration placeholder."""
+    """Sparse search query-time configuration."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
 
 class SearchConfig(BaseModel):
     """Search subsystem settings."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     hybrid: HybridConfig
     dense: DenseSearchConfig
@@ -224,7 +224,7 @@ class SearchConfig(BaseModel):
 class Config(BaseModel):
     """Root application configuration."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     service: ServiceConfig
     data: DataConfig

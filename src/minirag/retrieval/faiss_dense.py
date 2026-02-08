@@ -8,6 +8,7 @@ from typing import Protocol, cast
 import numpy as np
 
 from minirag.retrieval.dense_interface import DenseRetrieval
+from minirag.search.types import ScoredChunk
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +23,7 @@ class FaissIndex(Protocol):
         ...
 
     def search(self, query_vectors: np.ndarray, top_k: int) -> tuple[np.ndarray, np.ndarray]:
-        """Search for nearest vectors by inner product."""
+        """Search for nearest vectors by inner product on unit-normalized vectors (cosine similarity)."""
         ...
 
 
@@ -55,7 +56,7 @@ class FAISSDense(DenseRetrieval):
         Args:
             dimension: Embedding dimension.
             index_dir: Directory for FAISS index persistence.
-            nprobe: Probe count for FAISS indexes that support it.
+            nprobe: Stored for future index types that support it (unused by IndexFlatIP).
         """
         if dimension <= 0:
             raise ValueError("dimension must be greater than 0")
@@ -115,7 +116,7 @@ class FAISSDense(DenseRetrieval):
         """Persist the in-memory FAISS index to disk."""
         self._persist_index()
 
-    def search(self, query_embedding: list[float], top_k: int) -> list[tuple[int, float]]:
+    def search(self, query_embedding: list[float], top_k: int) -> list[ScoredChunk]:
         """Search for nearest chunk IDs by cosine similarity."""
         if top_k <= 0:
             raise ValueError("top_k must be greater than 0")
@@ -128,7 +129,7 @@ class FAISSDense(DenseRetrieval):
         scores = score_matrix[0].tolist()
         ids = id_matrix[0].tolist()
 
-        results: list[tuple[int, float]] = []
+        results: list[ScoredChunk] = []
         for chunk_id, score in zip(ids, scores, strict=True):
             if chunk_id == -1:
                 continue
@@ -139,7 +140,7 @@ class FAISSDense(DenseRetrieval):
             if normalized_score > 1.0:
                 normalized_score = 1.0
 
-            results.append((int(chunk_id), normalized_score))
+            results.append(ScoredChunk(chunk_id=int(chunk_id), score=normalized_score))
 
         return results
 
