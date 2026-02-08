@@ -560,7 +560,7 @@ sequenceDiagram
         S->>S: log progress (filename, chunks indexed)
     end
 
-    Note over S: Continues on failure, counts errors, exits 1 if any failed
+    Note over S: Fails immediately on first error
 ```
 
 ### 6.8 Shutdown Sequence

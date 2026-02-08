@@ -48,17 +48,16 @@ def strip_markdown(text: str) -> str:
     return text
 
 
-def convert_file(md_path: Path, txt_path: Path) -> bool:
+def convert_file(md_path: Path, txt_path: Path) -> None:
     """Convert a single markdown file to plain text UTF-8."""
     try:
         content = md_path.read_text(encoding="utf-8")
         content = strip_markdown(content)
         content = decode_unicode_escapes(content)
         txt_path.write_text(content, encoding="utf-8")
-        return True
     except Exception:
         logger.exception("Error converting %s", md_path.name)
-        return False
+        raise
 
 
 def main() -> None:
@@ -77,9 +76,6 @@ def main() -> None:
         logger.info("No .md files found in %s", INPUT_DIR)
         sys.exit(0)
 
-    success = 0
-    failed = 0
-
     for md_file in md_files:
         relative = md_file.relative_to(INPUT_DIR)
         txt_relative = relative.with_suffix(".txt")
@@ -87,18 +83,11 @@ def main() -> None:
 
         txt_file.parent.mkdir(parents=True, exist_ok=True)
 
-        if convert_file(md_file, txt_file):
-            logger.info("  OK: %s -> %s", relative, txt_relative)
-            success += 1
-        else:
-            logger.info("FAIL: %s", relative)
-            failed += 1
+        convert_file(md_file, txt_file)
+        logger.info("  OK: %s -> %s", relative, txt_relative)
 
     logger.info("")
-    logger.info("Done: %d converted, %d failed", success, failed)
-
-    if failed > 0:
-        sys.exit(1)
+    logger.info("Done: %d converted", len(md_files))
 
 
 if __name__ == "__main__":

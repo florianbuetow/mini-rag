@@ -84,7 +84,7 @@
   - Hybrid merge: alpha must be validated in [0.0, 1.0]
   - API responses: uniform envelope format {"status": N, "data": {...}}
   - Error responses: raw exception messages, no sanitization
-  - Ingestion: continue processing all files, count failures, exit 1 if any failed
+  - Ingestion: fail immediately on first error, log the error before propagating
   - Startup: fail-fast on any initialization error
   - All __init__.py files needed for every package
 

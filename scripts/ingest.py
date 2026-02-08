@@ -29,16 +29,17 @@ def resolve_input_dir(data_dir: Path) -> Path:
     return input_dir
 
 
-def ingest_files(client: IndexingClient, input_dir: Path) -> None:
-    """Destroy existing index and ingest all .txt files in sorted order."""
+def ingest_files(client: IndexingClient, input_dir: Path, data_dir: Path) -> None:
+    """Destroy existing index and ingest all .txt files in sorted order.
+
+    Fails immediately if any file fails to index.
+    """
     text_files = sorted(
         [f for f in input_dir.rglob("*.txt") if not f.is_symlink()],
         key=lambda file_path: file_path.name,
     )
 
     logger.info("Found %d text file(s) in %s", len(text_files), input_dir)
-    for file_path in text_files:
-        logger.info("  - %s (%d bytes)", file_path.name, file_path.stat().st_size)
 
     if len(text_files) == 0:
         logger.warning("No .txt files found, nothing to ingest")
@@ -48,40 +49,31 @@ def ingest_files(client: IndexingClient, input_dir: Path) -> None:
     client.destroy_index()
 
     total_chunks = 0
-    success_count = 0
-    failure_count = 0
     for i, file_path in enumerate(text_files, start=1):
+        relative_path = file_path.relative_to(data_dir)
         try:
             file_size = file_path.stat().st_size
-            logger.info("[%d/%d] Sending %s (%d bytes)", i, len(text_files), file_path.name, file_size)
+            logger.info("[%d/%d] Indexing %s (%d bytes)", i, len(text_files), relative_path, file_size)
             file_text = file_path.read_text(encoding="utf-8")
             document_id, chunk_ids = client.index_document(file_text)
             total_chunks += len(chunk_ids)
             logger.info(
-                "[%d/%d] Response: document_id=%s chunk_ids=%s",
+                "[%d/%d] Indexed %s: document_id=%d, chunks=%d",
                 i,
                 len(text_files),
+                relative_path,
                 document_id,
-                chunk_ids,
+                len(chunk_ids),
             )
-            success_count += 1
-        except Exception as exc:
-            failure_count += 1
-            logger.error("[%d/%d] Failed to ingest %s: %s", i, len(text_files), file_path.name, exc)
+        except Exception:
+            logger.exception("[%d/%d] Failed to index %s", i, len(text_files), relative_path)
+            raise
 
-    logger.info(
-        "Summary: %d succeeded, %d failed, %d chunk(s) indexed",
-        success_count,
-        failure_count,
-        total_chunks,
-    )
-
-    if failure_count > 0:
-        raise SystemExit(1)
+    logger.info("Summary: %d file(s) indexed, %d chunk(s) total", len(text_files), total_chunks)
 
 
 def main() -> None:
-    """Load config and run ingestion with failure tracking."""
+    """Load config and run ingestion."""
     configure_logging()
 
     project_root = Path(__file__).resolve().parent.parent
@@ -92,7 +84,7 @@ def main() -> None:
     service_config = config.get_service_config()
     client = IndexingClient(host=service_config.host, port=service_config.port)
 
-    ingest_files(client=client, input_dir=input_dir)
+    ingest_files(client=client, input_dir=input_dir, data_dir=data_dir)
     logger.info("Ingestion completed")
 
 

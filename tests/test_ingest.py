@@ -54,7 +54,7 @@ def test_resolve_input_dir_not_a_directory(tmp_path: Path) -> None:
 def test_ingest_empty_directory(tmp_path: Path) -> None:
     """Empty directory should log warning and not destroy index."""
     client = FakeIndexingClient()
-    ingest_files(client=client, input_dir=tmp_path)  # type: ignore[arg-type]
+    ingest_files(client=client, input_dir=tmp_path, data_dir=tmp_path)  # type: ignore[arg-type]
     assert not client.destroyed
     assert client.indexed == []
 
@@ -65,23 +65,22 @@ def test_ingest_successful(tmp_path: Path) -> None:
     (tmp_path / "b.txt").write_text("beta content", encoding="utf-8")
 
     client = FakeIndexingClient()
-    ingest_files(client=client, input_dir=tmp_path)  # type: ignore[arg-type]
+    ingest_files(client=client, input_dir=tmp_path, data_dir=tmp_path)  # type: ignore[arg-type]
 
     assert client.destroyed
     assert len(client.indexed) == 2
 
 
-def test_ingest_partial_failure_continues_and_exits_1(tmp_path: Path) -> None:
-    """Partial failure should continue processing and raise SystemExit(1)."""
+def test_ingest_fails_fast_on_first_error(tmp_path: Path) -> None:
+    """Failure should propagate immediately without processing remaining files."""
     (tmp_path / "a.txt").write_text("good", encoding="utf-8")
     (tmp_path / "b.txt").write_text("bad", encoding="utf-8")
     (tmp_path / "c.txt").write_text("also good", encoding="utf-8")
 
     client = FakeIndexingClient(fail_on={"bad"})
 
-    with pytest.raises(SystemExit) as exc_info:
-        ingest_files(client=client, input_dir=tmp_path)  # type: ignore[arg-type]
+    with pytest.raises(RuntimeError, match="simulated failure for: bad"):
+        ingest_files(client=client, input_dir=tmp_path, data_dir=tmp_path)  # type: ignore[arg-type]
 
-    assert exc_info.value.code == 1
-    assert len(client.indexed) == 2
     assert client.destroyed
+    assert len(client.indexed) == 1  # only a.txt; c.txt was never reached
