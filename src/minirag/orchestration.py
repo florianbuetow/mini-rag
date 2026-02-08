@@ -1,5 +1,6 @@
 """Orchestration layer coordinating indexing and search backends."""
 
+import json
 import logging
 
 from minirag.config import ChunkingConfig, SearchConfig
@@ -77,20 +78,23 @@ class Orchestration:
         self._sparse.destroy()
         logger.info("Destroyed full mini-rag index")
 
-    def _resolve_results(self, scored_chunk_ids: list[ScoredChunk]) -> list[SearchResult]:
+    def _resolve_results(self, scored_chunk_ids: list[ScoredChunk], source: str) -> list[SearchResult]:
         """Resolve chunk IDs from retrieval engines into SearchResult payloads."""
         resolved_results: list[SearchResult] = []
+        score_log: dict[str, dict[str, float | int]] = {}
         skipped_count = 0
         for chunk_id, score in scored_chunk_ids:
             try:
-                _, chunk_text_value = self._storage.get_chunk(chunk_id=chunk_id)
+                document_id, chunk_text_value = self._storage.get_chunk(chunk_id=chunk_id)
             except ValueError:
                 logger.warning("Skipping stale chunk_id=%s: not found in storage", chunk_id)
                 skipped_count += 1
                 continue
             resolved_results.append(SearchResult(chunk_id=chunk_id, text=chunk_text_value, score=score))
+            score_log[str(chunk_id)] = {"score": round(score, 4), "doc_id": document_id}
         if skipped_count > 0:
             logger.warning("Skipped %d stale chunk(s) during result resolution", skipped_count)
+        logger.debug("%s: %s", source, json.dumps(score_log))
         return resolved_results
 
     def search_dense(self, query: str, top_k: int) -> list[SearchResult]:
@@ -103,7 +107,7 @@ class Orchestration:
 
         query_embedding = self._embeddings.embed([query])[0]
         dense_matches = self._dense.search(query_embedding=query_embedding, top_k=top_k)
-        return self._resolve_results(scored_chunk_ids=dense_matches)
+        return self._resolve_results(scored_chunk_ids=dense_matches, source="dense")
 
     def search_sparse(self, query: str, top_k: int) -> list[SearchResult]:
         """Run sparse search and resolve chunk texts."""
@@ -114,7 +118,7 @@ class Orchestration:
             raise ValueError("top_k must be greater than 0")
 
         sparse_matches = self._sparse.search(query=query, top_k=top_k)
-        return self._resolve_results(scored_chunk_ids=sparse_matches)
+        return self._resolve_results(scored_chunk_ids=sparse_matches, source="sparse")
 
     def search_hybrid(self, query: str, top_k: int) -> list[SearchResult]:
         """Run hybrid search by merging dense and sparse result sets."""
