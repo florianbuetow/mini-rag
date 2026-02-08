@@ -49,27 +49,39 @@ def ingest_files(client: IndexingClient, input_dir: Path, data_dir: Path) -> Non
     client.destroy_index()
 
     total_chunks = 0
+    indexed_count = 0
+    skipped_count = 0
+    num_files = len(text_files)
     for i, file_path in enumerate(text_files, start=1):
         relative_path = file_path.relative_to(data_dir)
         try:
             file_size = file_path.stat().st_size
-            logger.info("[%d/%d] Indexing %s (%d bytes)", i, len(text_files), relative_path, file_size)
             file_text = file_path.read_text(encoding="utf-8")
-            document_id, chunk_ids = client.index_document(file_text)
+            if not file_text.strip():
+                skipped_count += 1
+                remaining = num_files - indexed_count - skipped_count
+                logger.warning("[%d/%d] Skipping %s (empty content) — %d indexed, %d remaining",
+                               i, num_files, relative_path, indexed_count, remaining)
+                continue
+            _document_id, chunk_ids = client.index_document(file_text)
+            indexed_count += 1
             total_chunks += len(chunk_ids)
+            remaining = num_files - indexed_count - skipped_count
             logger.info(
-                "[%d/%d] Indexed %s: document_id=%d, chunks=%d",
+                "[%d/%d] Indexed %s (%d bytes, %d chunks) — %d indexed, %d remaining",
                 i,
-                len(text_files),
+                num_files,
                 relative_path,
-                document_id,
+                file_size,
                 len(chunk_ids),
+                indexed_count,
+                remaining,
             )
         except Exception:
-            logger.exception("[%d/%d] Failed to index %s", i, len(text_files), relative_path)
+            logger.exception("[%d/%d] Failed to index %s", i, num_files, relative_path)
             raise
 
-    logger.info("Summary: %d file(s) indexed, %d chunk(s) total", len(text_files), total_chunks)
+    logger.info("Summary: %d file(s) indexed, %d skipped, %d chunk(s) total", indexed_count, skipped_count, total_chunks)
 
 
 def main() -> None:
