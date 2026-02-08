@@ -81,7 +81,7 @@ def ingest_files(client: IndexingClient, input_dir: Path) -> None:
 
 
 def main() -> None:
-    """Load config and run fail-hard ingestion."""
+    """Load config and run ingestion with failure tracking."""
     configure_logging()
 
     project_root = Path(__file__).resolve().parent.parent

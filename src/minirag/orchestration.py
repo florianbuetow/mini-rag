@@ -80,13 +80,17 @@ class Orchestration:
     def _resolve_results(self, scored_chunk_ids: list[ScoredChunk]) -> list[SearchResult]:
         """Resolve chunk IDs from retrieval engines into SearchResult payloads."""
         resolved_results: list[SearchResult] = []
+        skipped_count = 0
         for chunk_id, score in scored_chunk_ids:
             try:
                 _, chunk_text_value = self._storage.get_chunk(chunk_id=chunk_id)
             except ValueError:
                 logger.warning("Skipping stale chunk_id=%s: not found in storage", chunk_id)
+                skipped_count += 1
                 continue
             resolved_results.append(SearchResult(chunk_id=chunk_id, text=chunk_text_value, score=score))
+        if skipped_count > 0:
+            logger.warning("Skipped %d stale chunk(s) during result resolution", skipped_count)
         return resolved_results
 
     def search_dense(self, query: str, top_k: int) -> list[SearchResult]:

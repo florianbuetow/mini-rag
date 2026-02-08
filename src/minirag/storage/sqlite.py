@@ -2,6 +2,7 @@
 
 import logging
 import sqlite3
+import threading
 from pathlib import Path
 
 from minirag.storage.interface import Storage
@@ -28,43 +29,47 @@ class SQLiteStorage(Storage):
             check_same_thread=False,
         )
         self._connection.execute("PRAGMA foreign_keys = ON")
+        self._connection.execute("PRAGMA journal_mode=WAL")
+        self._lock = threading.Lock()
         self._create_tables()
 
     def _create_tables(self) -> None:
         """Create required tables when missing."""
-        cursor = self._connection.cursor()
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS documents (
-                document_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                content TEXT NOT NULL
+        with self._lock:
+            cursor = self._connection.cursor()
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS documents (
+                    document_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    content TEXT NOT NULL
+                )
+                """
             )
-            """
-        )
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS chunks (
-                chunk_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                document_id INTEGER NOT NULL,
-                content TEXT NOT NULL,
-                FOREIGN KEY (document_id) REFERENCES documents(document_id)
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS chunks (
+                    chunk_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    document_id INTEGER NOT NULL,
+                    content TEXT NOT NULL,
+                    FOREIGN KEY (document_id) REFERENCES documents(document_id)
+                )
+                """
             )
-            """
-        )
-        self._connection.commit()
+            self._connection.commit()
 
     def insert_document(self, content: str) -> int:
         """Store a document and return its generated ID."""
         if content.strip() == "":
             raise ValueError("document content must not be empty")
 
-        cursor = self._connection.cursor()
-        cursor.execute("INSERT INTO documents(content) VALUES (?)", (content,))
-        self._connection.commit()
+        with self._lock:
+            cursor = self._connection.cursor()
+            cursor.execute("INSERT INTO documents(content) VALUES (?)", (content,))
+            self._connection.commit()
 
-        row_id = cursor.lastrowid
-        if row_id is None:
-            raise ValueError("failed to retrieve inserted document ID")
+            row_id = cursor.lastrowid
+            if row_id is None:
+                raise ValueError("failed to retrieve inserted document ID")
 
         logger.debug("Inserted document with ID %s", row_id)
         return int(row_id)
@@ -77,16 +82,17 @@ class SQLiteStorage(Storage):
         if content.strip() == "":
             raise ValueError("chunk content must not be empty")
 
-        cursor = self._connection.cursor()
-        cursor.execute(
-            "INSERT INTO chunks(document_id, content) VALUES (?, ?)",
-            (document_id, content),
-        )
-        self._connection.commit()
+        with self._lock:
+            cursor = self._connection.cursor()
+            cursor.execute(
+                "INSERT INTO chunks(document_id, content) VALUES (?, ?)",
+                (document_id, content),
+            )
+            self._connection.commit()
 
-        row_id = cursor.lastrowid
-        if row_id is None:
-            raise ValueError("failed to retrieve inserted chunk ID")
+            row_id = cursor.lastrowid
+            if row_id is None:
+                raise ValueError("failed to retrieve inserted chunk ID")
 
         logger.debug("Inserted chunk with ID %s for document ID %s", row_id, document_id)
         return int(row_id)
@@ -137,12 +143,14 @@ class SQLiteStorage(Storage):
 
     def close(self) -> None:
         """Close the SQLite database connection."""
-        self._connection.close()
+        with self._lock:
+            self._connection.close()
 
     def destroy(self) -> None:
         """Delete all rows from documents and chunks."""
-        cursor = self._connection.cursor()
-        cursor.execute("DELETE FROM chunks")
-        cursor.execute("DELETE FROM documents")
-        self._connection.commit()
+        with self._lock:
+            cursor = self._connection.cursor()
+            cursor.execute("DELETE FROM chunks")
+            cursor.execute("DELETE FROM documents")
+            self._connection.commit()
         logger.info("Destroyed SQLite storage contents at %s", self._database_path)

@@ -71,6 +71,48 @@ def test_config_missing_file_raises(tmp_path: Path) -> None:
         Config.from_yaml(missing_path)
 
 
+def _make_config(tmp_path: Path, data_dir: str) -> Config:
+    """Write config yaml and parse it."""
+    config_path = tmp_path / "config.yaml"
+    write_config(config_path, data_dir=data_dir)
+    return Config.from_yaml(config_path)
+
+
+def test_validate_startup_missing_data_dir(tmp_path: Path) -> None:
+    """Startup validation should fail when data directory does not exist."""
+    config = _make_config(tmp_path, data_dir=str(tmp_path / "nonexistent"))
+    with pytest.raises(FileNotFoundError, match="data directory not found"):
+        config.validate_startup(tmp_path)
+
+
+def test_validate_startup_data_dir_is_file(tmp_path: Path) -> None:
+    """Startup validation should fail when data path is a file, not directory."""
+    fake_dir = tmp_path / "data"
+    fake_dir.write_text("not a directory")
+    config = _make_config(tmp_path, data_dir=str(fake_dir))
+    with pytest.raises(ValueError, match="data path is not a directory"):
+        config.validate_startup(tmp_path)
+
+
+def test_validate_startup_missing_model(tmp_path: Path) -> None:
+    """Startup validation should fail when embedding model file is missing."""
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    config = _make_config(tmp_path, data_dir=str(data_dir))
+    with pytest.raises(FileNotFoundError, match="embedding model file not found"):
+        config.validate_startup(tmp_path)
+
+
+def test_validate_startup_model_is_directory(tmp_path: Path) -> None:
+    """Startup validation should fail when model path is a directory."""
+    data_dir = tmp_path / "data"
+    model_path = data_dir / "models" / "cc.en.300.bin"
+    model_path.mkdir(parents=True)
+    config = _make_config(tmp_path, data_dir=str(data_dir))
+    with pytest.raises(ValueError, match="embedding model path is not a file"):
+        config.validate_startup(tmp_path)
+
+
 def test_config_missing_required_key_raises(tmp_path: Path) -> None:
     """Missing required nested key should fail pydantic validation."""
     config_path = tmp_path / "config.yaml"

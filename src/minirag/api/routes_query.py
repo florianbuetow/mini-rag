@@ -1,5 +1,6 @@
 """Query routes for dense, sparse, and hybrid search."""
 
+import asyncio
 import json
 import logging
 
@@ -48,12 +49,16 @@ async def query_dense(request: Request) -> JSONResponse:
 
     orchestration = get_orchestration(request)
     try:
-        results = orchestration.search_dense(
+        results = await asyncio.to_thread(
+            orchestration.search_dense,
             query=parsed_payload.query,
             top_k=parsed_payload.top_k,
         )
     except ValueError as exc:
         return error_response(status=400, message=str(exc))
+    except RuntimeError as exc:
+        logger.exception("Failed to execute dense search")
+        return error_response(status=500, message=str(exc))
     except Exception:
         logger.exception("Failed to execute dense search")
         return error_response(status=500, message="Internal server error")
@@ -75,12 +80,16 @@ async def query_sparse(request: Request) -> JSONResponse:
 
     orchestration = get_orchestration(request)
     try:
-        results = orchestration.search_sparse(
+        results = await asyncio.to_thread(
+            orchestration.search_sparse,
             query=parsed_payload.query,
             top_k=parsed_payload.top_k,
         )
     except ValueError as exc:
         return error_response(status=400, message=str(exc))
+    except RuntimeError as exc:
+        logger.exception("Failed to execute sparse search")
+        return error_response(status=500, message=str(exc))
     except Exception:
         logger.exception("Failed to execute sparse search")
         return error_response(status=500, message="Internal server error")
@@ -102,12 +111,16 @@ async def query_hybrid(request: Request) -> JSONResponse:
 
     orchestration = get_orchestration(request)
     try:
-        results = orchestration.search_hybrid(
+        results = await asyncio.to_thread(
+            orchestration.search_hybrid,
             query=parsed_payload.query,
             top_k=parsed_payload.top_k,
         )
     except ValueError as exc:
         return error_response(status=400, message=str(exc))
+    except RuntimeError as exc:
+        logger.exception("Failed to execute hybrid search")
+        return error_response(status=500, message=str(exc))
     except Exception:
         logger.exception("Failed to execute hybrid search")
         return error_response(status=500, message="Internal server error")

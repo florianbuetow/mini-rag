@@ -161,9 +161,18 @@ def test_index_value_error_returns_400() -> None:
     assert "bad input" in resp.json()["error"]
 
 
+def test_index_runtime_error_returns_500_with_message() -> None:
+    """RuntimeError from orchestration should return 500 with error message."""
+    client = _make_error_client(RuntimeError("boom"))
+
+    resp = client.post("/v1/index", json={"document": "hello world"})
+    assert resp.status_code == 500
+    assert resp.json()["error"] == "boom"
+
+
 def test_index_unexpected_error_returns_500() -> None:
     """Unexpected exception from orchestration should return 500."""
-    client = _make_error_client(RuntimeError("boom"))
+    client = _make_error_client(OSError("disk failed"))
 
     resp = client.post("/v1/index", json={"document": "hello world"})
     assert resp.status_code == 500
@@ -179,9 +188,18 @@ def test_query_dense_value_error_returns_400() -> None:
     assert "bad query" in resp.json()["error"]
 
 
+def test_query_dense_runtime_error_returns_500_with_message() -> None:
+    """RuntimeError from dense search should return 500 with error message."""
+    client = _make_error_client(RuntimeError("boom"))
+
+    resp = client.post("/v1/query/dense", json={"query": "hello", "top_k": 3})
+    assert resp.status_code == 500
+    assert resp.json()["error"] == "boom"
+
+
 def test_query_dense_unexpected_error_returns_500() -> None:
     """Unexpected exception from dense search should return 500."""
-    client = _make_error_client(RuntimeError("boom"))
+    client = _make_error_client(OSError("disk failed"))
 
     resp = client.post("/v1/query/dense", json={"query": "hello", "top_k": 3})
     assert resp.status_code == 500
@@ -197,9 +215,18 @@ def test_destroy_index_success() -> None:
     assert resp.json()["data"]["message"] == "index destroyed"
 
 
-def test_destroy_index_error_returns_500() -> None:
-    """Exception from destroy should return 500."""
+def test_destroy_index_runtime_error_returns_500_with_message() -> None:
+    """RuntimeError from destroy should return 500 with error message."""
     client = _make_error_client(RuntimeError("disk failure"))
+
+    resp = client.delete("/v1/index")
+    assert resp.status_code == 500
+    assert resp.json()["error"] == "disk failure"
+
+
+def test_destroy_index_unexpected_error_returns_500() -> None:
+    """Unexpected exception from destroy should return 500."""
+    client = _make_error_client(OSError("disk failed"))
 
     resp = client.delete("/v1/index")
     assert resp.status_code == 500
@@ -241,6 +268,60 @@ def test_missing_required_fields_returns_422() -> None:
 
     resp = client.post("/v1/query/dense", json={"query": "hello"})
     assert resp.status_code == 422
+
+
+def test_query_sparse_value_error_returns_400() -> None:
+    """ValueError from sparse search should return 400."""
+    client = _make_error_client(ValueError("bad sparse query"))
+
+    resp = client.post("/v1/query/sparse", json={"query": "hello", "top_k": 3})
+    assert resp.status_code == 400
+    assert "bad sparse query" in resp.json()["error"]
+
+
+def test_query_sparse_runtime_error_returns_500_with_message() -> None:
+    """RuntimeError from sparse search should return 500 with error message."""
+    client = _make_error_client(RuntimeError("boom"))
+
+    resp = client.post("/v1/query/sparse", json={"query": "hello", "top_k": 3})
+    assert resp.status_code == 500
+    assert resp.json()["error"] == "boom"
+
+
+def test_query_sparse_unexpected_error_returns_500() -> None:
+    """Unexpected exception from sparse search should return 500."""
+    client = _make_error_client(OSError("disk failed"))
+
+    resp = client.post("/v1/query/sparse", json={"query": "hello", "top_k": 3})
+    assert resp.status_code == 500
+    assert resp.json()["error"] == "Internal server error"
+
+
+def test_query_hybrid_value_error_returns_400() -> None:
+    """ValueError from hybrid search should return 400."""
+    client = _make_error_client(ValueError("bad hybrid query"))
+
+    resp = client.post("/v1/query/hybrid", json={"query": "hello", "top_k": 3})
+    assert resp.status_code == 400
+    assert "bad hybrid query" in resp.json()["error"]
+
+
+def test_query_hybrid_runtime_error_returns_500_with_message() -> None:
+    """RuntimeError from hybrid search should return 500 with error message."""
+    client = _make_error_client(RuntimeError("boom"))
+
+    resp = client.post("/v1/query/hybrid", json={"query": "hello", "top_k": 3})
+    assert resp.status_code == 500
+    assert resp.json()["error"] == "boom"
+
+
+def test_query_hybrid_unexpected_error_returns_500() -> None:
+    """Unexpected exception from hybrid search should return 500."""
+    client = _make_error_client(OSError("disk failed"))
+
+    resp = client.post("/v1/query/hybrid", json={"query": "hello", "top_k": 3})
+    assert resp.status_code == 500
+    assert resp.json()["error"] == "Internal server error"
 
 
 def test_invalid_field_values_return_422() -> None:

@@ -135,6 +135,81 @@ def test_orchestration_index_and_search() -> None:
     assert isinstance(hybrid_results[0], SearchResult)
 
 
+class FailOnSecondChunkStorage(FakeStorage):
+    """Fake storage that raises on the second insert_chunk call."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._chunk_insert_count = 0
+
+    def insert_chunk(self, document_id: int, content: str) -> int:
+        self._chunk_insert_count += 1
+        if self._chunk_insert_count == 2:
+            raise RuntimeError("simulated storage failure on chunk 2")
+        return super().insert_chunk(document_id=document_id, content=content)
+
+
+class StaleChunkStorage(FakeStorage):
+    """Fake storage that raises ValueError for a specific chunk_id on get_chunk."""
+
+    def __init__(self, stale_chunk_id: int) -> None:
+        super().__init__()
+        self._stale_chunk_id = stale_chunk_id
+
+    def get_chunk(self, chunk_id: int) -> tuple[int, str]:
+        if chunk_id == self._stale_chunk_id:
+            raise ValueError(f"chunk not found: {chunk_id}")
+        return super().get_chunk(chunk_id)
+
+
+def test_orchestration_partial_chunk_failure() -> None:
+    """Partial chunk indexing failure should raise RuntimeError with first chunk stored."""
+    storage = FailOnSecondChunkStorage()
+    search_config = SearchConfig(
+        hybrid=HybridConfig(alpha=0.5),
+        dense=DenseSearchConfig(),
+        sparse=SparseSearchConfig(),
+    )
+    orchestration = Orchestration(
+        chunking_config=ChunkingConfig(chunk_size=4, overlap=0.5),
+        embeddings=cast(FastTextEmbeddings, FakeEmbeddings()),
+        storage=cast(Storage, storage),
+        dense=cast(DenseRetrieval, FakeDense()),
+        sparse=cast(SparseRetrieval, FakeSparse()),
+        search_config=search_config,
+    )
+
+    with pytest.raises(RuntimeError, match="failed to index chunk"):
+        orchestration.index_document("one two three four five six seven eight")
+
+    assert len(storage.chunks) == 1
+
+
+def test_orchestration_skips_stale_chunks() -> None:
+    """Search should skip stale chunks not found in storage."""
+    storage = StaleChunkStorage(stale_chunk_id=2)
+    search_config = SearchConfig(
+        hybrid=HybridConfig(alpha=0.5),
+        dense=DenseSearchConfig(),
+        sparse=SparseSearchConfig(),
+    )
+    orchestration = Orchestration(
+        chunking_config=ChunkingConfig(chunk_size=4, overlap=0.5),
+        embeddings=cast(FastTextEmbeddings, FakeEmbeddings()),
+        storage=cast(Storage, storage),
+        dense=cast(DenseRetrieval, FakeDense()),
+        sparse=cast(SparseRetrieval, FakeSparse()),
+        search_config=search_config,
+    )
+
+    orchestration.index_document("one two three four five six seven eight")
+
+    results = orchestration.search_dense(query="one", top_k=10)
+    chunk_ids_in_results = [r.chunk_id for r in results]
+    assert 2 not in chunk_ids_in_results
+    assert len(results) >= 1
+
+
 def test_orchestration_destroy_and_validation() -> None:
     """Destroy should clear backends and invalid inputs should fail."""
     orchestration = make_orchestration()

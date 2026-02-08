@@ -1,5 +1,6 @@
 """Index management routes."""
 
+import asyncio
 import json
 import logging
 
@@ -42,9 +43,12 @@ async def index_document(request: Request) -> JSONResponse:
     orchestration = get_orchestration(request)
 
     try:
-        document_id, chunk_ids = orchestration.index_document(parsed_payload.document)
+        document_id, chunk_ids = await asyncio.to_thread(orchestration.index_document, parsed_payload.document)
     except ValueError as exc:
         return error_response(status=400, message=str(exc))
+    except RuntimeError as exc:
+        logger.exception("Failed to index document")
+        return error_response(status=500, message=str(exc))
     except Exception:
         logger.exception("Failed to index document")
         return error_response(status=500, message="Internal server error")
@@ -66,9 +70,12 @@ async def destroy_index(request: Request) -> JSONResponse:
 
     orchestration = get_orchestration(request)
     try:
-        orchestration.destroy_index()
+        await asyncio.to_thread(orchestration.destroy_index)
     except ValueError as exc:
         return error_response(status=400, message=str(exc))
+    except RuntimeError as exc:
+        logger.exception("Failed to destroy index")
+        return error_response(status=500, message=str(exc))
     except Exception:
         logger.exception("Failed to destroy index")
         return error_response(status=500, message="Internal server error")

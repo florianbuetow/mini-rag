@@ -154,7 +154,7 @@ Error:    {"status": 503, "error": "service is shutting_down"}
 
 Guarded by `ensure_healthy()`.
 
-### 4.6 GET /v1/query/dense
+### 4.6 POST /v1/query/dense
 
 ```
 Request:  {"query": "search terms", "top_k": 5}
@@ -163,7 +163,7 @@ Empty:    {"status": 200, "data": {"results": []}}
 Error:    {"status": 503, "error": "service is shutting_down"}
 ```
 
-Uses GET because this is a data retrieval operation (the JSON body carries query parameters, not data to be stored). Guarded by `ensure_healthy()`.
+Guarded by `ensure_healthy()`.
 
 Validation at API boundary (Pydantic model `QueryRequest`):
 
@@ -172,11 +172,11 @@ Validation at API boundary (Pydantic model `QueryRequest`):
 
 Scores are cosine similarities in [0, 1]. An empty results list is returned when no matches are found or when the index is empty — this is not an error.
 
-### 4.7 GET /v1/query/sparse
+### 4.7 POST /v1/query/sparse
 
 Same request/response format as dense. Guarded by `ensure_healthy()`. Scores are BM25 scores normalized to [0, 1].
 
-### 4.8 GET /v1/query/hybrid
+### 4.8 POST /v1/query/hybrid
 
 Same request/response format as dense. Guarded by `ensure_healthy()`. Scores are alpha-weighted combination of dense and sparse scores.
 
@@ -230,6 +230,7 @@ vectors: list[list[float]] = embeddings.embed(texts: list[str])
 | `insert_chunk(document_id: int, content: str)` | parent document ID, chunk text | `int` — chunk_id (autoincrement) |
 | `get_document(document_id: int)` | document ID | `str` — document content |
 | `get_chunk(chunk_id: int)` | chunk ID | `tuple[int, str]` — (document_id, chunk_content) |
+| `close()` | (none) | `None` — closes database connection |
 | `destroy()` | (none) | `None` — wipes all tables |
 
 All IDs are assigned by SQLite autoincrement. The storage layer does not generate or validate embeddings.
@@ -239,7 +240,8 @@ All IDs are assigned by SQLite autoincrement. The storage layer does not generat
 | Method | Input | Output |
 |---|---|---|
 | `index(chunk_id: int, embedding: list[float])` | chunk ID + unit-normalized vector | `None` |
-| `search(query_embedding: list[float], top_k: int)` | unit-normalized query vector + limit | `list[tuple[int, float]]` — (chunk_id, score) sorted by score desc |
+| `search(query_embedding: list[float], top_k: int)` | unit-normalized query vector + limit | `list[ScoredChunk]` — (chunk_id, score) sorted by score desc |
+| `persist()` | (none) | `None` — flushes index to disk |
 | `destroy()` | (none) | `None` — wipes FAISS index files |
 
 Scores are inner products on unit-normalized vectors, naturally in [0, 1] (cosine similarity).
@@ -249,7 +251,8 @@ Scores are inner products on unit-normalized vectors, naturally in [0, 1] (cosin
 | Method | Input | Output |
 |---|---|---|
 | `index(chunk_id: int, content: str)` | chunk ID + chunk text | `None` |
-| `search(query: str, top_k: int)` | query string + limit | `list[tuple[int, float]]` — (chunk_id, score) sorted by score desc |
+| `search(query: str, top_k: int)` | query string + limit | `list[ScoredChunk]` — (chunk_id, score) sorted by score desc |
+| `persist()` | (none) | `None` — flushes index to disk |
 | `destroy()` | (none) | `None` — wipes Tantivy index files |
 
 Scores are BM25 relevance scores normalized to [0, 1] by dividing by the maximum score in the result set.
@@ -429,7 +432,7 @@ sequenceDiagram
     participant D as FAISSDense
     participant ST as SQLiteStorage
 
-    C->>R: GET /v1/query/dense {"query": "q", "top_k": 5}
+    C->>R: POST /v1/query/dense {"query": "q", "top_k": 5}
     R->>U: ensure_healthy(request)
     U-->>R: ok (app_status is "healthy")
     R->>PM: validate request body
@@ -462,7 +465,7 @@ sequenceDiagram
     participant SP as TantivySparse
     participant ST as SQLiteStorage
 
-    C->>R: GET /v1/query/sparse {"query": "q", "top_k": 5}
+    C->>R: POST /v1/query/sparse {"query": "q", "top_k": 5}
     R->>U: ensure_healthy(request)
     U-->>R: ok (app_status is "healthy")
     R->>PM: validate request body
@@ -494,7 +497,7 @@ sequenceDiagram
     participant ST as SQLiteStorage
     participant HY as hybrid_merge()
 
-    C->>R: GET /v1/query/hybrid {"query": "q", "top_k": 5}
+    C->>R: POST /v1/query/hybrid {"query": "q", "top_k": 5}
     R->>U: ensure_healthy(request)
     U-->>R: ok (app_status is "healthy")
     R->>PM: validate request body
@@ -557,7 +560,7 @@ sequenceDiagram
         S->>S: log progress (filename, chunks indexed)
     end
 
-    Note over S: If any file fails, process exits immediately (fail-hard)
+    Note over S: Continues on failure, counts errors, exits 1 if any failed
 ```
 
 ### 6.8 Shutdown Sequence
@@ -582,7 +585,7 @@ sequenceDiagram
     RA->>APP: read app_status
     RA-->>C2: {"status": 503, "data": {"status": "shutting_down"}}
 
-    C2->>R: GET /v1/query/dense (or any guarded endpoint)
+    C2->>R: POST /v1/query/dense (or any guarded endpoint)
     R->>U: ensure_healthy(request)
     U->>APP: read app_status
     U-->>R: error response (not healthy)
@@ -620,6 +623,7 @@ sequenceDiagram
 ```python
 @dataclass
 class SearchResult:
+    chunk_id: int  # storage chunk identifier
     text: str      # chunk text content
     score: float   # normalized relevance score in [0.0, 1.0]
 ```
@@ -627,10 +631,10 @@ class SearchResult:
 ### 8.2 Retrieval Interface Return Type
 
 ```python
-list[tuple[int, float]]  # [(chunk_id, score), ...] sorted by score descending
+list[ScoredChunk]  # [ScoredChunk(chunk_id, score), ...] sorted by score descending
 ```
 
-Used by `DenseRetrieval.search()` and `SparseRetrieval.search()`. The orchestration layer resolves chunk IDs to text via `Storage.get_chunk()`.
+`ScoredChunk` is a `NamedTuple` with fields `chunk_id: int` and `score: float`. Used by `DenseRetrieval.search()` and `SparseRetrieval.search()`. The orchestration layer resolves chunk IDs to text via `Storage.get_chunk()`.
 
 ### 8.3 Pydantic API Models (api/models/)
 
