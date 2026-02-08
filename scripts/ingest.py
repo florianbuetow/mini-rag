@@ -48,26 +48,36 @@ def ingest_files(client: IndexingClient, input_dir: Path) -> None:
     client.destroy_index()
 
     total_chunks = 0
+    success_count = 0
+    failure_count = 0
     for i, file_path in enumerate(text_files, start=1):
-        file_size = file_path.stat().st_size
-        logger.info("[%d/%d] Sending %s (%d bytes)", i, len(text_files), file_path.name, file_size)
-        file_text = file_path.read_text(encoding="utf-8")
-        document_id, chunk_ids = client.index_document(file_text)
-        total_chunks += len(chunk_ids)
-        logger.info(
-            "[%d/%d] Response: document_id=%s chunk_ids=%s",
-            i,
-            len(text_files),
-            document_id,
-            chunk_ids,
-        )
+        try:
+            file_size = file_path.stat().st_size
+            logger.info("[%d/%d] Sending %s (%d bytes)", i, len(text_files), file_path.name, file_size)
+            file_text = file_path.read_text(encoding="utf-8")
+            document_id, chunk_ids = client.index_document(file_text)
+            total_chunks += len(chunk_ids)
+            logger.info(
+                "[%d/%d] Response: document_id=%s chunk_ids=%s",
+                i,
+                len(text_files),
+                document_id,
+                chunk_ids,
+            )
+            success_count += 1
+        except Exception as exc:
+            failure_count += 1
+            logger.error("[%d/%d] Failed to ingest %s: %s", i, len(text_files), file_path.name, exc)
 
     logger.info(
-        "Summary: %d file(s) ingested, %d document(s) created, %d chunk(s) indexed",
-        len(text_files),
-        len(text_files),
+        "Summary: %d succeeded, %d failed, %d chunk(s) indexed",
+        success_count,
+        failure_count,
         total_chunks,
     )
+
+    if failure_count > 0:
+        raise SystemExit(1)
 
 
 def main() -> None:

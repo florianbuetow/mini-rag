@@ -32,7 +32,7 @@ init:
     mkdir -p scripts
     mkdir -p prompts
     echo "Installing Python dependencies..."
-    uv sync --all-extras
+    uv sync
     if [ ! -f config.yaml ]; then
         cp config.yaml.template config.yaml
         echo "Copied config.yaml.template to config.yaml"
