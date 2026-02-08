@@ -84,3 +84,17 @@ def test_ingest_fails_fast_on_first_error(tmp_path: Path) -> None:
 
     assert client.destroyed
     assert len(client.indexed) == 1  # only a.txt; c.txt was never reached
+
+
+def test_ingest_skips_empty_files(tmp_path: Path) -> None:
+    """Files with empty or whitespace-only content should be skipped."""
+    (tmp_path / "a.txt").write_text("real content", encoding="utf-8")
+    (tmp_path / "b.txt").write_text("", encoding="utf-8")
+    (tmp_path / "c.txt").write_text("   \n\t  \n", encoding="utf-8")
+    (tmp_path / "d.txt").write_text("also real", encoding="utf-8")
+
+    client = FakeIndexingClient()
+    ingest_files(client=client, input_dir=tmp_path, data_dir=tmp_path)  # type: ignore[arg-type]
+
+    assert client.destroyed
+    assert len(client.indexed) == 2
