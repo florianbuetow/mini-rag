@@ -2,11 +2,22 @@
 
 import threading
 from pathlib import Path
-from unittest.mock import MagicMock
 
 import pytest
 
 from minirag.corpus import CorpusManager, validate_corpus_name
+
+
+class FakeIndexConfig:
+    pass
+
+
+class FakeSearchConfig:
+    pass
+
+
+class FakeEmbeddings:
+    pass
 
 
 class TestValidateCorpusName:
@@ -49,9 +60,9 @@ class TestCorpusManager:
     def manager(self, tmp_path: Path) -> CorpusManager:
         mgr = CorpusManager(
             data_dir=tmp_path,
-            index_config=MagicMock(),
-            search_config=MagicMock(),
-            embeddings=MagicMock(),
+            index_config=FakeIndexConfig(),  # type: ignore[arg-type]
+            search_config=FakeSearchConfig(),  # type: ignore[arg-type]
+            embeddings=FakeEmbeddings(),  # type: ignore[arg-type]
         )
         mgr._create_orchestration = lambda corpus: FakeOrchestration()  # type: ignore[assignment]
         return mgr
@@ -111,3 +122,50 @@ class TestCorpusManager:
 
         assert len(results) == 10
         assert all(r is results[0] for r in results)
+
+    def test_close_all_clears_cache_on_error(self, manager: CorpusManager) -> None:
+        """close_all() should clear cache even when close_storage raises."""
+        orch_a = manager.get("alpha")
+        orch_b = manager.get("beta")
+        assert isinstance(orch_a, FakeOrchestration)
+        assert isinstance(orch_b, FakeOrchestration)
+
+        # Make one close_storage raise
+        def failing_close() -> None:
+            raise RuntimeError("disk error")
+
+        orch_a.close_storage = failing_close  # type: ignore[assignment]
+
+        with pytest.raises(RuntimeError, match="failed to close storage for corpora: alpha"):
+            manager.close_all()
+
+        # Cache must still be cleared — next get() returns a fresh instance
+        assert manager.get("alpha") is not orch_a
+        # The non-failing one should still have been closed
+        assert orch_b.closed
+
+    def test_destroy_calls_close_even_on_destroy_error(self, manager: CorpusManager) -> None:
+        """destroy() should call close_storage even when destroy_index raises."""
+        orch = manager.get("books")
+        assert isinstance(orch, FakeOrchestration)
+
+        def failing_destroy() -> None:
+            raise RuntimeError("destroy failed")
+
+        orch.destroy_index = failing_destroy  # type: ignore[assignment]
+
+        with pytest.raises(RuntimeError, match="destroy failed"):
+            manager.destroy("books")
+
+        assert orch.closed
+        # Cache should no longer hold the old instance
+        assert manager.get("books") is not orch
+
+    def test_destroy_uncached_calls_cleanup(self, manager: CorpusManager) -> None:
+        """destroy() on uncached corpus should still destroy and close."""
+        manager.destroy("fresh")
+        # No error means the code path succeeded (create → destroy → close)
+        # get() after destroy should return a fresh instance
+        orch = manager.get("fresh")
+        assert isinstance(orch, FakeOrchestration)
+        assert not orch.destroyed

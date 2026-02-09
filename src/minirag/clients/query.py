@@ -1,8 +1,10 @@
 """Query client for dense/sparse/hybrid search endpoints."""
 
 from typing import cast
+from urllib.parse import quote
 
 from minirag.clients.base import BaseClient
+from minirag.corpus import validate_corpus_name
 from minirag.search.types import SearchResult
 
 
@@ -30,8 +32,7 @@ class QueryClient(BaseClient):
 
     def _search(self, corpus: str, path_suffix: str, query: str, top_k: int) -> list[SearchResult]:
         """Run one query endpoint and parse SearchResult list."""
-        if not corpus:
-            raise ValueError("corpus must not be empty")
+        validate_corpus_name(corpus)
 
         if query.strip() == "":
             raise ValueError("query must not be empty")
@@ -41,7 +42,7 @@ class QueryClient(BaseClient):
 
         data = self._request(
             method="POST",
-            path=f"/v1/corpus/{corpus}/query/{path_suffix}",
+            path=f"/v1/corpus/{quote(corpus, safe='')}/query/{path_suffix}",
             payload={"query": query, "top_k": top_k},
             require_healthy=True,
         )

@@ -10,6 +10,7 @@ from minirag.api.app import unhandled_exception_handler
 from minirag.api.routes_index import router as index_router
 from minirag.api.routes_info import router as info_router
 from minirag.api.routes_query import router as query_router
+from minirag.corpus import validate_corpus_name
 from minirag.search.types import SearchResult
 
 CORPUS = "test"
@@ -65,13 +66,11 @@ class FakeCorpusManager:
         self._orchestration = orchestration
 
     def get(self, corpus: str) -> object:
-        if not corpus[0].isalpha():
-            raise ValueError(f"invalid corpus name: {corpus!r}")
+        validate_corpus_name(corpus)
         return self._orchestration
 
     def destroy(self, corpus: str) -> None:
-        if not corpus[0].isalpha():
-            raise ValueError(f"invalid corpus name: {corpus!r}")
+        validate_corpus_name(corpus)
         orch = self._orchestration
         if hasattr(orch, "destroy_index"):
             orch.destroy_index()  # type: ignore[union-attr]
@@ -175,13 +174,11 @@ class ErrorCorpusManager:
         self._error = error
 
     def get(self, corpus: str) -> object:
-        if not corpus[0].isalpha():
-            raise ValueError(f"invalid corpus name: {corpus!r}")
+        validate_corpus_name(corpus)
         return self._orchestration
 
     def destroy(self, corpus: str) -> None:
-        if not corpus[0].isalpha():
-            raise ValueError(f"invalid corpus name: {corpus!r}")
+        validate_corpus_name(corpus)
         raise self._error
 
 
@@ -385,6 +382,14 @@ def test_invalid_corpus_name_returns_400() -> None:
     client = make_test_client()
 
     resp = client.post("/v1/corpus/123bad/index", json={"document": "hello world"})
+    assert resp.status_code == 400
+    assert "invalid corpus name" in resp.json()["error"]
+
+    resp = client.post("/v1/corpus/123bad/query/dense", json={"query": "hello", "top_k": 3})
+    assert resp.status_code == 400
+    assert "invalid corpus name" in resp.json()["error"]
+
+    resp = client.post("/v1/corpus/123bad/query/sparse", json={"query": "hello", "top_k": 3})
     assert resp.status_code == 400
     assert "invalid corpus name" in resp.json()["error"]
 

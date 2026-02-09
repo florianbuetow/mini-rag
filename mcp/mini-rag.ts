@@ -14,7 +14,7 @@ server.tool(
   "search",
   "Search a mini-rag corpus using hybrid search (dense + sparse)",
   {
-    corpus: z.string().describe("Name of the corpus to search"),
+    corpus: z.string().regex(/^[a-zA-Z][a-zA-Z0-9_-]*$/, "must start with a letter, then alphanumeric, underscore, or dash").describe("Name of the corpus to search"),
     query: z.string().describe("Search query text"),
     top_k: z.number().int().positive().default(10).describe("Number of results to return"),
   },
