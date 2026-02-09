@@ -28,8 +28,11 @@ class QueryClient(BaseClient):
             result[raw_key] = raw_value
         return result
 
-    def _search(self, path: str, query: str, top_k: int) -> list[SearchResult]:
+    def _search(self, corpus: str, path_suffix: str, query: str, top_k: int) -> list[SearchResult]:
         """Run one query endpoint and parse SearchResult list."""
+        if not corpus:
+            raise ValueError("corpus must not be empty")
+
         if query.strip() == "":
             raise ValueError("query must not be empty")
 
@@ -38,7 +41,7 @@ class QueryClient(BaseClient):
 
         data = self._request(
             method="POST",
-            path=path,
+            path=f"/v1/corpus/{corpus}/query/{path_suffix}",
             payload={"query": query, "top_k": top_k},
             require_healthy=True,
         )
@@ -66,14 +69,14 @@ class QueryClient(BaseClient):
 
         return parsed_results
 
-    def search_dense(self, query: str, top_k: int) -> list[SearchResult]:
+    def search_dense(self, corpus: str, query: str, top_k: int) -> list[SearchResult]:
         """Run dense search."""
-        return self._search(path="/v1/query/dense", query=query, top_k=top_k)
+        return self._search(corpus=corpus, path_suffix="dense", query=query, top_k=top_k)
 
-    def search_sparse(self, query: str, top_k: int) -> list[SearchResult]:
+    def search_sparse(self, corpus: str, query: str, top_k: int) -> list[SearchResult]:
         """Run sparse search."""
-        return self._search(path="/v1/query/sparse", query=query, top_k=top_k)
+        return self._search(corpus=corpus, path_suffix="sparse", query=query, top_k=top_k)
 
-    def search_hybrid(self, query: str, top_k: int) -> list[SearchResult]:
+    def search_hybrid(self, corpus: str, query: str, top_k: int) -> list[SearchResult]:
         """Run hybrid search."""
-        return self._search(path="/v1/query/hybrid", query=query, top_k=top_k)
+        return self._search(corpus=corpus, path_suffix="hybrid", query=query, top_k=top_k)

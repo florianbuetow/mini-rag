@@ -1,5 +1,6 @@
 """Interactive query loop for searching the mini-rag index."""
 
+import argparse
 import json
 import sys
 from dataclasses import asdict
@@ -10,12 +11,6 @@ from minirag.config import Config
 
 SEARCH_MODES = {"dense", "sparse", "hybrid"}
 TOP_K = 5
-
-SEARCH_DISPATCH = {
-    "dense": QueryClient.search_dense,
-    "sparse": QueryClient.search_sparse,
-    "hybrid": QueryClient.search_hybrid,
-}
 
 
 def print_help() -> None:
@@ -50,11 +45,15 @@ def handle_topk(query: str) -> int | None:
     return int(parts[1])
 
 
-def run_search(client: QueryClient, mode: str, query: str, top_k: int) -> None:
+def run_search(client: QueryClient, corpus: str, mode: str, query: str, top_k: int) -> None:
     """Execute search and print results as JSON."""
     try:
-        search_fn = SEARCH_DISPATCH[mode]
-        results = search_fn(client, query=query, top_k=top_k)
+        if mode == "dense":
+            results = client.search_dense(corpus=corpus, query=query, top_k=top_k)
+        elif mode == "sparse":
+            results = client.search_sparse(corpus=corpus, query=query, top_k=top_k)
+        else:
+            results = client.search_hybrid(corpus=corpus, query=query, top_k=top_k)
     except Exception as err:
         print(f"Error: {err}", file=sys.stderr)
         return
@@ -63,7 +62,7 @@ def run_search(client: QueryClient, mode: str, query: str, top_k: int) -> None:
     print(json.dumps(output, indent=2, ensure_ascii=False))
 
 
-def handle_command(query: str, client: QueryClient, mode: str, top_k: int) -> tuple[str, int]:
+def handle_command(query: str, client: QueryClient, corpus: str, mode: str, top_k: int) -> tuple[str, int]:
     """Dispatch a single input line. Returns updated (mode, top_k)."""
     if query == "/help":
         print_help()
@@ -79,12 +78,22 @@ def handle_command(query: str, client: QueryClient, mode: str, top_k: int) -> tu
         print(f"Unknown command: {query}")
         print_help()
     else:
-        run_search(client, mode, query, top_k)
+        run_search(client, corpus, mode, query, top_k)
     return mode, top_k
+
+
+def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser(description="Interactive search over a mini-rag corpus")
+    parser.add_argument("--corpus", required=True, help="Name of the corpus to search")
+    return parser.parse_args()
 
 
 def main() -> None:
     """Run interactive query loop."""
+    args = parse_args()
+    corpus: str = args.corpus
+
     project_root = Path(__file__).resolve().parent.parent
     config = Config.from_yaml(project_root / "config.yaml")
     service_config = config.get_service_config()
@@ -95,12 +104,12 @@ def main() -> None:
 
     print()
     print(f"Connected to {service_config.host}:{service_config.port}")
-    print(f"Search mode: {mode} | top_k: {top_k}")
+    print(f"Corpus: {corpus} | Search mode: {mode} | top_k: {top_k}")
     print_help()
 
     while True:
         try:
-            query = input(f"[{mode}] > ").strip()
+            query = input(f"[{corpus}:{mode}] > ").strip()
         except (EOFError, KeyboardInterrupt):
             print()
             break
@@ -111,7 +120,7 @@ def main() -> None:
         if query == "/quit":
             break
 
-        mode, top_k = handle_command(query, client, mode, top_k)
+        mode, top_k = handle_command(query, client, corpus, mode, top_k)
 
 
 if __name__ == "__main__":

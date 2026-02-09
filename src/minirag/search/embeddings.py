@@ -38,12 +38,11 @@ class FastTextEmbeddings:
         if not model_path.is_file():
             raise ValueError(f"embedding model path is not a file: {model_path}")
 
-        fasttext_module = importlib.import_module("fasttext")
-        if not hasattr(fasttext_module, "load_model"):
-            raise RuntimeError("fasttext.load_model is not available")
+        fasttext_impl = importlib.import_module("fasttext.FastText")
+        if not hasattr(fasttext_impl, "_FastText"):
+            raise RuntimeError("fasttext.FastText._FastText is not available")
 
-        load_model = fasttext_module.load_model
-        loaded_model = load_model(str(model_path))
+        loaded_model = fasttext_impl._FastText(str(model_path))
         self._model = cast(FastTextModel, loaded_model)
         self._dimension = expected_dimension
 

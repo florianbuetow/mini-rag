@@ -9,12 +9,12 @@ from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
 from minirag.api.models.query import QueryRequest, QueryResponse, QueryResult
-from minirag.api.utils import ensure_healthy, error_response, get_orchestration, success_response
+from minirag.api.utils import ensure_healthy, error_response, get_corpus_manager, success_response
 from minirag.search.types import SearchResult
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/v1/query")
+router = APIRouter(prefix="/v1/corpus/{corpus}/query")
 
 
 async def _parse_query_request(request: Request) -> QueryRequest | JSONResponse:
@@ -37,7 +37,7 @@ def _build_query_response(results: list[SearchResult]) -> QueryResponse:
 
 
 @router.post("/dense")
-async def query_dense(request: Request) -> JSONResponse:
+async def query_dense(request: Request, corpus: str) -> JSONResponse:
     """Run dense search query."""
     guard_response = ensure_healthy(request)
     if guard_response is not None:
@@ -48,9 +48,14 @@ async def query_dense(request: Request) -> JSONResponse:
         return parsed_payload
 
     query_display = parsed_payload.query[:120] + "..." if len(parsed_payload.query) > 120 else parsed_payload.query
-    logger.debug('query="%s" top_k=%d', query_display, parsed_payload.top_k)
+    logger.debug('corpus=%s query="%s" top_k=%d', corpus, query_display, parsed_payload.top_k)
 
-    orchestration = get_orchestration(request)
+    corpus_manager = get_corpus_manager(request)
+    try:
+        orchestration = corpus_manager.get(corpus)
+    except ValueError as exc:
+        return error_response(status=400, message=str(exc))
+
     try:
         results = await asyncio.to_thread(
             orchestration.search_dense,
@@ -60,10 +65,10 @@ async def query_dense(request: Request) -> JSONResponse:
     except ValueError as exc:
         return error_response(status=400, message=str(exc))
     except RuntimeError as exc:
-        logger.exception("Failed to execute dense search")
+        logger.exception("Failed to execute dense search, corpus=%s", corpus)
         return error_response(status=500, message=str(exc))
     except Exception:
-        logger.exception("Failed to execute dense search")
+        logger.exception("Failed to execute dense search, corpus=%s", corpus)
         return error_response(status=500, message="Internal server error")
 
     response_model = _build_query_response(results)
@@ -71,7 +76,7 @@ async def query_dense(request: Request) -> JSONResponse:
 
 
 @router.post("/sparse")
-async def query_sparse(request: Request) -> JSONResponse:
+async def query_sparse(request: Request, corpus: str) -> JSONResponse:
     """Run sparse search query."""
     guard_response = ensure_healthy(request)
     if guard_response is not None:
@@ -82,9 +87,14 @@ async def query_sparse(request: Request) -> JSONResponse:
         return parsed_payload
 
     query_display = parsed_payload.query[:120] + "..." if len(parsed_payload.query) > 120 else parsed_payload.query
-    logger.debug('query="%s" top_k=%d', query_display, parsed_payload.top_k)
+    logger.debug('corpus=%s query="%s" top_k=%d', corpus, query_display, parsed_payload.top_k)
 
-    orchestration = get_orchestration(request)
+    corpus_manager = get_corpus_manager(request)
+    try:
+        orchestration = corpus_manager.get(corpus)
+    except ValueError as exc:
+        return error_response(status=400, message=str(exc))
+
     try:
         results = await asyncio.to_thread(
             orchestration.search_sparse,
@@ -94,10 +104,10 @@ async def query_sparse(request: Request) -> JSONResponse:
     except ValueError as exc:
         return error_response(status=400, message=str(exc))
     except RuntimeError as exc:
-        logger.exception("Failed to execute sparse search")
+        logger.exception("Failed to execute sparse search, corpus=%s", corpus)
         return error_response(status=500, message=str(exc))
     except Exception:
-        logger.exception("Failed to execute sparse search")
+        logger.exception("Failed to execute sparse search, corpus=%s", corpus)
         return error_response(status=500, message="Internal server error")
 
     response_model = _build_query_response(results)
@@ -105,7 +115,7 @@ async def query_sparse(request: Request) -> JSONResponse:
 
 
 @router.post("/hybrid")
-async def query_hybrid(request: Request) -> JSONResponse:
+async def query_hybrid(request: Request, corpus: str) -> JSONResponse:
     """Run hybrid search query."""
     guard_response = ensure_healthy(request)
     if guard_response is not None:
@@ -116,9 +126,14 @@ async def query_hybrid(request: Request) -> JSONResponse:
         return parsed_payload
 
     query_display = parsed_payload.query[:120] + "..." if len(parsed_payload.query) > 120 else parsed_payload.query
-    logger.debug('query="%s" top_k=%d', query_display, parsed_payload.top_k)
+    logger.debug('corpus=%s query="%s" top_k=%d', corpus, query_display, parsed_payload.top_k)
 
-    orchestration = get_orchestration(request)
+    corpus_manager = get_corpus_manager(request)
+    try:
+        orchestration = corpus_manager.get(corpus)
+    except ValueError as exc:
+        return error_response(status=400, message=str(exc))
+
     try:
         results = await asyncio.to_thread(
             orchestration.search_hybrid,
@@ -128,10 +143,10 @@ async def query_hybrid(request: Request) -> JSONResponse:
     except ValueError as exc:
         return error_response(status=400, message=str(exc))
     except RuntimeError as exc:
-        logger.exception("Failed to execute hybrid search")
+        logger.exception("Failed to execute hybrid search, corpus=%s", corpus)
         return error_response(status=500, message=str(exc))
     except Exception:
-        logger.exception("Failed to execute hybrid search")
+        logger.exception("Failed to execute hybrid search, corpus=%s", corpus)
         return error_response(status=500, message="Internal server error")
 
     response_model = _build_query_response(results)
