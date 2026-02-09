@@ -16,6 +16,7 @@ help:
     @echo ""
 
 # Initialize the development environment
+[group('lifecycle')]
 init:
     #!/usr/bin/env bash
     set -e
@@ -83,6 +84,7 @@ init:
     echo ""
 
 # Start the mini-rag service
+[group('lifecycle')]
 start:
     @echo ""
     @printf "%b\n" "\033[0;34m=== Starting mini-rag Service ===\033[0m"
@@ -90,6 +92,7 @@ start:
     @echo ""
 
 # Stop the running service
+[group('lifecycle')]
 stop:
     #!/usr/bin/env bash
     set -e
@@ -100,6 +103,7 @@ stop:
     echo ""
 
 # Check service status and show config
+[group('lifecycle')]
 status:
     #!/usr/bin/env bash
     set -e
@@ -114,6 +118,7 @@ status:
     echo ""
 
 # Convert markdown files to plain text
+[group('tools')]
 md2txt:
     @echo ""
     @printf "%b\n" "\033[0;34m=== Converting Markdown to Text ===\033[0m"
@@ -121,6 +126,7 @@ md2txt:
     @echo ""
 
 # Destroy and re-ingest all .txt files into a corpus
+[group('corpus')]
 ingest corpus="":
     #!/usr/bin/env bash
     set -e
@@ -141,6 +147,7 @@ ingest corpus="":
     echo ""
 
 # Delete a corpus index and storage
+[group('corpus')]
 delete corpus="":
     #!/usr/bin/env bash
     set -e
@@ -177,6 +184,7 @@ delete corpus="":
     echo ""
 
 # Evaluate retrieval quality for a corpus
+[group('corpus')]
 evaluate corpus="":
     #!/usr/bin/env bash
     set -e
@@ -197,6 +205,7 @@ evaluate corpus="":
     echo ""
 
 # Interactive search query loop for a corpus
+[group('corpus')]
 search corpus="":
     #!/usr/bin/env bash
     set -e
@@ -211,6 +220,7 @@ search corpus="":
     echo ""
 
 # Inspect document chunks across all stores for a corpus
+[group('corpus')]
 inspect corpus="" document_id="":
     #!/usr/bin/env bash
     set -e
@@ -230,6 +240,7 @@ inspect corpus="" document_id="":
     echo ""
 
 # Destroy the virtual environment
+[group('lifecycle')]
 destroy:
     @echo ""
     @printf "%b\n" "\033[0;34m=== Destroying Virtual Environment ===\033[0m"
@@ -238,6 +249,7 @@ destroy:
     @echo ""
 
 # Check code style and formatting (read-only)
+[group('code quality')]
 code-style:
     @echo ""
     @printf "%b\n" "\033[0;34m=== Checking Code Style ===\033[0m"
@@ -249,6 +261,7 @@ code-style:
     @echo ""
 
 # Auto-fix code style and formatting
+[group('code quality')]
 code-format:
     @echo ""
     @printf "%b\n" "\033[0;34m=== Formatting Code ===\033[0m"
@@ -260,6 +273,7 @@ code-format:
     @echo ""
 
 # Run static type checking with mypy
+[group('code quality')]
 code-typecheck:
     @echo ""
     @printf "%b\n" "\033[0;34m=== Running Type Checks ===\033[0m"
@@ -269,6 +283,7 @@ code-typecheck:
     @echo ""
 
 # Run strict type checking with Pyright (LSP-based)
+[group('code quality')]
 code-lspchecks:
     @echo ""
     @printf "%b\n" "\033[0;34m=== Running Pyright Type Checks ===\033[0m"
@@ -281,6 +296,7 @@ code-lspchecks:
     @echo ""
 
 # Run security checks with bandit
+[group('code quality')]
 code-security:
     @echo ""
     @printf "%b\n" "\033[0;34m=== Running Security Checks ===\033[0m"
@@ -292,6 +308,7 @@ code-security:
     @echo ""
 
 # Check dependency hygiene with deptry
+[group('code quality')]
 code-deptry:
     @echo ""
     @printf "%b\n" "\033[0;34m=== Checking Dependencies ===\033[0m"
@@ -302,6 +319,7 @@ code-deptry:
     @echo ""
 
 # Generate code statistics with pygount
+[group('code quality')]
 code-stats:
     @echo ""
     @printf "%b\n" "\033[0;34m=== Code Statistics ===\033[0m"
@@ -313,6 +331,7 @@ code-stats:
     @echo ""
 
 # Check spelling in code and documentation
+[group('code quality')]
 code-spell:
     @echo ""
     @printf "%b\n" "\033[0;34m=== Checking Spelling ===\033[0m"
@@ -322,6 +341,7 @@ code-spell:
     @echo ""
 
 # Scan dependencies for known vulnerabilities
+[group('code quality')]
 code-audit:
     @echo ""
     @printf "%b\n" "\033[0;34m=== Scanning Dependencies for Vulnerabilities ===\033[0m"
@@ -331,6 +351,7 @@ code-audit:
     @echo ""
 
 # Run Semgrep static analysis
+[group('code quality')]
 code-semgrep:
     @echo ""
     @printf "%b\n" "\033[0;34m=== Running Semgrep Static Analysis ===\033[0m"
@@ -340,6 +361,7 @@ code-semgrep:
     @echo ""
 
 # Detect unused dead code
+[group('code quality')]
 code-deadcode:
     @echo ""
     @printf "%b\n" "\033[0;34m=== Detecting Dead Code ===\033[0m"
@@ -349,6 +371,7 @@ code-deadcode:
     @echo ""
 
 # Run unit tests only (fast)
+[group('testing')]
 test:
     @echo ""
     @printf "%b\n" "\033[0;34m=== Running Unit Tests ===\033[0m"
@@ -356,6 +379,7 @@ test:
     @echo ""
 
 # Run integration tests (in-process, requires FastText model)
+[group('testing')]
 test-integration:
     @echo ""
     @printf "%b\n" "\033[0;34m=== Running Integration Tests ===\033[0m"
@@ -365,6 +389,7 @@ test-integration:
     @echo ""
 
 # Run end-to-end lifecycle tests (starts service, ingests, evaluates)
+[group('testing')]
 test-e2e:
     @echo ""
     @printf "%b\n" "\033[0;34m=== Running End-to-End Tests ===\033[0m"
@@ -374,6 +399,7 @@ test-e2e:
     @echo ""
 
 # Run unit tests with coverage report and threshold check
+[group('testing')]
 test-coverage: init
     @echo ""
     @printf "%b\n" "\033[0;34m=== Running Unit Tests with Coverage ===\033[0m"
@@ -389,6 +415,7 @@ test-coverage: init
     @echo ""
 
 # Run ALL validation checks (verbose)
+[group('testing')]
 ci:
     #!/usr/bin/env bash
     set -e
@@ -412,6 +439,7 @@ ci:
     echo ""
 
 # Run ALL validation checks silently (only show output on errors)
+[group('testing')]
 ci-quiet:
     #!/usr/bin/env bash
     set -e
