@@ -123,7 +123,7 @@ def main() -> None:
     print(f"Corpus {corpus}, Document {document_id}: {len(chunks)} chunks found in SQLite")
     print()
 
-    export_dir = project_root / "data" / "export" / corpus / str(document_id)
+    export_dir = data_dir / "export" / corpus / str(document_id)
     export_dir.mkdir(parents=True, exist_ok=True)
 
     header = f"{'chunk_id':<10}| {'SQLite':^6} | {'FAISS':^5} | {'Tantivy':^7} | Exported"
@@ -148,7 +148,7 @@ def main() -> None:
 
         export_path = export_dir / f"{chunk_id}.txt"
         export_path.write_text(content, encoding="utf-8")
-        relative_export = f"data/export/{corpus}/{document_id}/{chunk_id}.txt"
+        relative_export = str(export_path)
 
         sqlite_mark = "\u2713" if in_sqlite else "\u2717"
         faiss_mark = "\u2713" if in_faiss else "\u2717"
