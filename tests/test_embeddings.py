@@ -21,12 +21,12 @@ class FakeFastTextModel:
 
 
 class FakeFastTextModule:
-    """Fake fasttext module exposing load_model API."""
+    """Fake fasttext.FastText module exposing _FastText constructor."""
 
     def __init__(self, model: FakeFastTextModel) -> None:
         self._model = model
 
-    def load_model(self, _: str) -> FakeFastTextModel:
+    def _FastText(self, _: str) -> FakeFastTextModel:
         return self._model
 
 
@@ -45,7 +45,7 @@ def test_embeddings_load_and_embed_normalized(tmp_path: Path, monkeypatch: pytes
     fake_module = FakeFastTextModule(fake_model)
 
     def fake_import_module(name: str) -> object:
-        if name == "fasttext":
+        if name == "fasttext.FastText":
             return fake_module
         raise RuntimeError(f"unexpected module import: {name}")
 
@@ -69,8 +69,10 @@ def test_embeddings_dimension_mismatch_raises(tmp_path: Path, monkeypatch: pytes
     fake_model = FakeFastTextModel({"dimension validation probe": [1.0, 2.0], "default": [1.0, 2.0]})
     fake_module = FakeFastTextModule(fake_model)
 
-    def fake_import_module(_: str) -> object:
-        return fake_module
+    def fake_import_module(name: str) -> object:
+        if name == "fasttext.FastText":
+            return fake_module
+        raise RuntimeError(f"unexpected module import: {name}")
 
     monkeypatch.setattr(importlib, "import_module", fake_import_module)
 

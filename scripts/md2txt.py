@@ -5,12 +5,13 @@ import re
 import sys
 from pathlib import Path
 
+from minirag.config import Config
+
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger(__name__)
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-INPUT_DIR = SCRIPT_DIR.parent / "data" / "input" / "md"
-OUTPUT_DIR = SCRIPT_DIR.parent / "data" / "input" / "txt"
+PROJECT_ROOT = SCRIPT_DIR.parent
 
 
 def decode_unicode_escapes(text: str) -> str:
@@ -60,34 +61,60 @@ def convert_file(md_path: Path, txt_path: Path) -> None:
         raise
 
 
-def main() -> None:
-    """Convert all .md files in INPUT_DIR to .txt files in OUTPUT_DIR."""
-    if not INPUT_DIR.is_dir():
-        logger.error("Input directory does not exist: %s", INPUT_DIR)
-        sys.exit(1)
-
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-
+def convert_corpus(md_dir: Path, txt_dir: Path) -> int:
+    """Convert all .md files in md_dir to .txt files in txt_dir. Returns count."""
     md_files = sorted(
-        [f for f in INPUT_DIR.rglob("*.md") if not f.is_symlink()],
+        [f for f in md_dir.rglob("*.md") if not f.is_symlink() and not f.name.startswith("._")],
         key=lambda file_path: file_path.name,
     )
     if not md_files:
-        logger.info("No .md files found in %s", INPUT_DIR)
-        sys.exit(0)
+        return 0
+
+    txt_dir.mkdir(parents=True, exist_ok=True)
 
     for md_file in md_files:
-        relative = md_file.relative_to(INPUT_DIR)
+        relative = md_file.relative_to(md_dir)
         txt_relative = relative.with_suffix(".txt")
-        txt_file = OUTPUT_DIR / txt_relative
+        txt_file = txt_dir / txt_relative
 
         txt_file.parent.mkdir(parents=True, exist_ok=True)
 
         convert_file(md_file, txt_file)
         logger.info("  OK: %s -> %s", relative, txt_relative)
 
-    logger.info("")
-    logger.info("Done: %d converted", len(md_files))
+    return len(md_files)
+
+
+def main() -> None:
+    """Convert .md files to .txt for each corpus subfolder in data/input/."""
+    config = Config.from_yaml(PROJECT_ROOT / "config.yaml")
+    input_base = config.resolve_data_dir(PROJECT_ROOT) / "input"
+
+    if not input_base.is_dir():
+        logger.error("Input directory does not exist: %s", input_base)
+        sys.exit(1)
+
+    corpus_dirs = sorted(d for d in input_base.iterdir() if d.is_dir() and not d.name.startswith("."))
+    if not corpus_dirs:
+        logger.info("No corpus subfolders found in %s", input_base)
+        sys.exit(0)
+
+    total = 0
+    for corpus_dir in corpus_dirs:
+        md_dir = corpus_dir / "md"
+        txt_dir = corpus_dir / "txt"
+        if not md_dir.is_dir():
+            logger.info("Skipping %s (no md/ subfolder)", corpus_dir.name)
+            continue
+
+        logger.info("[%s]", corpus_dir.name)
+        count = convert_corpus(md_dir, txt_dir)
+        if count == 0:
+            logger.info("  No .md files found")
+        total += count
+        logger.info("")
+
+    logger.info("Done: %d files converted across %d corpora", total, len(corpus_dirs))
 
 
 if __name__ == "__main__":

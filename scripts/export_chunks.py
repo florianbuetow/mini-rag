@@ -1,5 +1,6 @@
 """Export and verify document chunks across all stores (SQLite, FAISS, Tantivy)."""
 
+import argparse
 import os
 import sqlite3
 import sys
@@ -11,18 +12,18 @@ from minirag.retrieval.tantivy_sparse import TantivySparse
 from minirag.search.embeddings import FastTextEmbeddings
 
 
-def parse_document_id() -> int:
-    """Parse and validate the document ID from CLI arguments."""
-    if len(sys.argv) != 2:
-        print("Usage: uv run scripts/export_chunks.py <document_id>", file=sys.stderr)
+def parse_args() -> argparse.Namespace:
+    """Parse and validate command-line arguments."""
+    parser = argparse.ArgumentParser(description="Export and verify document chunks")
+    parser.add_argument("--corpus", required=True, help="Name of the corpus")
+    parser.add_argument("document_id", type=int, help="Document ID to export")
+    args = parser.parse_args()
+
+    if args.document_id <= 0:
+        print(f"Error: document_id must be a positive integer, got: {args.document_id}", file=sys.stderr)
         raise SystemExit(1)
 
-    raw = sys.argv[1]
-    if not raw.isdigit() or int(raw) <= 0:
-        print(f"Error: document_id must be a positive integer, got: {raw}", file=sys.stderr)
-        raise SystemExit(1)
-
-    return int(raw)
+    return args
 
 
 def fetch_chunks(db_path: Path, document_id: int) -> list[tuple[int, str]]:
@@ -70,14 +71,16 @@ def check_tantivy(sparse: TantivySparse, chunk_id: int) -> bool:
 
 def main() -> None:
     """Export chunks and verify presence across all stores."""
-    document_id = parse_document_id()
+    args = parse_args()
+    corpus: str = args.corpus
+    document_id: int = args.document_id
 
     project_root = Path(__file__).resolve().parent.parent
     config = Config.from_yaml(project_root / "config.yaml")
     data_dir = config.resolve_data_dir(project_root)
     index_config = config.get_index_config()
 
-    db_path = data_dir / "storage" / index_config.storage.db_filename
+    db_path = data_dir / "storage" / corpus / index_config.storage.db_filename
 
     stderr_fd = sys.stderr.fileno()
     old_stderr = os.dup(stderr_fd)
@@ -92,24 +95,24 @@ def main() -> None:
         os.close(old_stderr)
     dense = FAISSDense(
         dimension=index_config.embeddings.dimension,
-        index_dir=data_dir / "index" / "faiss",
+        index_dir=data_dir / "index" / corpus / "faiss",
         nprobe=index_config.faiss.nprobe,
     )
     sparse = TantivySparse(
-        index_dir=data_dir / "index" / "tantivy",
+        index_dir=data_dir / "index" / corpus / "tantivy",
         language=index_config.tantivy.language,
         stemming=index_config.tantivy.stemming,
     )
 
     chunks = fetch_chunks(db_path, document_id)
     if len(chunks) == 0:
-        print(f"Error: no chunks found for document_id {document_id}", file=sys.stderr)
+        print(f"Error: no chunks found for document_id {document_id} in corpus {corpus}", file=sys.stderr)
         raise SystemExit(1)
 
-    print(f"Document {document_id}: {len(chunks)} chunks found in SQLite")
+    print(f"Corpus {corpus}, Document {document_id}: {len(chunks)} chunks found in SQLite")
     print()
 
-    export_dir = project_root / "data" / "export" / str(document_id)
+    export_dir = project_root / "data" / "export" / corpus / str(document_id)
     export_dir.mkdir(parents=True, exist_ok=True)
 
     header = f"{'chunk_id':<10}| {'SQLite':^6} | {'FAISS':^5} | {'Tantivy':^7} | Exported"
@@ -134,7 +137,7 @@ def main() -> None:
 
         export_path = export_dir / f"{chunk_id}.txt"
         export_path.write_text(content, encoding="utf-8")
-        relative_export = f"data/export/{document_id}/{chunk_id}.txt"
+        relative_export = f"data/export/{corpus}/{document_id}/{chunk_id}.txt"
 
         sqlite_mark = "\u2713" if in_sqlite else "\u2717"
         faiss_mark = "\u2713" if in_faiss else "\u2717"

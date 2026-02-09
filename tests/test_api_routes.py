@@ -10,7 +10,10 @@ from minirag.api.app import unhandled_exception_handler
 from minirag.api.routes_index import router as index_router
 from minirag.api.routes_info import router as info_router
 from minirag.api.routes_query import router as query_router
+from minirag.corpus import validate_corpus_name
 from minirag.search.types import SearchResult
+
+CORPUS = "test"
 
 
 class FakeServiceConfig:
@@ -40,6 +43,9 @@ class FakeOrchestration:
     def destroy_index(self) -> None:
         return None
 
+    def close_storage(self) -> None:
+        return None
+
     def search_dense(self, query: str, top_k: int) -> list[SearchResult]:
         del query, top_k
         return [SearchResult(chunk_id=1, text="dense", score=0.9)]
@@ -53,12 +59,29 @@ class FakeOrchestration:
         return [SearchResult(chunk_id=3, text="hybrid", score=0.85)]
 
 
+class FakeCorpusManager:
+    """Fake corpus manager wrapping a single orchestration instance."""
+
+    def __init__(self, orchestration: object) -> None:
+        self._orchestration = orchestration
+
+    def get(self, corpus: str) -> object:
+        validate_corpus_name(corpus)
+        return self._orchestration
+
+    def destroy(self, corpus: str) -> None:
+        validate_corpus_name(corpus)
+        orch = self._orchestration
+        if hasattr(orch, "destroy_index"):
+            orch.destroy_index()  # type: ignore[union-attr]
+
+
 def make_test_client() -> TestClient:
     """Create FastAPI app with routers and fake state dependencies."""
     app = FastAPI()
     app.state.app_status = "healthy"
     app.state.config = FakeConfig()
-    app.state.orchestration = FakeOrchestration()
+    app.state.corpus_manager = FakeCorpusManager(FakeOrchestration())
 
     app.add_exception_handler(Exception, unhandled_exception_handler)
     app.include_router(info_router)
@@ -84,17 +107,17 @@ def test_index_and_query_routes() -> None:
     """Index and query routes should parse payloads and return results."""
     client = make_test_client()
 
-    index_response = client.post("/v1/index", json={"document": "hello world"})
+    index_response = client.post(f"/v1/corpus/{CORPUS}/index", json={"document": "hello world"})
     assert index_response.status_code == 200
     assert index_response.json()["data"]["chunks_indexed"] == 2
 
-    dense_response = client.post("/v1/query/dense", json={"query": "hello", "top_k": 3})
+    dense_response = client.post(f"/v1/corpus/{CORPUS}/query/dense", json={"query": "hello", "top_k": 3})
     assert dense_response.status_code == 200
 
-    sparse_response = client.post("/v1/query/sparse", json={"query": "hello", "top_k": 3})
+    sparse_response = client.post(f"/v1/corpus/{CORPUS}/query/sparse", json={"query": "hello", "top_k": 3})
     assert sparse_response.status_code == 200
 
-    hybrid_response = client.post("/v1/query/hybrid", json={"query": "hello", "top_k": 3})
+    hybrid_response = client.post(f"/v1/corpus/{CORPUS}/query/hybrid", json={"query": "hello", "top_k": 3})
     assert hybrid_response.status_code == 200
 
 
@@ -110,7 +133,7 @@ def test_shutdown_and_guarded_routes(monkeypatch: Any) -> None:
     shutdown_response = client.post("/v1/shutdown")
     assert shutdown_response.status_code == 200
 
-    blocked_response = client.post("/v1/index", json={"document": "x"})
+    blocked_response = client.post(f"/v1/corpus/{CORPUS}/index", json={"document": "x"})
     assert blocked_response.status_code == 503
 
 
@@ -127,6 +150,9 @@ class ErrorOrchestration:
     def destroy_index(self) -> None:
         raise self._error
 
+    def close_storage(self) -> None:
+        return None
+
     def search_dense(self, query: str, top_k: int) -> list[SearchResult]:
         del query, top_k
         raise self._error
@@ -140,11 +166,27 @@ class ErrorOrchestration:
         raise self._error
 
 
+class ErrorCorpusManager:
+    """Corpus manager wrapping ErrorOrchestration."""
+
+    def __init__(self, error: Exception) -> None:
+        self._orchestration = ErrorOrchestration(error)
+        self._error = error
+
+    def get(self, corpus: str) -> object:
+        validate_corpus_name(corpus)
+        return self._orchestration
+
+    def destroy(self, corpus: str) -> None:
+        validate_corpus_name(corpus)
+        raise self._error
+
+
 def _make_error_client(error: Exception) -> TestClient:
     app = FastAPI()
     app.state.app_status = "healthy"
     app.state.config = FakeConfig()
-    app.state.orchestration = ErrorOrchestration(error)
+    app.state.corpus_manager = ErrorCorpusManager(error)
     app.add_exception_handler(Exception, unhandled_exception_handler)
     app.include_router(info_router)
     app.include_router(index_router)
@@ -156,7 +198,7 @@ def test_index_value_error_returns_400() -> None:
     """ValueError from orchestration should return 400."""
     client = _make_error_client(ValueError("bad input"))
 
-    resp = client.post("/v1/index", json={"document": "hello world"})
+    resp = client.post(f"/v1/corpus/{CORPUS}/index", json={"document": "hello world"})
     assert resp.status_code == 400
     assert "bad input" in resp.json()["error"]
 
@@ -165,7 +207,7 @@ def test_index_runtime_error_returns_500_with_message() -> None:
     """RuntimeError from orchestration should return 500 with error message."""
     client = _make_error_client(RuntimeError("boom"))
 
-    resp = client.post("/v1/index", json={"document": "hello world"})
+    resp = client.post(f"/v1/corpus/{CORPUS}/index", json={"document": "hello world"})
     assert resp.status_code == 500
     assert resp.json()["error"] == "boom"
 
@@ -174,7 +216,7 @@ def test_index_unexpected_error_returns_500() -> None:
     """Unexpected exception from orchestration should return 500."""
     client = _make_error_client(OSError("disk failed"))
 
-    resp = client.post("/v1/index", json={"document": "hello world"})
+    resp = client.post(f"/v1/corpus/{CORPUS}/index", json={"document": "hello world"})
     assert resp.status_code == 500
     assert resp.json()["error"] == "Internal server error"
 
@@ -183,7 +225,7 @@ def test_query_dense_value_error_returns_400() -> None:
     """ValueError from dense search should return 400."""
     client = _make_error_client(ValueError("bad query"))
 
-    resp = client.post("/v1/query/dense", json={"query": "hello", "top_k": 3})
+    resp = client.post(f"/v1/corpus/{CORPUS}/query/dense", json={"query": "hello", "top_k": 3})
     assert resp.status_code == 400
     assert "bad query" in resp.json()["error"]
 
@@ -192,7 +234,7 @@ def test_query_dense_runtime_error_returns_500_with_message() -> None:
     """RuntimeError from dense search should return 500 with error message."""
     client = _make_error_client(RuntimeError("boom"))
 
-    resp = client.post("/v1/query/dense", json={"query": "hello", "top_k": 3})
+    resp = client.post(f"/v1/corpus/{CORPUS}/query/dense", json={"query": "hello", "top_k": 3})
     assert resp.status_code == 500
     assert resp.json()["error"] == "boom"
 
@@ -201,16 +243,16 @@ def test_query_dense_unexpected_error_returns_500() -> None:
     """Unexpected exception from dense search should return 500."""
     client = _make_error_client(OSError("disk failed"))
 
-    resp = client.post("/v1/query/dense", json={"query": "hello", "top_k": 3})
+    resp = client.post(f"/v1/corpus/{CORPUS}/query/dense", json={"query": "hello", "top_k": 3})
     assert resp.status_code == 500
     assert resp.json()["error"] == "Internal server error"
 
 
 def test_destroy_index_success() -> None:
-    """DELETE /v1/index should return 200 with success message."""
+    """DELETE /v1/corpus/{corpus}/index should return 200 with success message."""
     client = make_test_client()
 
-    resp = client.delete("/v1/index")
+    resp = client.delete(f"/v1/corpus/{CORPUS}/index")
     assert resp.status_code == 200
     assert resp.json()["data"]["message"] == "index destroyed"
 
@@ -219,7 +261,7 @@ def test_destroy_index_runtime_error_returns_500_with_message() -> None:
     """RuntimeError from destroy should return 500 with error message."""
     client = _make_error_client(RuntimeError("disk failure"))
 
-    resp = client.delete("/v1/index")
+    resp = client.delete(f"/v1/corpus/{CORPUS}/index")
     assert resp.status_code == 500
     assert resp.json()["error"] == "disk failure"
 
@@ -228,13 +270,13 @@ def test_destroy_index_unexpected_error_returns_500() -> None:
     """Unexpected exception from destroy should return 500."""
     client = _make_error_client(OSError("disk failed"))
 
-    resp = client.delete("/v1/index")
+    resp = client.delete(f"/v1/corpus/{CORPUS}/index")
     assert resp.status_code == 500
     assert resp.json()["error"] == "Internal server error"
 
 
 def test_destroy_index_when_shutting_down_returns_503(monkeypatch: Any) -> None:
-    """DELETE /v1/index should return 503 when shutting down."""
+    """DELETE /v1/corpus/{corpus}/index should return 503 when shutting down."""
 
     def no_op_shutdown(reload_enabled: bool) -> None:
         del reload_enabled
@@ -243,7 +285,7 @@ def test_destroy_index_when_shutting_down_returns_503(monkeypatch: Any) -> None:
     client = make_test_client()
     client.post("/v1/shutdown")
 
-    resp = client.delete("/v1/index")
+    resp = client.delete(f"/v1/corpus/{CORPUS}/index")
     assert resp.status_code == 503
 
 
@@ -251,11 +293,11 @@ def test_malformed_json_returns_400() -> None:
     """Malformed JSON body should return 400."""
     client = make_test_client()
 
-    resp = client.post("/v1/index", content=b"not json", headers={"Content-Type": "application/json"})
+    resp = client.post(f"/v1/corpus/{CORPUS}/index", content=b"not json", headers={"Content-Type": "application/json"})
     assert resp.status_code == 400
     assert "error" in resp.json()
 
-    resp = client.post("/v1/query/dense", content=b"{bad}", headers={"Content-Type": "application/json"})
+    resp = client.post(f"/v1/corpus/{CORPUS}/query/dense", content=b"{{bad}}", headers={"Content-Type": "application/json"})
     assert resp.status_code == 400
 
 
@@ -263,10 +305,10 @@ def test_missing_required_fields_returns_422() -> None:
     """Missing required fields should return 422."""
     client = make_test_client()
 
-    resp = client.post("/v1/index", json={"wrong_key": "x"})
+    resp = client.post(f"/v1/corpus/{CORPUS}/index", json={"wrong_key": "x"})
     assert resp.status_code == 422
 
-    resp = client.post("/v1/query/dense", json={"query": "hello"})
+    resp = client.post(f"/v1/corpus/{CORPUS}/query/dense", json={"query": "hello"})
     assert resp.status_code == 422
 
 
@@ -274,7 +316,7 @@ def test_query_sparse_value_error_returns_400() -> None:
     """ValueError from sparse search should return 400."""
     client = _make_error_client(ValueError("bad sparse query"))
 
-    resp = client.post("/v1/query/sparse", json={"query": "hello", "top_k": 3})
+    resp = client.post(f"/v1/corpus/{CORPUS}/query/sparse", json={"query": "hello", "top_k": 3})
     assert resp.status_code == 400
     assert "bad sparse query" in resp.json()["error"]
 
@@ -283,7 +325,7 @@ def test_query_sparse_runtime_error_returns_500_with_message() -> None:
     """RuntimeError from sparse search should return 500 with error message."""
     client = _make_error_client(RuntimeError("boom"))
 
-    resp = client.post("/v1/query/sparse", json={"query": "hello", "top_k": 3})
+    resp = client.post(f"/v1/corpus/{CORPUS}/query/sparse", json={"query": "hello", "top_k": 3})
     assert resp.status_code == 500
     assert resp.json()["error"] == "boom"
 
@@ -292,7 +334,7 @@ def test_query_sparse_unexpected_error_returns_500() -> None:
     """Unexpected exception from sparse search should return 500."""
     client = _make_error_client(OSError("disk failed"))
 
-    resp = client.post("/v1/query/sparse", json={"query": "hello", "top_k": 3})
+    resp = client.post(f"/v1/corpus/{CORPUS}/query/sparse", json={"query": "hello", "top_k": 3})
     assert resp.status_code == 500
     assert resp.json()["error"] == "Internal server error"
 
@@ -301,7 +343,7 @@ def test_query_hybrid_value_error_returns_400() -> None:
     """ValueError from hybrid search should return 400."""
     client = _make_error_client(ValueError("bad hybrid query"))
 
-    resp = client.post("/v1/query/hybrid", json={"query": "hello", "top_k": 3})
+    resp = client.post(f"/v1/corpus/{CORPUS}/query/hybrid", json={"query": "hello", "top_k": 3})
     assert resp.status_code == 400
     assert "bad hybrid query" in resp.json()["error"]
 
@@ -310,7 +352,7 @@ def test_query_hybrid_runtime_error_returns_500_with_message() -> None:
     """RuntimeError from hybrid search should return 500 with error message."""
     client = _make_error_client(RuntimeError("boom"))
 
-    resp = client.post("/v1/query/hybrid", json={"query": "hello", "top_k": 3})
+    resp = client.post(f"/v1/corpus/{CORPUS}/query/hybrid", json={"query": "hello", "top_k": 3})
     assert resp.status_code == 500
     assert resp.json()["error"] == "boom"
 
@@ -319,7 +361,7 @@ def test_query_hybrid_unexpected_error_returns_500() -> None:
     """Unexpected exception from hybrid search should return 500."""
     client = _make_error_client(OSError("disk failed"))
 
-    resp = client.post("/v1/query/hybrid", json={"query": "hello", "top_k": 3})
+    resp = client.post(f"/v1/corpus/{CORPUS}/query/hybrid", json={"query": "hello", "top_k": 3})
     assert resp.status_code == 500
     assert resp.json()["error"] == "Internal server error"
 
@@ -328,8 +370,33 @@ def test_invalid_field_values_return_422() -> None:
     """Invalid field values should return 422."""
     client = make_test_client()
 
-    resp = client.post("/v1/index", json={"document": "   "})
+    resp = client.post(f"/v1/corpus/{CORPUS}/index", json={"document": "   "})
     assert resp.status_code == 422
 
-    resp = client.post("/v1/query/dense", json={"query": "hello", "top_k": 0})
+    resp = client.post(f"/v1/corpus/{CORPUS}/query/dense", json={"query": "hello", "top_k": 0})
     assert resp.status_code == 422
+
+
+def test_invalid_corpus_name_returns_400() -> None:
+    """Invalid corpus name should return 400."""
+    client = make_test_client()
+
+    resp = client.post("/v1/corpus/123bad/index", json={"document": "hello world"})
+    assert resp.status_code == 400
+    assert "invalid corpus name" in resp.json()["error"]
+
+    resp = client.post("/v1/corpus/123bad/query/dense", json={"query": "hello", "top_k": 3})
+    assert resp.status_code == 400
+    assert "invalid corpus name" in resp.json()["error"]
+
+    resp = client.post("/v1/corpus/123bad/query/sparse", json={"query": "hello", "top_k": 3})
+    assert resp.status_code == 400
+    assert "invalid corpus name" in resp.json()["error"]
+
+    resp = client.post("/v1/corpus/123bad/query/hybrid", json={"query": "hello", "top_k": 3})
+    assert resp.status_code == 400
+    assert "invalid corpus name" in resp.json()["error"]
+
+    resp = client.delete("/v1/corpus/123bad/index")
+    assert resp.status_code == 400
+    assert "invalid corpus name" in resp.json()["error"]
