@@ -97,7 +97,7 @@ def main() -> None:
     project_root = Path(__file__).resolve().parent.parent
     config = Config.from_yaml(project_root / "config.yaml")
     service_config = config.get_service_config()
-    client = QueryClient(host=service_config.host, port=service_config.port)
+    client = QueryClient(host=service_config.host, port=service_config.port, http_client=None)
 
     mode = "hybrid"
     top_k = TOP_K

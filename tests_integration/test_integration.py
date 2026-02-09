@@ -1,4 +1,4 @@
-"""End-to-end tests for mini-rag service.
+"""Integration tests for mini-rag service.
 
 Test plan
 ---------
@@ -13,12 +13,11 @@ Test plan
 8. Index destruction clears all data.
 """
 
-import httpx
 import pytest
 
 from minirag.search.types import SearchResult
-from tests_e2e.conftest import E2E_CORPUS
-from tests_e2e.documents import (
+from tests_integration.conftest import INTEGRATION_CORPUS
+from tests_integration.documents import (
     DOC1_CHUNK1_UNIQUE,
     DOC1_CHUNK2_UNIQUE,
     DOC1_OVERLAP,
@@ -45,15 +44,15 @@ def _texts_containing(results: list[SearchResult], keyword: str) -> list[str]:
 class TestServiceEndpoints:
     """Verify administrative endpoints."""
 
-    def test_health_returns_200(self, e2e_server):
-        resp = httpx.get(f"{e2e_server}/v1/health", timeout=5.0)
+    def test_health_returns_200(self, integration_http_client):
+        resp = integration_http_client.get("/v1/health")
         assert resp.status_code == 200
         body = resp.json()
         assert body["status"] == 200
         assert body["data"]["status"] == "healthy"
 
-    def test_info_returns_config(self, e2e_server):
-        resp = httpx.get(f"{e2e_server}/v1/info", timeout=5.0)
+    def test_info_returns_config(self, integration_http_client):
+        resp = integration_http_client.get("/v1/info")
         assert resp.status_code == 200
         body = resp.json()
         assert "config" in body["data"]
@@ -99,7 +98,7 @@ class TestSparseSearch:
 
     def test_unique_chunk1_keyword_doc1(self, query_client, indexed_documents):
         """'superposition' is only in chunk 1 of doc1."""
-        results = query_client.search_sparse(E2E_CORPUS, DOC1_CHUNK1_UNIQUE, top_k=10)
+        results = query_client.search_sparse(INTEGRATION_CORPUS, DOC1_CHUNK1_UNIQUE, top_k=10)
         matching = _texts_containing(results, DOC1_CHUNK1_UNIQUE)
         assert len(matching) >= 1
         # The keyword must NOT appear in chunk 2 (unique to chunk 1)
@@ -108,7 +107,7 @@ class TestSparseSearch:
 
     def test_unique_chunk2_keyword_doc1(self, query_client, indexed_documents):
         """'topological' is only in chunk 2 of doc1."""
-        results = query_client.search_sparse(E2E_CORPUS, DOC1_CHUNK2_UNIQUE, top_k=10)
+        results = query_client.search_sparse(INTEGRATION_CORPUS, DOC1_CHUNK2_UNIQUE, top_k=10)
         matching = _texts_containing(results, DOC1_CHUNK2_UNIQUE)
         assert len(matching) >= 1
 
@@ -117,7 +116,7 @@ class TestSparseSearch:
 
         Both chunks must contain the word, so at least 2 results should match.
         """
-        results = query_client.search_sparse(E2E_CORPUS, DOC1_OVERLAP, top_k=10)
+        results = query_client.search_sparse(INTEGRATION_CORPUS, DOC1_OVERLAP, top_k=10)
         matching = _texts_containing(results, DOC1_OVERLAP)
         assert len(matching) >= 2
 
@@ -125,31 +124,31 @@ class TestSparseSearch:
 
     def test_unique_chunk1_keyword_doc2(self, query_client, indexed_documents):
         """'symbiotic' is only in chunk 1 of doc2."""
-        results = query_client.search_sparse(E2E_CORPUS, DOC2_CHUNK1_UNIQUE, top_k=10)
+        results = query_client.search_sparse(INTEGRATION_CORPUS, DOC2_CHUNK1_UNIQUE, top_k=10)
         matching = _texts_containing(results, DOC2_CHUNK1_UNIQUE)
         assert len(matching) >= 1
 
     def test_unique_chunk2_keyword_doc2(self, query_client, indexed_documents):
         """'bioluminescence' is only in chunk 2 of doc2."""
-        results = query_client.search_sparse(E2E_CORPUS, DOC2_CHUNK2_UNIQUE, top_k=10)
+        results = query_client.search_sparse(INTEGRATION_CORPUS, DOC2_CHUNK2_UNIQUE, top_k=10)
         matching = _texts_containing(results, DOC2_CHUNK2_UNIQUE)
         assert len(matching) >= 1
 
     def test_unique_chunk3_keyword_doc2(self, query_client, indexed_documents):
         """'chemosynthetic' is only in chunk 3 of doc2."""
-        results = query_client.search_sparse(E2E_CORPUS, DOC2_CHUNK3_UNIQUE, top_k=10)
+        results = query_client.search_sparse(INTEGRATION_CORPUS, DOC2_CHUNK3_UNIQUE, top_k=10)
         matching = _texts_containing(results, DOC2_CHUNK3_UNIQUE)
         assert len(matching) >= 1
 
     def test_overlap_12_keyword_doc2(self, query_client, indexed_documents):
         """'acidification' sits in the overlap of doc2 chunks 1 and 2."""
-        results = query_client.search_sparse(E2E_CORPUS, DOC2_OVERLAP_12, top_k=10)
+        results = query_client.search_sparse(INTEGRATION_CORPUS, DOC2_OVERLAP_12, top_k=10)
         matching = _texts_containing(results, DOC2_OVERLAP_12)
         assert len(matching) >= 2
 
     def test_overlap_23_keyword_doc2(self, query_client, indexed_documents):
         """'hydrothermal' sits in the overlap of doc2 chunks 2 and 3."""
-        results = query_client.search_sparse(E2E_CORPUS, DOC2_OVERLAP_23, top_k=10)
+        results = query_client.search_sparse(INTEGRATION_CORPUS, DOC2_OVERLAP_23, top_k=10)
         matching = _texts_containing(results, DOC2_OVERLAP_23)
         assert len(matching) >= 2
 
@@ -157,14 +156,14 @@ class TestSparseSearch:
 
     def test_doc1_keyword_absent_from_doc2_results(self, query_client, indexed_documents):
         """'superposition' should not appear in any doc2 chunk."""
-        results = query_client.search_sparse(E2E_CORPUS, DOC1_CHUNK1_UNIQUE, top_k=10)
+        results = query_client.search_sparse(INTEGRATION_CORPUS, DOC1_CHUNK1_UNIQUE, top_k=10)
         for r in results:
             # Results should NOT contain doc2-specific language
             assert DOC2_CHUNK1_UNIQUE.lower() not in r.text.lower()
 
     def test_doc2_keyword_absent_from_doc1_results(self, query_client, indexed_documents):
         """'symbiotic' should not appear in any doc1 chunk."""
-        results = query_client.search_sparse(E2E_CORPUS, DOC2_CHUNK1_UNIQUE, top_k=10)
+        results = query_client.search_sparse(INTEGRATION_CORPUS, DOC2_CHUNK1_UNIQUE, top_k=10)
         for r in results:
             assert DOC1_CHUNK1_UNIQUE.lower() not in r.text.lower()
 
@@ -177,26 +176,26 @@ class TestDenseSearch:
 
     def test_quantum_query_returns_doc1_chunks(self, query_client, indexed_documents):
         """A quantum-themed query should surface doc1 chunks."""
-        results = query_client.search_dense(E2E_CORPUS, "quantum mechanics computation qubits", top_k=5)
+        results = query_client.search_dense(INTEGRATION_CORPUS, "quantum mechanics computation qubits", top_k=5)
         assert len(results) >= 1
         # At least one result should contain quantum-related text
         assert any("quantum" in r.text.lower() for r in results)
 
     def test_marine_query_returns_doc2_chunks(self, query_client, indexed_documents):
         """A marine-biology query should surface doc2 chunks."""
-        results = query_client.search_dense(E2E_CORPUS, "coral reef ocean marine ecosystem", top_k=5)
+        results = query_client.search_dense(INTEGRATION_CORPUS, "coral reef ocean marine ecosystem", top_k=5)
         assert len(results) >= 1
         assert any("coral" in r.text.lower() or "marine" in r.text.lower() for r in results)
 
     def test_dense_results_have_scores(self, query_client, indexed_documents):
         """Every dense result must carry a numeric score."""
-        results = query_client.search_dense(E2E_CORPUS, "energy", top_k=5)
+        results = query_client.search_dense(INTEGRATION_CORPUS, "energy", top_k=5)
         for r in results:
             assert isinstance(r.score, float)
 
     def test_dense_top_result_has_highest_score(self, query_client, indexed_documents):
         """Results should be sorted descending by score."""
-        results = query_client.search_dense(E2E_CORPUS, "quantum entanglement", top_k=5)
+        results = query_client.search_dense(INTEGRATION_CORPUS, "quantum entanglement", top_k=5)
         if len(results) >= 2:
             for i in range(len(results) - 1):
                 assert results[i].score >= results[i + 1].score
@@ -209,23 +208,23 @@ class TestHybridSearch:
     """Combined dense + sparse search with alpha weighting."""
 
     def test_hybrid_returns_results(self, query_client, indexed_documents):
-        results = query_client.search_hybrid(E2E_CORPUS, "quantum computing", top_k=5)
+        results = query_client.search_hybrid(INTEGRATION_CORPUS, "quantum computing", top_k=5)
         assert len(results) >= 1
 
     def test_hybrid_marine_biology(self, query_client, indexed_documents):
-        results = query_client.search_hybrid(E2E_CORPUS, "coral reef bioluminescence ocean", top_k=5)
+        results = query_client.search_hybrid(INTEGRATION_CORPUS, "coral reef bioluminescence ocean", top_k=5)
         assert len(results) >= 1
         assert any("coral" in r.text.lower() or "bioluminescence" in r.text.lower() for r in results)
 
     def test_hybrid_scores_descending(self, query_client, indexed_documents):
-        results = query_client.search_hybrid(E2E_CORPUS, "marine ecosystem", top_k=10)
+        results = query_client.search_hybrid(INTEGRATION_CORPUS, "marine ecosystem", top_k=10)
         if len(results) >= 2:
             for i in range(len(results) - 1):
                 assert results[i].score >= results[i + 1].score
 
     def test_hybrid_overlap_keyword(self, query_client, indexed_documents):
         """Overlap keyword 'acidification' should appear in multiple results."""
-        results = query_client.search_hybrid(E2E_CORPUS, DOC2_OVERLAP_12, top_k=10)
+        results = query_client.search_hybrid(INTEGRATION_CORPUS, DOC2_OVERLAP_12, top_k=10)
         matching = _texts_containing(results, DOC2_OVERLAP_12)
         assert len(matching) >= 2
 
@@ -242,16 +241,16 @@ class TestIndexDestruction:
 
     def test_destroy_and_verify_empty(self, indexing_client, query_client):
         """After destroy, sparse search should return no results."""
-        indexing_client.destroy_index(E2E_CORPUS)
+        indexing_client.destroy_index(INTEGRATION_CORPUS)
 
-        results = query_client.search_sparse(E2E_CORPUS, DOC1_CHUNK1_UNIQUE, top_k=10)
+        results = query_client.search_sparse(INTEGRATION_CORPUS, DOC1_CHUNK1_UNIQUE, top_k=10)
         assert len(results) == 0
 
     def test_reindex_after_destroy(self, indexing_client, query_client):
         """Re-indexing after destroy should work normally."""
-        doc_id, chunk_ids = indexing_client.index_document(E2E_CORPUS, DOCUMENT_1)
+        doc_id, chunk_ids = indexing_client.index_document(INTEGRATION_CORPUS, DOCUMENT_1)
         assert doc_id > 0
         assert len(chunk_ids) == 2
 
-        results = query_client.search_sparse(E2E_CORPUS, DOC1_CHUNK1_UNIQUE, top_k=10)
+        results = query_client.search_sparse(INTEGRATION_CORPUS, DOC1_CHUNK1_UNIQUE, top_k=10)
         assert len(results) >= 1

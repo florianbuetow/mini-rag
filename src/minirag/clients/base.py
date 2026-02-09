@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 class BaseClient:
     """Base HTTP client with health guard and envelope parsing."""
 
-    def __init__(self, host: str, port: int) -> None:
+    def __init__(self, host: str, port: int, http_client: httpx.Client | None) -> None:
         """Initialize base client with explicit host and port."""
         if host.strip() == "":
             raise ValueError("host must not be empty")
@@ -23,6 +23,7 @@ class BaseClient:
             raise ValueError("port must be less than or equal to 65535")
 
         self._base_url = f"http://{host}:{port}"
+        self._http_client = http_client
 
     def _as_object_map(self, value: object, context: str) -> dict[str, object]:
         """Validate and cast a generic object into a string-key object map."""
@@ -49,8 +50,11 @@ class BaseClient:
         if require_healthy:
             self._ensure_healthy()
 
-        with httpx.Client(base_url=self._base_url, timeout=30.0) as client:
-            response = client.request(method=method, url=path, json=payload)
+        if self._http_client is not None:
+            response = self._http_client.request(method=method, url=path, json=payload)
+        else:
+            with httpx.Client(base_url=self._base_url, timeout=30.0) as client:
+                response = client.request(method=method, url=path, json=payload)
 
         try:
             raw_envelope: object = response.json()
@@ -77,8 +81,11 @@ class BaseClient:
 
     def _ensure_healthy(self) -> None:
         """Assert the service is healthy before making guarded calls."""
-        with httpx.Client(base_url=self._base_url, timeout=10.0) as client:
-            response = client.get("/v1/health")
+        if self._http_client is not None:
+            response = self._http_client.get("/v1/health")
+        else:
+            with httpx.Client(base_url=self._base_url, timeout=10.0) as client:
+                response = client.get("/v1/health")
 
         try:
             raw_envelope: object = response.json()
