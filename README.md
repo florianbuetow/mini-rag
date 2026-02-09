@@ -31,7 +31,8 @@ Under the hood, MiniRAG uses Facebook's FastText for local embeddings, FAISS for
 ├── data/
 │   ├── input/<corpus>/
 │   │   ├── md/             # Markdown source documents
-│   │   └── txt/            # Plain text files (ingested by the service)
+│   │   ├── txt/            # Plain text files (ingested by the service)
+│   │   └── evals/          # Q&A pairs for retrieval evaluation
 │   ├── models/             # FastText embedding model
 │   ├── storage/<corpus>/   # SQLite document/chunk store
 │   └── index/<corpus>/
@@ -70,6 +71,7 @@ Key sections: **service** (host, port, log level), **data** (base directory), **
 | `just ingest <corpus>` | Delete and re-ingest all text files for a corpus |
 | `just search <corpus>` | Interactive search query loop for a corpus |
 | `just delete <corpus>` | Delete a corpus index and storage |
+| `just evaluate <corpus>` | Evaluate retrieval quality using Q&A pairs |
 | `just inspect <corpus>` | Inspect document chunks for a corpus |
 | `just destroy` | Remove virtual environment |
 
@@ -142,8 +144,87 @@ The `alpha` parameter under `search.hybrid` controls the dense/sparse balance:
 | Command | Description |
 |---------|-------------|
 | `just test` | Unit tests |
-| `just test-e2e` | End-to-end tests (starts service, indexes, searches) |
+| `just test-e2e` | End-to-end tests (starts service, indexes, searches, evaluates) |
+| `just test-integration` | Integration tests (in-process, requires FastText model) |
 | `just test-coverage` | Unit tests with coverage (80% threshold) |
+
+### End-to-End Tests
+
+The e2e test suite (`just test-e2e`) exercises the full pipeline as a real user would:
+
+1. Starts a fresh service instance on a temporary data directory (port 7098).
+2. Converts markdown to text via `scripts/md2txt.py`.
+3. Verifies that search returns empty results before indexing.
+4. Ingests the `test` corpus via `scripts/ingest.py`.
+5. Verifies that search returns results in all three modes (sparse, dense, hybrid).
+6. Runs evaluation via `scripts/evaluate.py` against Q&A pairs.
+7. Asserts that average ROUGE-L recall meets minimum thresholds per mode.
+8. Deletes the corpus index and verifies search returns empty results again.
+
+The test is fully self-contained — it creates an isolated temp directory, symlinks the FastText model from your local `data/models/`, and cleans up after itself. No running service is required; the test starts and stops its own.
+
+**Prerequisites:** Run `just init` at least once so the FastText model is downloaded.
+
+```bash
+just test-e2e
+```
+
+### Retrieval Evaluation
+
+MiniRAG includes a retrieval quality evaluation system that measures how well search results match expected answers using ROUGE-L recall. You can evaluate any corpus that has an evaluation file.
+
+#### Running Evaluation
+
+With the service running:
+
+```bash
+just evaluate <corpus>
+```
+
+This runs all queries from the evaluation file against the three search modes (sparse, dense, hybrid), computes ROUGE-L recall for each, and writes a JSON report to `reports/<corpus>/evaluation.json`.
+
+#### Creating Evaluations for a New Corpus
+
+To create evaluations for a corpus, create an `evals/` directory inside the corpus input directory and add a `question_answer_pairs.json` file:
+
+```
+data/input/<corpus>/evals/question_answer_pairs.json
+```
+
+The file must follow this format:
+
+```json
+{
+  "qa_pairs": [
+    {
+      "question": "What is the capital of France?",
+      "answer": "The capital of France is Paris."
+    },
+    {
+      "question": "Who wrote Romeo and Juliet?",
+      "answer": "William Shakespeare wrote Romeo and Juliet."
+    }
+  ]
+}
+```
+
+Each entry has:
+- **question** — the search query to send to the retrieval system.
+- **answer** — the expected reference answer. The retrieved chunks are concatenated and compared to this answer using ROUGE-L recall, which measures how much of the reference answer's content appears in the retrieved text.
+
+**Tips for writing good Q&A pairs:**
+- Write questions that a user would naturally ask about the documents.
+- Answers should contain the key facts that you expect the retrieval system to surface.
+- Include a mix of factual questions (names, dates, numbers) and broader questions (explanations, descriptions).
+- Aim for at least 10-20 Q&A pairs per corpus for meaningful evaluation.
+
+#### Evaluation Report
+
+After running `just evaluate <corpus>`, the report at `reports/<corpus>/evaluation.json` contains:
+
+- Per-mode average ROUGE-L recall scores.
+- Per-query breakdown with individual scores and result counts.
+- Corpus name, timestamp, and top_k setting used.
 
 ### CI
 

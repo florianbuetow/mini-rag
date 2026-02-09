@@ -86,10 +86,18 @@ init:
 # Start the mini-rag service
 [group('lifecycle')]
 start:
-    @echo ""
-    @printf "%b\n" "\033[0;34m=== Starting mini-rag Service ===\033[0m"
-    @uv run src/main.py
-    @echo ""
+    #!/usr/bin/env bash
+    set -e
+    echo ""
+    printf "%b\n" "\033[0;34m=== Starting mini-rag Service ===\033[0m"
+    SERVICE_HOST=$(uv run python -c "import yaml; print(yaml.safe_load(open('config.yaml', encoding='utf-8'))['service']['host'])")
+    SERVICE_PORT=$(uv run python -c "import yaml; print(yaml.safe_load(open('config.yaml', encoding='utf-8'))['service']['port'])")
+    if curl -fsS "http://${SERVICE_HOST}:${SERVICE_PORT}/v1/health" >/dev/null 2>&1; then
+        printf "%b\n" "\033[0;33m⚠ Service is already running on ${SERVICE_HOST}:${SERVICE_PORT}\033[0m"
+        exit 1
+    fi
+    uv run src/main.py
+    echo ""
 
 # Stop the running service
 [group('lifecycle')]

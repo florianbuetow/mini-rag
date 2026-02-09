@@ -9,7 +9,7 @@ data:
 
 index:
   chunking:
-    chunk_size: 300
+    chunk_size: 500
     overlap: 0.3
 
   embeddings:
