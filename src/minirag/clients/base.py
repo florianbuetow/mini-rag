@@ -1,6 +1,8 @@
 """Base HTTP client for mini-rag service communication."""
 
 import logging
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import cast
 
 import httpx
@@ -24,6 +26,21 @@ class BaseClient:
 
         self._base_url = f"http://{host}:{port}"
         self._http_client = http_client
+
+    @contextmanager
+    def _client(self, timeout: float) -> Iterator[httpx.Client]:
+        """Yield an httpx.Client, reusing the injected one or creating a temporary one."""
+        if self._http_client is not None:
+            yield self._http_client
+        else:
+            with httpx.Client(base_url=self._base_url, timeout=timeout) as client:
+                yield client
+
+    def _as_object_list(self, value: object, context: str) -> list[object]:
+        """Validate and cast a generic object into a list of objects."""
+        if not isinstance(value, list):
+            raise RuntimeError(f"{context} must be a list")
+        return cast(list[object], value)
 
     def _as_object_map(self, value: object, context: str) -> dict[str, object]:
         """Validate and cast a generic object into a string-key object map."""
@@ -50,11 +67,8 @@ class BaseClient:
         if require_healthy:
             self._ensure_healthy()
 
-        if self._http_client is not None:
-            response = self._http_client.request(method=method, url=path, json=payload)
-        else:
-            with httpx.Client(base_url=self._base_url, timeout=30.0) as client:
-                response = client.request(method=method, url=path, json=payload)
+        with self._client(timeout=30.0) as client:
+            response = client.request(method=method, url=path, json=payload)
 
         try:
             raw_envelope: object = response.json()
@@ -81,11 +95,8 @@ class BaseClient:
 
     def _ensure_healthy(self) -> None:
         """Assert the service is healthy before making guarded calls."""
-        if self._http_client is not None:
-            response = self._http_client.get("/v1/health")
-        else:
-            with httpx.Client(base_url=self._base_url, timeout=10.0) as client:
-                response = client.get("/v1/health")
+        with self._client(timeout=10.0) as client:
+            response = client.get("/v1/health")
 
         try:
             raw_envelope: object = response.json()

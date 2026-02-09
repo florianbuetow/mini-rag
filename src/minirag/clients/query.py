@@ -1,6 +1,5 @@
 """Query client for dense/sparse/hybrid search endpoints."""
 
-from typing import cast
 from urllib.parse import quote
 
 from minirag.clients.base import BaseClient
@@ -10,25 +9,6 @@ from minirag.search.types import SearchResult
 
 class QueryClient(BaseClient):
     """Client for querying dense, sparse, and hybrid endpoints."""
-
-    def _as_object_list(self, value: object, context: str) -> list[object]:
-        """Validate and cast a generic object into a list of objects."""
-        if not isinstance(value, list):
-            raise RuntimeError(f"{context} must be a list")
-        return cast(list[object], value)
-
-    def _as_object_map(self, value: object, context: str) -> dict[str, object]:
-        """Validate and cast a generic object into a string-key object map."""
-        if not isinstance(value, dict):
-            raise RuntimeError(f"{context} must be an object")
-
-        typed_value = cast(dict[object, object], value)
-        result: dict[str, object] = {}
-        for raw_key, raw_value in typed_value.items():
-            if not isinstance(raw_key, str):
-                raise RuntimeError(f"{context} contains non-string key")
-            result[raw_key] = raw_value
-        return result
 
     def _search(self, corpus: str, path_suffix: str, query: str, top_k: int) -> list[SearchResult]:
         """Run one query endpoint and parse SearchResult list."""

@@ -62,7 +62,6 @@ def integration_data_dir():
     (data_dir / "models").mkdir()
     (data_dir / "storage").mkdir()
     (data_dir / "index").mkdir(parents=True)
-    (data_dir / "input" / "txt").mkdir(parents=True)
 
     # Symlink the (large) FastText model so we avoid copying 4 GB+
     model_name = project_config.index.embeddings.model_name
@@ -79,6 +78,11 @@ def integration_data_dir():
 @pytest.fixture(scope="session")
 def integration_config(integration_data_dir):
     """Build and return Config for integration tests."""
+    # Read embeddings config from the project config to avoid hardcoding model values
+    project_config_path = PROJECT_ROOT / "config.yaml"
+    project_config = Config.from_yaml(project_config_path)
+    emb = project_config.index.embeddings
+
     config_dict = {
         "service": {
             "host": INTEGRATION_HOST,
@@ -95,19 +99,19 @@ def integration_config(integration_data_dir):
                 "overlap": E2E_OVERLAP,
             },
             "embeddings": {
-                "model_name": "cc.en.300.bin",
-                "dimension": 300,
+                "model_name": emb.model_name,
+                "dimension": emb.dimension,
             },
             "storage": {
                 "db_filename": "minirag_integration.db",
             },
             "faiss": {
-                "index_type": "IndexFlatIP",
-                "nprobe": 1,
+                "index_type": project_config.index.faiss.index_type,
+                "nprobe": project_config.index.faiss.nprobe,
             },
             "tantivy": {
-                "language": "en",
-                "stemming": True,
+                "language": project_config.index.tantivy.language,
+                "stemming": project_config.index.tantivy.stemming,
             },
         },
         "search": {
@@ -151,7 +155,7 @@ def integration_server(integration_config):
             if resp.status_code == 200:
                 break
         except (httpx.ConnectError, httpx.ReadTimeout, httpx.TimeoutException):
-            pass
+            pass  # Server not ready yet; retry after sleep
         time.sleep(0.5)
     else:
         raise RuntimeError("Integration server did not start within 60s")

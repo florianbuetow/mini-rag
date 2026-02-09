@@ -3,7 +3,6 @@
 import argparse
 import json
 import logging
-import sys
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
@@ -36,28 +35,28 @@ def parse_args() -> argparse.Namespace:
 
 
 def load_qa_pairs(evals_path: Path) -> list[dict[str, str]]:
-    """Load Q&A pairs from the evaluation JSON file."""
+    """Load Q&A pairs from the evaluation JSON file.
+
+    Raises:
+        FileNotFoundError: If the evaluation file does not exist.
+        ValueError: If the file format is invalid or contains no Q&A pairs.
+    """
     if not evals_path.exists():
-        logger.error("Evaluation file not found: %s", evals_path)
-        logger.error("Cannot evaluate corpus without question-answer pairs.")
-        sys.exit(1)
+        raise FileNotFoundError(f"evaluation file not found: {evals_path}")
 
     with evals_path.open("r", encoding="utf-8") as fh:
         raw = json.load(fh)
 
     if not isinstance(raw, dict) or "qa_pairs" not in raw:
-        logger.error('Invalid evaluation file format: expected {"qa_pairs": [...]}')
-        sys.exit(1)
+        raise ValueError(f'invalid evaluation file format: expected {{"qa_pairs": [...]}} in {evals_path}')
 
     qa_pairs = raw["qa_pairs"]
     if not isinstance(qa_pairs, list) or len(qa_pairs) == 0:
-        logger.error("Evaluation file contains no Q&A pairs")
-        sys.exit(1)
+        raise ValueError(f"evaluation file contains no Q&A pairs: {evals_path}")
 
     for i, pair in enumerate(qa_pairs):
         if not isinstance(pair, dict) or "question" not in pair or "answer" not in pair:
-            logger.error('Invalid Q&A pair at index %d: expected {"question": ..., "answer": ...}', i)
-            sys.exit(1)
+            raise ValueError(f'invalid Q&A pair at index {i}: expected {{"question": ..., "answer": ...}}')
 
     return qa_pairs
 
@@ -86,7 +85,7 @@ def evaluate_mode(
 
         try:
             results = search_fn(corpus=corpus, query=question, top_k=top_k)
-        except RuntimeError as exc:
+        except Exception as exc:
             logger.warning("[%s %d/%d] query failed: %s q=%s", mode, i, len(qa_pairs), exc, question[:60])
             per_query.append(
                 {
@@ -199,6 +198,14 @@ def main() -> None:
             scorer=scorer,
             top_k=TOP_K,
         )
+
+    # Detect systemic failures: if every query in every mode failed, abort
+    all_failed = all(
+        all("error" in entry for entry in mode_data.get("per_query", []))  # type: ignore[union-attr]
+        for mode_data in mode_results.values()
+    )
+    if all_failed:
+        raise RuntimeError(f"all queries failed across all modes for corpus={corpus} — is the service running?")
 
     report = build_report(
         corpus=corpus,

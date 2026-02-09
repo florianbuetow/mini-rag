@@ -20,6 +20,9 @@ _CORPUS_NAME_PATTERN = re.compile(r"^[a-zA-Z][a-zA-Z0-9_-]*$")
 def validate_corpus_name(name: str) -> str:
     """Validate a corpus name and return it if valid.
 
+    Valid names must start with a letter and contain only letters, digits,
+    underscores, or dashes (pattern: ``^[a-zA-Z][a-zA-Z0-9_-]*$``).
+
     Raises:
         ValueError: If the name does not match the required pattern.
     """
@@ -54,36 +57,42 @@ class CorpusManager:
             return self._cache[corpus]
 
     def destroy(self, corpus: str) -> None:
-        """Destroy a corpus's backends on disk and evict from cache."""
+        """Clear a corpus's storage and index contents, then evict from cache."""
         validate_corpus_name(corpus)
         with self._lock:
-            orch = self._cache.get(corpus)
+            orch = self._cache.pop(corpus, None)
             if orch is None:
                 orch = self._create_orchestration(corpus)
-            try:
-                orch.destroy_index()
-            finally:
-                try:
-                    orch.close_storage()
-                finally:
-                    self._cache.pop(corpus, None)
+
+        try:
+            orch.destroy_index()
+        except Exception:
+            logger.exception("Failed to destroy index for corpus %r", corpus)
+            raise
+        finally:
+            orch.close_storage()
 
     def close_all(self) -> None:
-        """Close all cached storage connections."""
+        """Close all cached storage connections and clear the cache.
+
+        Raises RuntimeError if any corpus fails to close, after attempting
+        to close all remaining corpora.
+        """
         with self._lock:
-            errors: list[tuple[str, Exception]] = []
+            items = list(self._cache.items())
+            self._cache.clear()
+
+        errors: list[tuple[str, Exception]] = []
+        for name, orch in items:
             try:
-                for name, orch in self._cache.items():
-                    try:
-                        orch.close_storage()
-                    except Exception as exc:
-                        logger.error("Failed to close storage for corpus %r: %s", name, exc)
-                        errors.append((name, exc))
-            finally:
-                self._cache.clear()
-            if errors:
-                names = ", ".join(n for n, _ in errors)
-                raise RuntimeError(f"failed to close storage for corpora: {names}")
+                orch.close_storage()
+            except Exception as exc:
+                logger.error("Failed to close storage for corpus %r: %s", name, exc)
+                errors.append((name, exc))
+
+        if errors:
+            names = ", ".join(n for n, _ in errors)
+            raise RuntimeError(f"failed to close storage for corpora: {names}")
 
     def _create_orchestration(self, corpus: str) -> Orchestration:
         """Build backends at corpus-namespaced paths and return an Orchestration."""

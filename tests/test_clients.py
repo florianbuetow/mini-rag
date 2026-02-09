@@ -215,3 +215,50 @@ def test_query_client_rejects_empty_corpus() -> None:
 
     with pytest.raises(ValueError, match="invalid corpus name"):
         query.search_hybrid("", query="hello", top_k=3)
+
+
+def test_injected_http_client_is_used() -> None:
+    """BaseClient should use the injected http_client when provided."""
+    responses = {
+        ("GET", "/v1/health"): FakeResponse(200, {"status": 200, "data": {"status": "healthy"}}),
+        ("POST", "/v1/corpus/books/index"): FakeResponse(200, {"status": 200, "data": {"ok": True}}),
+    }
+    fake_client = FakeHttpClient(responses)
+
+    client = DummyClient(host="127.0.0.1", port=7001, http_client=fake_client)  # type: ignore[arg-type]
+    payload = client.send_request(method="POST", path="/v1/corpus/books/index", payload={"x": 1}, require_healthy=True)
+
+    assert payload == {"ok": True}
+
+
+def test_indexing_client_rejects_empty_text() -> None:
+    """IndexingClient should reject empty document text."""
+    indexing = IndexingClient(host="127.0.0.1", port=7001, http_client=None)
+
+    with pytest.raises(ValueError, match="text must not be empty"):
+        indexing.index_document("books", "")
+
+    with pytest.raises(ValueError, match="text must not be empty"):
+        indexing.index_document("books", "   ")
+
+
+def test_query_client_rejects_empty_query() -> None:
+    """QueryClient should reject empty query strings."""
+    query = QueryClient(host="127.0.0.1", port=7001, http_client=None)
+
+    with pytest.raises(ValueError, match="query must not be empty"):
+        query.search_dense("books", query="", top_k=3)
+
+    with pytest.raises(ValueError, match="query must not be empty"):
+        query.search_dense("books", query="   ", top_k=3)
+
+
+def test_query_client_rejects_non_positive_top_k() -> None:
+    """QueryClient should reject non-positive top_k values."""
+    query = QueryClient(host="127.0.0.1", port=7001, http_client=None)
+
+    with pytest.raises(ValueError, match="top_k must be greater than 0"):
+        query.search_dense("books", query="hello", top_k=0)
+
+    with pytest.raises(ValueError, match="top_k must be greater than 0"):
+        query.search_dense("books", query="hello", top_k=-1)

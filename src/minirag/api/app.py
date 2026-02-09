@@ -31,7 +31,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Manage application lifecycle — close all corpus storage on shutdown."""
     yield
     if hasattr(app.state, "corpus_manager"):
-        app.state.corpus_manager.close_all()
+        try:
+            app.state.corpus_manager.close_all()
+        except RuntimeError:
+            logger.exception("Errors while closing corpus storage during shutdown")
 
 
 def create_app(config: Config, project_root: Path) -> FastAPI:
