@@ -42,7 +42,7 @@ async def index_document(request: Request, corpus: str) -> JSONResponse:
 
     corpus_manager = get_corpus_manager(request)
     try:
-        orchestration = corpus_manager.get(corpus)
+        orchestration = await asyncio.to_thread(corpus_manager.get, corpus)
     except ValueError as exc:
         return error_response(status=400, message=str(exc))
 

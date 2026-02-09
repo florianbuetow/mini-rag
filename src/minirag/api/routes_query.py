@@ -36,9 +36,8 @@ def _build_query_response(results: list[SearchResult]) -> QueryResponse:
     return QueryResponse(results=response_results)
 
 
-@router.post("/dense")
-async def query_dense(request: Request, corpus: str) -> JSONResponse:
-    """Run dense search query."""
+async def _run_query(request: Request, corpus: str, method_name: str) -> JSONResponse:
+    """Shared query handler for dense, sparse, and hybrid search."""
     guard_response = ensure_healthy(request)
     if guard_response is not None:
         return guard_response
@@ -52,102 +51,43 @@ async def query_dense(request: Request, corpus: str) -> JSONResponse:
 
     corpus_manager = get_corpus_manager(request)
     try:
-        orchestration = corpus_manager.get(corpus)
+        orchestration = await asyncio.to_thread(corpus_manager.get, corpus)
     except ValueError as exc:
         return error_response(status=400, message=str(exc))
 
+    search_fn = getattr(orchestration, method_name)
     try:
         results = await asyncio.to_thread(
-            orchestration.search_dense,
+            search_fn,
             query=parsed_payload.query,
             top_k=parsed_payload.top_k,
         )
     except ValueError as exc:
         return error_response(status=400, message=str(exc))
     except RuntimeError as exc:
-        logger.exception("Failed to execute dense search, corpus=%s", corpus)
+        logger.exception("Failed to execute %s, corpus=%s", method_name, corpus)
         return error_response(status=500, message=str(exc))
     except Exception:
-        logger.exception("Failed to execute dense search, corpus=%s", corpus)
+        logger.exception("Failed to execute %s, corpus=%s", method_name, corpus)
         return error_response(status=500, message="Internal server error")
 
     response_model = _build_query_response(results)
     return success_response(status=200, data=response_model.model_dump())
+
+
+@router.post("/dense")
+async def query_dense(request: Request, corpus: str) -> JSONResponse:
+    """Run dense search query."""
+    return await _run_query(request, corpus, "search_dense")
 
 
 @router.post("/sparse")
 async def query_sparse(request: Request, corpus: str) -> JSONResponse:
     """Run sparse search query."""
-    guard_response = ensure_healthy(request)
-    if guard_response is not None:
-        return guard_response
-
-    parsed_payload = await _parse_query_request(request)
-    if isinstance(parsed_payload, JSONResponse):
-        return parsed_payload
-
-    query_display = parsed_payload.query[:120] + "..." if len(parsed_payload.query) > 120 else parsed_payload.query
-    logger.debug('corpus=%s query="%s" top_k=%d', corpus, query_display, parsed_payload.top_k)
-
-    corpus_manager = get_corpus_manager(request)
-    try:
-        orchestration = corpus_manager.get(corpus)
-    except ValueError as exc:
-        return error_response(status=400, message=str(exc))
-
-    try:
-        results = await asyncio.to_thread(
-            orchestration.search_sparse,
-            query=parsed_payload.query,
-            top_k=parsed_payload.top_k,
-        )
-    except ValueError as exc:
-        return error_response(status=400, message=str(exc))
-    except RuntimeError as exc:
-        logger.exception("Failed to execute sparse search, corpus=%s", corpus)
-        return error_response(status=500, message=str(exc))
-    except Exception:
-        logger.exception("Failed to execute sparse search, corpus=%s", corpus)
-        return error_response(status=500, message="Internal server error")
-
-    response_model = _build_query_response(results)
-    return success_response(status=200, data=response_model.model_dump())
+    return await _run_query(request, corpus, "search_sparse")
 
 
 @router.post("/hybrid")
 async def query_hybrid(request: Request, corpus: str) -> JSONResponse:
     """Run hybrid search query."""
-    guard_response = ensure_healthy(request)
-    if guard_response is not None:
-        return guard_response
-
-    parsed_payload = await _parse_query_request(request)
-    if isinstance(parsed_payload, JSONResponse):
-        return parsed_payload
-
-    query_display = parsed_payload.query[:120] + "..." if len(parsed_payload.query) > 120 else parsed_payload.query
-    logger.debug('corpus=%s query="%s" top_k=%d', corpus, query_display, parsed_payload.top_k)
-
-    corpus_manager = get_corpus_manager(request)
-    try:
-        orchestration = corpus_manager.get(corpus)
-    except ValueError as exc:
-        return error_response(status=400, message=str(exc))
-
-    try:
-        results = await asyncio.to_thread(
-            orchestration.search_hybrid,
-            query=parsed_payload.query,
-            top_k=parsed_payload.top_k,
-        )
-    except ValueError as exc:
-        return error_response(status=400, message=str(exc))
-    except RuntimeError as exc:
-        logger.exception("Failed to execute hybrid search, corpus=%s", corpus)
-        return error_response(status=500, message=str(exc))
-    except Exception:
-        logger.exception("Failed to execute hybrid search, corpus=%s", corpus)
-        return error_response(status=500, message="Internal server error")
-
-    response_model = _build_query_response(results)
-    return success_response(status=200, data=response_model.model_dump())
+    return await _run_query(request, corpus, "search_hybrid")

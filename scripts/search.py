@@ -86,6 +86,7 @@ def parse_args() -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(description="Interactive search over a mini-rag corpus")
     parser.add_argument("--corpus", required=True, help="Name of the corpus to search")
+    parser.add_argument("--config", default=None, help="Path to config file (default: config.yaml in project root)")
     return parser.parse_args()
 
 
@@ -95,7 +96,8 @@ def main() -> None:
     corpus: str = args.corpus
 
     project_root = Path(__file__).resolve().parent.parent
-    config = Config.from_yaml(project_root / "config.yaml")
+    config_path = Path(args.config).resolve() if args.config else project_root / "config.yaml"
+    config = Config.from_yaml(config_path)
     service_config = config.get_service_config()
     client = QueryClient(host=service_config.host, port=service_config.port, http_client=None)
 

@@ -157,6 +157,10 @@ delete corpus="":
         printf "Enter corpus name: "
         read CORPUS
     fi
+    if ! echo "$CORPUS" | grep -qE '^[a-zA-Z][a-zA-Z0-9_-]*$'; then
+        printf "%b\n" "\033[0;31m✗ Invalid corpus name: ${CORPUS}\033[0m"
+        exit 1
+    fi
     printf "Are you sure you want to delete corpus '%s'? [y/N] " "$CORPUS"
     read CONFIRM
     if [ "$CONFIRM" != "y" ] && [ "$CONFIRM" != "Y" ]; then

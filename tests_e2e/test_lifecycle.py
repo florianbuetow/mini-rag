@@ -18,6 +18,7 @@ import subprocess
 import httpx
 
 from minirag.clients.query import QueryClient
+from minirag.search.types import SearchResult
 from tests_e2e.conftest import E2EEnv
 
 SEARCH_MODES = ["sparse", "dense", "hybrid"]
@@ -31,7 +32,7 @@ ROUGE_L_THRESHOLDS = {
 }
 
 
-def _search_all_modes(client: QueryClient, corpus: str, query: str, top_k: int = 5) -> dict[str, list[object]]:
+def _search_all_modes(client: QueryClient, corpus: str, query: str, top_k: int = 5) -> dict[str, list[SearchResult]]:
     """Run search in all modes and return results keyed by mode."""
     return {
         "sparse": client.search_sparse(corpus=corpus, query=query, top_k=top_k),
