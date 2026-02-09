@@ -1,4 +1,4 @@
-"""Ingest all text files from configured input directory into mini-rag."""
+"""Ingest all text files from a corpus input directory into mini-rag."""
 
 import argparse
 import logging

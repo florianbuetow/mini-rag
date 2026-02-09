@@ -1,8 +1,10 @@
 """Indexing client for document/index management endpoints."""
 
 from typing import cast
+from urllib.parse import quote
 
 from minirag.clients.base import BaseClient
+from minirag.corpus import validate_corpus_name
 
 
 class IndexingClient(BaseClient):
@@ -16,15 +18,14 @@ class IndexingClient(BaseClient):
 
     def index_document(self, corpus: str, text: str) -> tuple[int, list[int]]:
         """Index one document and return document_id and chunk_ids."""
-        if not corpus:
-            raise ValueError("corpus must not be empty")
+        validate_corpus_name(corpus)
 
         if text.strip() == "":
             raise ValueError("text must not be empty")
 
         data = self._request(
             method="POST",
-            path=f"/v1/corpus/{corpus}/index",
+            path=f"/v1/corpus/{quote(corpus, safe='')}/index",
             payload={"document": text},
             require_healthy=True,
         )
@@ -46,12 +47,11 @@ class IndexingClient(BaseClient):
 
     def destroy_index(self, corpus: str) -> None:
         """Destroy index state across all backends for a corpus."""
-        if not corpus:
-            raise ValueError("corpus must not be empty")
+        validate_corpus_name(corpus)
 
         self._request(
             method="DELETE",
-            path=f"/v1/corpus/{corpus}/index",
+            path=f"/v1/corpus/{quote(corpus, safe='')}/index",
             payload=None,
             require_healthy=True,
         )

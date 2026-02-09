@@ -57,21 +57,33 @@ class CorpusManager:
         """Destroy a corpus's backends on disk and evict from cache."""
         validate_corpus_name(corpus)
         with self._lock:
-            if corpus in self._cache:
-                orch = self._cache.pop(corpus)
-                orch.destroy_index()
-                orch.close_storage()
-            else:
+            orch = self._cache.get(corpus)
+            if orch is None:
                 orch = self._create_orchestration(corpus)
+            try:
                 orch.destroy_index()
-                orch.close_storage()
+            finally:
+                try:
+                    orch.close_storage()
+                finally:
+                    self._cache.pop(corpus, None)
 
     def close_all(self) -> None:
         """Close all cached storage connections."""
         with self._lock:
-            for orch in self._cache.values():
-                orch.close_storage()
-            self._cache.clear()
+            errors: list[tuple[str, Exception]] = []
+            try:
+                for name, orch in self._cache.items():
+                    try:
+                        orch.close_storage()
+                    except Exception as exc:
+                        logger.error("Failed to close storage for corpus %r: %s", name, exc)
+                        errors.append((name, exc))
+            finally:
+                self._cache.clear()
+            if errors:
+                names = ", ".join(n for n, _ in errors)
+                raise RuntimeError(f"failed to close storage for corpora: {names}")
 
     def _create_orchestration(self, corpus: str) -> Orchestration:
         """Build backends at corpus-namespaced paths and return an Orchestration."""
@@ -80,16 +92,24 @@ class CorpusManager:
         storage = SQLiteStorage(
             database_path=self._data_dir / "storage" / corpus / ic.storage.db_filename,
         )
-        dense = FAISSDense(
-            dimension=ic.embeddings.dimension,
-            index_dir=self._data_dir / "index" / corpus / "faiss",
-            nprobe=ic.faiss.nprobe,
-        )
-        sparse = TantivySparse(
-            index_dir=self._data_dir / "index" / corpus / "tantivy",
-            language=ic.tantivy.language,
-            stemming=ic.tantivy.stemming,
-        )
+        try:
+            dense = FAISSDense(
+                dimension=ic.embeddings.dimension,
+                index_dir=self._data_dir / "index" / corpus / "faiss",
+                nprobe=ic.faiss.nprobe,
+            )
+        except Exception:
+            storage.close()
+            raise
+        try:
+            sparse = TantivySparse(
+                index_dir=self._data_dir / "index" / corpus / "tantivy",
+                language=ic.tantivy.language,
+                stemming=ic.tantivy.stemming,
+            )
+        except Exception:
+            storage.close()
+            raise
 
         logger.info("Created backends for corpus=%s", corpus)
         return Orchestration(

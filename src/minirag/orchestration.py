@@ -76,7 +76,7 @@ class Orchestration:
         self._storage.destroy()
         self._dense.destroy()
         self._sparse.destroy()
-        logger.info("Destroyed full mini-rag index")
+        logger.info("Destroyed storage and retrieval indices")
 
     def close_storage(self) -> None:
         """Close the storage connection."""

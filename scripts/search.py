@@ -1,4 +1,4 @@
-"""Interactive query loop for searching the mini-rag index."""
+"""Interactive query loop for searching a mini-rag corpus."""
 
 import argparse
 import json

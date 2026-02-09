@@ -94,9 +94,7 @@ def main() -> None:
         logger.error("Input directory does not exist: %s", input_base)
         sys.exit(1)
 
-    corpus_dirs = sorted(
-        d for d in input_base.iterdir() if d.is_dir() and not d.name.startswith(".")
-    )
+    corpus_dirs = sorted(d for d in input_base.iterdir() if d.is_dir() and not d.name.startswith("."))
     if not corpus_dirs:
         logger.info("No corpus subfolders found in %s", input_base)
         sys.exit(0)

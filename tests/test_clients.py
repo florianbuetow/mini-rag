@@ -196,10 +196,10 @@ def test_indexing_client_rejects_empty_corpus() -> None:
     """IndexingClient should reject empty corpus name."""
     indexing = IndexingClient(host="127.0.0.1", port=7001)
 
-    with pytest.raises(ValueError, match="corpus must not be empty"):
+    with pytest.raises(ValueError, match="invalid corpus name"):
         indexing.index_document("", "hello")
 
-    with pytest.raises(ValueError, match="corpus must not be empty"):
+    with pytest.raises(ValueError, match="invalid corpus name"):
         indexing.destroy_index("")
 
 
@@ -207,11 +207,11 @@ def test_query_client_rejects_empty_corpus() -> None:
     """QueryClient should reject empty corpus name."""
     query = QueryClient(host="127.0.0.1", port=7001)
 
-    with pytest.raises(ValueError, match="corpus must not be empty"):
+    with pytest.raises(ValueError, match="invalid corpus name"):
         query.search_dense("", query="hello", top_k=3)
 
-    with pytest.raises(ValueError, match="corpus must not be empty"):
+    with pytest.raises(ValueError, match="invalid corpus name"):
         query.search_sparse("", query="hello", top_k=3)
 
-    with pytest.raises(ValueError, match="corpus must not be empty"):
+    with pytest.raises(ValueError, match="invalid corpus name"):
         query.search_hybrid("", query="hello", top_k=3)
