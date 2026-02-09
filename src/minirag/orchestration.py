@@ -78,6 +78,10 @@ class Orchestration:
         self._sparse.destroy()
         logger.info("Destroyed full mini-rag index")
 
+    def close_storage(self) -> None:
+        """Close the storage connection."""
+        self._storage.close()
+
     def _resolve_results(self, scored_chunk_ids: list[ScoredChunk], source: str) -> list[SearchResult]:
         """Resolve chunk IDs from retrieval engines into SearchResult payloads."""
         resolved_results: list[SearchResult] = []

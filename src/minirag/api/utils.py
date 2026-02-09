@@ -6,7 +6,7 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 
 from minirag.config import Config
-from minirag.orchestration import Orchestration
+from minirag.corpus import CorpusManager
 
 
 def success_response(status: int, data: dict[str, object]) -> JSONResponse:
@@ -28,11 +28,11 @@ def ensure_healthy(request: Request) -> JSONResponse | None:
     return None
 
 
-def get_orchestration(request: Request) -> Orchestration:
-    """Get orchestration instance from FastAPI app state."""
-    if not hasattr(request.app.state, "orchestration"):
-        raise RuntimeError("orchestration is not initialized on app state")
-    return cast(Orchestration, request.app.state.orchestration)
+def get_corpus_manager(request: Request) -> CorpusManager:
+    """Get corpus manager instance from FastAPI app state."""
+    if not hasattr(request.app.state, "corpus_manager"):
+        raise RuntimeError("corpus_manager is not initialized on app state")
+    return cast(CorpusManager, request.app.state.corpus_manager)
 
 
 def get_config(request: Request) -> Config:

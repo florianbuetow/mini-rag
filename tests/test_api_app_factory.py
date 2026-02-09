@@ -60,48 +60,32 @@ class FakeConfig:
 
 
 def test_create_app_wires_state_and_routes(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """App factory should create app state and include routers."""
+    """App factory should create app state with corpus_manager and include routers."""
     fake_config = cast(Config, FakeConfig(tmp_path / "data"))
 
     def fake_embeddings(model_path: Path, expected_dimension: int) -> object:
         del model_path, expected_dimension
         return object()
 
-    def fake_storage(database_path: Path) -> object:
-        del database_path
-        return object()
-
-    def fake_dense(dimension: int, index_dir: Path, nprobe: int) -> object:
-        del dimension, index_dir, nprobe
-        return object()
-
-    def fake_sparse(index_dir: Path, language: str, stemming: bool) -> object:
-        del index_dir, language, stemming
-        return object()
-
-    def fake_orchestration(
-        chunking_config: object,
-        embeddings: object,
-        storage: object,
-        dense: object,
-        sparse: object,
+    def fake_corpus_manager(
+        data_dir: Path,
+        index_config: object,
         search_config: object,
+        embeddings: object,
     ) -> object:
-        del chunking_config, embeddings, storage, dense, sparse, search_config
+        del data_dir, index_config, search_config, embeddings
         return object()
 
     monkeypatch.setattr(app_module, "FastTextEmbeddings", fake_embeddings)
-    monkeypatch.setattr(app_module, "SQLiteStorage", fake_storage)
-    monkeypatch.setattr(app_module, "FAISSDense", fake_dense)
-    monkeypatch.setattr(app_module, "TantivySparse", fake_sparse)
-    monkeypatch.setattr(app_module, "Orchestration", fake_orchestration)
+    monkeypatch.setattr(app_module, "CorpusManager", fake_corpus_manager)
 
     app = app_module.create_app(config=fake_config, project_root=tmp_path)
 
     assert isinstance(app, FastAPI)
     assert hasattr(app.state, "config")
-    assert hasattr(app.state, "storage")
-    assert hasattr(app.state, "orchestration")
+    assert hasattr(app.state, "corpus_manager")
+    assert not hasattr(app.state, "orchestration")
+    assert not hasattr(app.state, "storage")
     assert app.state.app_status == "healthy"
 
 

@@ -9,11 +9,11 @@ from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
 from minirag.api.models.index import IndexRequest, IndexResponse
-from minirag.api.utils import ensure_healthy, error_response, get_orchestration, success_response
+from minirag.api.utils import ensure_healthy, error_response, get_corpus_manager, success_response
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/v1")
+router = APIRouter(prefix="/v1/corpus/{corpus}")
 
 
 async def _parse_index_request(request: Request) -> IndexRequest | JSONResponse:
@@ -30,7 +30,7 @@ async def _parse_index_request(request: Request) -> IndexRequest | JSONResponse:
 
 
 @router.post("/index")
-async def index_document(request: Request) -> JSONResponse:
+async def index_document(request: Request, corpus: str) -> JSONResponse:
     """Index a single document into storage and retrieval backends."""
     guard_response = ensure_healthy(request)
     if guard_response is not None:
@@ -40,17 +40,21 @@ async def index_document(request: Request) -> JSONResponse:
     if isinstance(parsed_payload, JSONResponse):
         return parsed_payload
 
-    orchestration = get_orchestration(request)
+    corpus_manager = get_corpus_manager(request)
+    try:
+        orchestration = corpus_manager.get(corpus)
+    except ValueError as exc:
+        return error_response(status=400, message=str(exc))
 
     try:
         document_id, chunk_ids = await asyncio.to_thread(orchestration.index_document, parsed_payload.document)
     except ValueError as exc:
         return error_response(status=400, message=str(exc))
     except RuntimeError as exc:
-        logger.exception("Failed to index document")
+        logger.exception("Failed to index document, corpus=%s", corpus)
         return error_response(status=500, message=str(exc))
     except Exception:
-        logger.exception("Failed to index document")
+        logger.exception("Failed to index document, corpus=%s", corpus)
         return error_response(status=500, message="Internal server error")
 
     response_model = IndexResponse(
@@ -62,22 +66,22 @@ async def index_document(request: Request) -> JSONResponse:
 
 
 @router.delete("/index")
-async def destroy_index(request: Request) -> JSONResponse:
-    """Destroy the full index across all backends."""
+async def destroy_index(request: Request, corpus: str) -> JSONResponse:
+    """Destroy the index for a specific corpus."""
     guard_response = ensure_healthy(request)
     if guard_response is not None:
         return guard_response
 
-    orchestration = get_orchestration(request)
+    corpus_manager = get_corpus_manager(request)
     try:
-        await asyncio.to_thread(orchestration.destroy_index)
+        await asyncio.to_thread(corpus_manager.destroy, corpus)
     except ValueError as exc:
         return error_response(status=400, message=str(exc))
     except RuntimeError as exc:
-        logger.exception("Failed to destroy index")
+        logger.exception("Failed to destroy index, corpus=%s", corpus)
         return error_response(status=500, message=str(exc))
     except Exception:
-        logger.exception("Failed to destroy index")
+        logger.exception("Failed to destroy index, corpus=%s", corpus)
         return error_response(status=500, message="Internal server error")
 
     return success_response(status=200, data={"message": "index destroyed"})

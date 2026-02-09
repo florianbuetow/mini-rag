@@ -32,10 +32,11 @@ The server exposes a single tool:
 
 ### `search`
 
-Search the mini-rag document index using hybrid search (dense + sparse).
+Search a mini-rag corpus using hybrid search (dense + sparse).
 
 | Parameter | Type    | Required | Default | Description                    |
 |-----------|---------|----------|---------|--------------------------------|
+| `corpus`  | string  | yes      |         | Name of the corpus to search   |
 | `query`   | string  | yes      |         | Search query text              |
 | `top_k`   | integer | no       | 10      | Number of results to return    |
 

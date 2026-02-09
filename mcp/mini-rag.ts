@@ -12,12 +12,13 @@ const server = new McpServer({
 
 server.tool(
   "search",
-  "Search the mini-rag document index using hybrid search (dense + sparse)",
+  "Search a mini-rag corpus using hybrid search (dense + sparse)",
   {
+    corpus: z.string().describe("Name of the corpus to search"),
     query: z.string().describe("Search query text"),
     top_k: z.number().int().positive().default(10).describe("Number of results to return"),
   },
-  async ({ query, top_k }) => {
+  async ({ corpus, query, top_k }) => {
     try {
       const healthResponse = await fetch(`${REST_BASE}/v1/health`, {
         signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS),
@@ -31,7 +32,7 @@ server.tool(
     }
 
     try {
-      const response = await fetch(`${REST_BASE}/v1/query/hybrid`, {
+      const response = await fetch(`${REST_BASE}/v1/corpus/${encodeURIComponent(corpus)}/query/hybrid`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query, top_k }),

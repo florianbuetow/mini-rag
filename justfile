@@ -1,6 +1,8 @@
 # Default recipe: show available commands
 _default:
+    @echo ""
     @just --list
+    @echo ""
 
 # Show help information
 help:
@@ -23,12 +25,6 @@ init:
     mkdir -p reports/security
     mkdir -p reports/pyright
     mkdir -p reports/deptry
-    mkdir -p data/input/md
-    mkdir -p data/input/txt
-    mkdir -p data/models
-    mkdir -p data/storage
-    mkdir -p data/index/faiss
-    mkdir -p data/index/tantivy
     mkdir -p scripts
     mkdir -p prompts
     echo "Installing Python dependencies..."
@@ -37,10 +33,38 @@ init:
         cp config.yaml.template config.yaml
         echo "Copied config.yaml.template to config.yaml"
     fi
-    if [ ! -f data/models/cc.en.300.bin ]; then
+    DATA_DIR=$(uv run python -c "import yaml; print(yaml.safe_load(open('config.yaml', encoding='utf-8'))['data']['data_dir'])")
+    MODEL_NAME=$(uv run python -c "import yaml; print(yaml.safe_load(open('config.yaml', encoding='utf-8'))['index']['embeddings']['model_name'])")
+    for dir in "${DATA_DIR}/models" "${DATA_DIR}/storage" "${DATA_DIR}/index"; do
+        if [ ! -d "$dir" ]; then
+            mkdir -p "$dir"
+            echo "Created directory: $dir"
+        else
+            echo "Directory already exists: $dir"
+        fi
+    done
+    DEFAULT_CORPUS="test"
+    for dir in "${DATA_DIR}/input/${DEFAULT_CORPUS}/md" "${DATA_DIR}/input/${DEFAULT_CORPUS}/txt"; do
+        if [ ! -d "$dir" ]; then
+            mkdir -p "$dir"
+            echo "Created directory: $dir"
+        else
+            echo "Directory already exists: $dir"
+        fi
+    done
+    CORPORA=$(find "${DATA_DIR}/storage" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort)
+    if [ -n "$CORPORA" ]; then
+        echo ""
+        echo "Existing corpora:"
+        for corpus_dir in $CORPORA; do
+            echo "  - $(basename "$corpus_dir")"
+        done
+    fi
+    MODEL_PATH="${DATA_DIR}/models/${MODEL_NAME}"
+    if [ ! -f "$MODEL_PATH" ]; then
         echo "Downloading FastText model..."
         MODEL_URL="https://dl.fbaipublicfiles.com/fasttext/vectors-crawl/cc.en.300.bin.gz"
-        MODEL_TMP_GZ=$(mktemp)
+        MODEL_TMP_GZ="${MODEL_PATH}.gz"
         if command -v wget >/dev/null 2>&1; then
             wget -O "$MODEL_TMP_GZ" "$MODEL_URL"
         elif command -v curl >/dev/null 2>&1; then
@@ -49,8 +73,11 @@ init:
             echo "Neither wget nor curl is available"
             exit 1
         fi
-        gunzip -c "$MODEL_TMP_GZ" > data/models/cc.en.300.bin
+        mkdir -p "${DATA_DIR}/models"
+        gunzip -c "$MODEL_TMP_GZ" > "$MODEL_PATH"
         rm -f "$MODEL_TMP_GZ"
+    else
+        echo "FastText model already exists at ${MODEL_PATH}"
     fi
     printf "%b\n" "\033[0;32m✓ Development environment ready\033[0m"
     echo ""
@@ -66,14 +93,17 @@ start:
 stop:
     #!/usr/bin/env bash
     set -e
+    echo ""
     SERVICE_HOST=$(uv run python -c "import yaml; print(yaml.safe_load(open('config.yaml', encoding='utf-8'))['service']['host'])")
     SERVICE_PORT=$(uv run python -c "import yaml; print(yaml.safe_load(open('config.yaml', encoding='utf-8'))['service']['port'])")
     curl -sS -X POST "http://${SERVICE_HOST}:${SERVICE_PORT}/v1/shutdown" -H "Content-Type: application/json"
+    echo ""
 
 # Check service status and show config
 status:
     #!/usr/bin/env bash
     set -e
+    echo ""
     SERVICE_HOST=$(uv run python -c "import yaml; print(yaml.safe_load(open('config.yaml', encoding='utf-8'))['service']['host'])")
     SERVICE_PORT=$(uv run python -c "import yaml; print(yaml.safe_load(open('config.yaml', encoding='utf-8'))['service']['port'])")
     if curl -fsS "http://${SERVICE_HOST}:${SERVICE_PORT}/v1/health" >/dev/null 2>&1; then
@@ -81,6 +111,7 @@ status:
     else
         echo "service is not running"
     fi
+    echo ""
 
 # Convert markdown files to plain text
 md2txt:
@@ -89,32 +120,57 @@ md2txt:
     @uv run scripts/md2txt.py
     @echo ""
 
-# Destroy and re-ingest all .txt files
-ingest:
-    @echo ""
-    @printf "%b\n" "\033[0;34m=== Ingesting Documents ===\033[0m"
-    @uv run scripts/ingest.py
-    @echo ""
+# Destroy and re-ingest all .txt files into a corpus
+ingest corpus="":
+    #!/usr/bin/env bash
+    set -e
+    echo ""
+    printf "%b\n" "\033[0;34m=== Ingesting Documents ===\033[0m"
+    SERVICE_HOST=$(uv run python -c "import yaml; print(yaml.safe_load(open('config.yaml', encoding='utf-8'))['service']['host'])")
+    SERVICE_PORT=$(uv run python -c "import yaml; print(yaml.safe_load(open('config.yaml', encoding='utf-8'))['service']['port'])")
+    if ! curl -fsS "http://${SERVICE_HOST}:${SERVICE_PORT}/v1/health" >/dev/null 2>&1; then
+        printf "%b\n" "\033[0;31m✗ Service is not running. Start it first with: just start\033[0m"
+        exit 1
+    fi
+    CORPUS="{{corpus}}"
+    if [ -z "$CORPUS" ]; then
+        printf "Enter corpus name: "
+        read CORPUS
+    fi
+    uv run scripts/ingest.py --corpus "$CORPUS"
+    echo ""
 
-# Interactive search query loop
-search:
-    @echo ""
-    @printf "%b\n" "\033[0;34m=== Interactive Search ===\033[0m"
-    @uv run scripts/search.py
-    @echo ""
+# Interactive search query loop for a corpus
+search corpus="":
+    #!/usr/bin/env bash
+    set -e
+    echo ""
+    printf "%b\n" "\033[0;34m=== Interactive Search ===\033[0m"
+    CORPUS="{{corpus}}"
+    if [ -z "$CORPUS" ]; then
+        printf "Enter corpus name: "
+        read CORPUS
+    fi
+    uv run scripts/search.py --corpus "$CORPUS"
+    echo ""
 
-# Inspect document chunks across all stores
-inspect document_id="":
+# Inspect document chunks across all stores for a corpus
+inspect corpus="" document_id="":
     #!/usr/bin/env bash
     set -e
     echo ""
     printf "%b\n" "\033[0;34m=== Inspecting Document ===\033[0m"
+    CORPUS="{{corpus}}"
+    if [ -z "$CORPUS" ]; then
+        printf "Enter corpus name: "
+        read CORPUS
+    fi
     DOC_ID="{{document_id}}"
     if [ -z "$DOC_ID" ]; then
         printf "Enter document ID: "
         read DOC_ID
     fi
-    uv run scripts/export_chunks.py "$DOC_ID"
+    uv run scripts/export_chunks.py --corpus "$CORPUS" "$DOC_ID"
     echo ""
 
 # Destroy the virtual environment
@@ -294,6 +350,7 @@ ci:
 ci-quiet:
     #!/usr/bin/env bash
     set -e
+    echo ""
     printf "%b\n" "\033[0;34m=== Running CI Checks (Quiet Mode) ===\033[0m"
     TMPFILE=$(mktemp)
     trap "rm -f $TMPFILE" EXIT
