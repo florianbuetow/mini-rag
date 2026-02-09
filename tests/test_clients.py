@@ -69,7 +69,7 @@ def test_base_client_request_and_health(monkeypatch: pytest.MonkeyPatch) -> None
 
     monkeypatch.setattr(base_module.httpx, "Client", fake_client_factory)
 
-    client = DummyClient(host="127.0.0.1", port=7001)
+    client = DummyClient(host="127.0.0.1", port=7001, http_client=None)
     payload = client.send_request(method="POST", path="/v1/corpus/books/index", payload={"x": 1}, require_healthy=True)
 
     assert payload == {"ok": True}
@@ -95,13 +95,13 @@ def test_indexing_and_query_clients_parse_payloads(monkeypatch: pytest.MonkeyPat
 
     monkeypatch.setattr(BaseClient, "_request", fake_request)
 
-    indexing = IndexingClient(host="127.0.0.1", port=7001)
+    indexing = IndexingClient(host="127.0.0.1", port=7001, http_client=None)
     doc_id, chunk_ids = indexing.index_document("books", "hello")
     assert doc_id == 1
     assert chunk_ids == [1, 2, 3]
     indexing.destroy_index("books")
 
-    query = QueryClient(host="127.0.0.1", port=7001)
+    query = QueryClient(host="127.0.0.1", port=7001, http_client=None)
     results = query.search_hybrid(corpus="books", query="hello", top_k=2)
     assert len(results) == 1
     assert results[0].text == "x"
@@ -110,10 +110,10 @@ def test_indexing_and_query_clients_parse_payloads(monkeypatch: pytest.MonkeyPat
 def test_base_client_rejects_invalid_connection_params() -> None:
     """Client constructor should validate host and port values."""
     with pytest.raises(ValueError):
-        DummyClient(host="", port=7001)
+        DummyClient(host="", port=7001, http_client=None)
 
     with pytest.raises(ValueError):
-        DummyClient(host="127.0.0.1", port=0)
+        DummyClient(host="127.0.0.1", port=0, http_client=None)
 
 
 class BrokenJsonResponse(FakeResponse):
@@ -138,7 +138,7 @@ def test_invalid_json_response_raises(monkeypatch: pytest.MonkeyPatch) -> None:
         return FakeHttpClient(responses)
 
     monkeypatch.setattr(base_module.httpx, "Client", fake_factory)
-    client = DummyClient(host="127.0.0.1", port=7001)
+    client = DummyClient(host="127.0.0.1", port=7001, http_client=None)
 
     with pytest.raises(RuntimeError, match="invalid JSON response"):
         client.send_request(method="POST", path="/v1/test", payload=None, require_healthy=False)
@@ -154,7 +154,7 @@ def test_status_mismatch_raises(monkeypatch: pytest.MonkeyPatch) -> None:
         return FakeHttpClient(responses)
 
     monkeypatch.setattr(base_module.httpx, "Client", fake_factory)
-    client = DummyClient(host="127.0.0.1", port=7001)
+    client = DummyClient(host="127.0.0.1", port=7001, http_client=None)
 
     with pytest.raises(RuntimeError, match="status mismatch"):
         client.send_request(method="POST", path="/v1/test", payload=None, require_healthy=False)
@@ -170,7 +170,7 @@ def test_error_status_raises_with_message(monkeypatch: pytest.MonkeyPatch) -> No
         return FakeHttpClient(responses)
 
     monkeypatch.setattr(base_module.httpx, "Client", fake_factory)
-    client = DummyClient(host="127.0.0.1", port=7001)
+    client = DummyClient(host="127.0.0.1", port=7001, http_client=None)
 
     with pytest.raises(RuntimeError, match="field missing"):
         client.send_request(method="POST", path="/v1/test", payload=None, require_healthy=False)
@@ -186,7 +186,7 @@ def test_unhealthy_service_raises(monkeypatch: pytest.MonkeyPatch) -> None:
         return FakeHttpClient(responses)
 
     monkeypatch.setattr(base_module.httpx, "Client", fake_factory)
-    client = DummyClient(host="127.0.0.1", port=7001)
+    client = DummyClient(host="127.0.0.1", port=7001, http_client=None)
 
     with pytest.raises(RuntimeError, match="shutting_down"):
         client.send_request(method="POST", path="/v1/test", payload=None, require_healthy=True)
@@ -194,7 +194,7 @@ def test_unhealthy_service_raises(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_indexing_client_rejects_empty_corpus() -> None:
     """IndexingClient should reject empty corpus name."""
-    indexing = IndexingClient(host="127.0.0.1", port=7001)
+    indexing = IndexingClient(host="127.0.0.1", port=7001, http_client=None)
 
     with pytest.raises(ValueError, match="invalid corpus name"):
         indexing.index_document("", "hello")
@@ -205,7 +205,7 @@ def test_indexing_client_rejects_empty_corpus() -> None:
 
 def test_query_client_rejects_empty_corpus() -> None:
     """QueryClient should reject empty corpus name."""
-    query = QueryClient(host="127.0.0.1", port=7001)
+    query = QueryClient(host="127.0.0.1", port=7001, http_client=None)
 
     with pytest.raises(ValueError, match="invalid corpus name"):
         query.search_dense("", query="hello", top_k=3)
@@ -215,3 +215,50 @@ def test_query_client_rejects_empty_corpus() -> None:
 
     with pytest.raises(ValueError, match="invalid corpus name"):
         query.search_hybrid("", query="hello", top_k=3)
+
+
+def test_injected_http_client_is_used() -> None:
+    """BaseClient should use the injected http_client when provided."""
+    responses = {
+        ("GET", "/v1/health"): FakeResponse(200, {"status": 200, "data": {"status": "healthy"}}),
+        ("POST", "/v1/corpus/books/index"): FakeResponse(200, {"status": 200, "data": {"ok": True}}),
+    }
+    fake_client = FakeHttpClient(responses)
+
+    client = DummyClient(host="127.0.0.1", port=7001, http_client=fake_client)  # type: ignore[arg-type]
+    payload = client.send_request(method="POST", path="/v1/corpus/books/index", payload={"x": 1}, require_healthy=True)
+
+    assert payload == {"ok": True}
+
+
+def test_indexing_client_rejects_empty_text() -> None:
+    """IndexingClient should reject empty document text."""
+    indexing = IndexingClient(host="127.0.0.1", port=7001, http_client=None)
+
+    with pytest.raises(ValueError, match="text must not be empty"):
+        indexing.index_document("books", "")
+
+    with pytest.raises(ValueError, match="text must not be empty"):
+        indexing.index_document("books", "   ")
+
+
+def test_query_client_rejects_empty_query() -> None:
+    """QueryClient should reject empty query strings."""
+    query = QueryClient(host="127.0.0.1", port=7001, http_client=None)
+
+    with pytest.raises(ValueError, match="query must not be empty"):
+        query.search_dense("books", query="", top_k=3)
+
+    with pytest.raises(ValueError, match="query must not be empty"):
+        query.search_dense("books", query="   ", top_k=3)
+
+
+def test_query_client_rejects_non_positive_top_k() -> None:
+    """QueryClient should reject non-positive top_k values."""
+    query = QueryClient(host="127.0.0.1", port=7001, http_client=None)
+
+    with pytest.raises(ValueError, match="top_k must be greater than 0"):
+        query.search_dense("books", query="hello", top_k=0)
+
+    with pytest.raises(ValueError, match="top_k must be greater than 0"):
+        query.search_dense("books", query="hello", top_k=-1)

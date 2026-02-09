@@ -29,12 +29,12 @@ Under the hood, MiniRAG uses Facebook's FastText for local embeddings, FAISS for
 ├── docs/                   # Specification and data flow docs
 ├── config/                 # Semgrep rules
 ├── data/
-│   ├── input/
+│   ├── input/<corpus>/
 │   │   ├── md/             # Markdown source documents
 │   │   └── txt/            # Plain text files (ingested by the service)
 │   ├── models/             # FastText embedding model
-│   ├── storage/            # SQLite document/chunk store
-│   └── index/
+│   ├── storage/<corpus>/   # SQLite document/chunk store
+│   └── index/<corpus>/
 │       ├── faiss/          # Dense vector index
 │       └── tantivy/        # Sparse lexical index
 ├── config.yaml             # Local configuration (gitignored)
@@ -42,6 +42,8 @@ Under the hood, MiniRAG uses Facebook's FastText for local embeddings, FAISS for
 ├── justfile                # Command recipes
 └── pyproject.toml          # Project metadata and dependencies
 ```
+
+Each corpus gets its own isolated storage, index, and input directories under `data/`.
 
 ## Setup
 
@@ -65,17 +67,21 @@ Key sections: **service** (host, port, log level), **data** (base directory), **
 | `just stop` | Stop the running service |
 | `just status` | Show service configuration or "not running" |
 | `just md2txt` | Convert markdown files to plain text |
-| `just ingest` | Destroy index and re-ingest all text files |
-| `just search` | Interactive search query loop |
+| `just ingest <corpus>` | Delete and re-ingest all text files for a corpus |
+| `just search <corpus>` | Interactive search query loop for a corpus |
+| `just delete <corpus>` | Delete a corpus index and storage |
+| `just inspect <corpus>` | Inspect document chunks for a corpus |
 | `just destroy` | Remove virtual environment |
+
+Corpus names must start with a letter and contain only alphanumeric characters, underscores, or dashes (e.g. `books`, `my-corpus`, `test_data`).
 
 ### Document Pipeline
 
-1. Place `.md` files in `data/input/md/` (subdirectories supported)
-2. Run `just md2txt` — converts to `.txt` in `data/input/txt/`, mirroring the subdirectory structure
+1. Place `.md` files in `data/input/<corpus>/md/` (subdirectories supported)
+2. Run `just md2txt` — converts to `.txt` in `data/input/<corpus>/txt/`, mirroring the subdirectory structure
 3. Run `just start` to start the service
-4. Run `just ingest` — recursively finds all `.txt` files under `data/input/txt/` and indexes them
-5. Run `just search` to query the index interactively
+4. Run `just ingest <corpus>` — recursively finds all `.txt` files under `data/input/<corpus>/txt/` and indexes them
+5. Run `just search <corpus>` to query the corpus interactively
 
 Both `md2txt` and `ingest` scan subdirectories recursively and skip symbolic links.
 
@@ -83,18 +89,18 @@ Both `md2txt` and `ingest` scan subdirectories recursively and skip symbolic lin
 
 FastAPI auto-generates interactive docs at `/docs` (Swagger) and `/redoc` (ReDoc) when the service is running.
 
-All endpoints are prefixed with `/v1` and accept/return JSON.
+All endpoints accept/return JSON. Data operations are scoped to a corpus via `/v1/corpus/{corpus}/`.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/v1/health` | Health check |
 | GET | `/v1/info` | Full service configuration |
 | POST | `/v1/shutdown` | Graceful shutdown |
-| POST | `/v1/index` | Index a single document |
-| DELETE | `/v1/index` | Destroy the entire index |
-| GET | `/v1/query/dense` | Dense vector similarity search |
-| GET | `/v1/query/sparse` | Sparse lexical (BM25) search |
-| GET | `/v1/query/hybrid` | Hybrid search (dense + sparse) |
+| POST | `/v1/corpus/{corpus}/index` | Index a single document |
+| DELETE | `/v1/corpus/{corpus}/index` | Delete the corpus index |
+| POST | `/v1/corpus/{corpus}/query/dense` | Dense vector similarity search |
+| POST | `/v1/corpus/{corpus}/query/sparse` | Sparse lexical (BM25) search |
+| POST | `/v1/corpus/{corpus}/query/hybrid` | Hybrid search (dense + sparse) |
 
 ## Search Architecture
 
@@ -104,7 +110,7 @@ MiniRAG uses three backend components, each accessible through an abstraction in
 - **FAISS** — Dense vector index using `IndexFlatIP` with unit-normalized embeddings (cosine similarity, scores in [0, 1])
 - **Tantivy** — Sparse lexical index with BM25 scoring, stemming, and tokenization (scores normalized to [0, 1])
 
-All three persist under `data/` and are loaded on startup.
+Each corpus gets its own set of backends, persisted under `data/storage/<corpus>/` and `data/index/<corpus>/`. Backends are created lazily on first access.
 
 ### Hybrid Search Tuning
 

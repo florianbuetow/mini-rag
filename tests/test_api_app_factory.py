@@ -90,6 +90,38 @@ def test_create_app_wires_state_and_routes(monkeypatch: pytest.MonkeyPatch, tmp_
 
 
 @pytest.mark.asyncio
+async def test_lifespan_calls_close_all_on_shutdown(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Lifespan context manager should call corpus_manager.close_all() on shutdown."""
+    fake_config = cast(Config, FakeConfig(tmp_path / "data"))
+
+    close_all_called = False
+
+    class TrackingCorpusManager:
+        def close_all(self) -> None:
+            nonlocal close_all_called
+            close_all_called = True
+
+    def fake_embeddings(model_path: Path, expected_dimension: int) -> object:
+        del model_path, expected_dimension
+        return object()
+
+    def fake_corpus_manager(**kwargs: object) -> TrackingCorpusManager:
+        del kwargs
+        return TrackingCorpusManager()
+
+    monkeypatch.setattr(app_module, "FastTextEmbeddings", fake_embeddings)
+    monkeypatch.setattr(app_module, "CorpusManager", fake_corpus_manager)
+
+    app = app_module.create_app(config=fake_config, project_root=tmp_path)
+
+    # Run through the lifespan context
+    async with app_module.lifespan(app):
+        pass
+
+    assert close_all_called, "close_all() was not called during shutdown"
+
+
+@pytest.mark.asyncio
 async def test_unhandled_exception_handler_wraps_error() -> None:
     """Unhandled exception handler should return error envelope."""
     app = FastAPI()

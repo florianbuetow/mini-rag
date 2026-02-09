@@ -157,6 +157,10 @@ delete corpus="":
         printf "Enter corpus name: "
         read CORPUS
     fi
+    if ! echo "$CORPUS" | grep -qE '^[a-zA-Z][a-zA-Z0-9_-]*$'; then
+        printf "%b\n" "\033[0;31m✗ Invalid corpus name: ${CORPUS}\033[0m"
+        exit 1
+    fi
     printf "Are you sure you want to delete corpus '%s'? [y/N] " "$CORPUS"
     read CONFIRM
     if [ "$CONFIRM" != "y" ] && [ "$CONFIRM" != "Y" ]; then
@@ -170,6 +174,26 @@ delete corpus="":
         printf "%b\n" "\033[0;31m✗ Failed to delete corpus '${CORPUS}' (HTTP ${HTTP_CODE})\033[0m"
         exit 1
     fi
+    echo ""
+
+# Evaluate retrieval quality for a corpus
+evaluate corpus="":
+    #!/usr/bin/env bash
+    set -e
+    echo ""
+    printf "%b\n" "\033[0;34m=== Evaluating Corpus ===\033[0m"
+    SERVICE_HOST=$(uv run python -c "import yaml; print(yaml.safe_load(open('config.yaml', encoding='utf-8'))['service']['host'])")
+    SERVICE_PORT=$(uv run python -c "import yaml; print(yaml.safe_load(open('config.yaml', encoding='utf-8'))['service']['port'])")
+    if ! curl -fsS "http://${SERVICE_HOST}:${SERVICE_PORT}/v1/health" >/dev/null 2>&1; then
+        printf "%b\n" "\033[0;31m✗ Service is not running. Start it first with: just start\033[0m"
+        exit 1
+    fi
+    CORPUS="{{corpus}}"
+    if [ -z "$CORPUS" ]; then
+        printf "Enter corpus name: "
+        read CORPUS
+    fi
+    uv run scripts/evaluate.py --corpus "$CORPUS"
     echo ""
 
 # Interactive search query loop for a corpus
@@ -292,7 +316,7 @@ code-stats:
 code-spell:
     @echo ""
     @printf "%b\n" "\033[0;34m=== Checking Spelling ===\033[0m"
-    @uv run codespell src tests scripts prompts *.md *.toml
+    @uv run codespell src tests tests_integration tests_e2e scripts prompts *.md *.toml
     @echo ""
     @printf "%b\n" "\033[0;32m✓ Spelling checks passed\033[0m"
     @echo ""
@@ -319,7 +343,7 @@ code-semgrep:
 code-deadcode:
     @echo ""
     @printf "%b\n" "\033[0;34m=== Detecting Dead Code ===\033[0m"
-    @uv run deadcode src tests tests_e2e scripts
+    @uv run deadcode src tests tests_integration tests_e2e scripts
     @echo ""
     @printf "%b\n" "\033[0;32m✓ Dead code checks passed\033[0m"
     @echo ""
@@ -331,11 +355,20 @@ test:
     @uv run pytest tests/ -v
     @echo ""
 
-# Run end-to-end tests (starts service, indexes documents, searches)
+# Run integration tests (in-process, requires FastText model)
+test-integration:
+    @echo ""
+    @printf "%b\n" "\033[0;34m=== Running Integration Tests ===\033[0m"
+    @uv run pytest tests_integration/ -v --timeout=300 -p no:randomly
+    @echo ""
+    @printf "%b\n" "\033[0;32m✓ Integration tests passed\033[0m"
+    @echo ""
+
+# Run end-to-end lifecycle tests (starts service, ingests, evaluates)
 test-e2e:
     @echo ""
     @printf "%b\n" "\033[0;34m=== Running End-to-End Tests ===\033[0m"
-    @uv run pytest tests_e2e/ -v --timeout=300 -p no:randomly
+    @uv run pytest tests_e2e/ -v -s --timeout=300 -p no:randomly
     @echo ""
     @printf "%b\n" "\033[0;32m✓ End-to-end tests passed\033[0m"
     @echo ""
