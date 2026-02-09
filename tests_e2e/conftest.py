@@ -34,6 +34,7 @@ from tests_e2e.documents import (
 # ---------------------------------------------------------------------------
 E2E_HOST = "127.0.0.1"
 E2E_PORT = 7099
+E2E_CORPUS = "e2e-test"
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _SERVER_STARTUP_TIMEOUT_S = 120  # FastText model loading can be slow
 
@@ -67,8 +68,7 @@ def e2e_data_dir():
     # Required sub-directories
     (data_dir / "models").mkdir()
     (data_dir / "storage").mkdir()
-    (data_dir / "index" / "faiss").mkdir(parents=True)
-    (data_dir / "index" / "tantivy").mkdir(parents=True)
+    (data_dir / "index").mkdir(parents=True)
     (data_dir / "input" / "txt").mkdir(parents=True)
 
     # Symlink the (large) FastText model so we avoid copying 4 GB+
@@ -181,10 +181,10 @@ def indexed_documents(indexing_client):
 
     Returns a dict keyed by document name with ``id`` and ``chunk_ids``.
     """
-    indexing_client.destroy_index()
+    indexing_client.destroy_index(E2E_CORPUS)
 
-    doc1_id, doc1_chunks = indexing_client.index_document(DOCUMENT_1)
-    doc2_id, doc2_chunks = indexing_client.index_document(DOCUMENT_2)
+    doc1_id, doc1_chunks = indexing_client.index_document(E2E_CORPUS, DOCUMENT_1)
+    doc2_id, doc2_chunks = indexing_client.index_document(E2E_CORPUS, DOCUMENT_2)
 
     return {
         "doc1": {"id": doc1_id, "chunk_ids": doc1_chunks},

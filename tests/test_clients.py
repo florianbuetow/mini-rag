@@ -61,7 +61,7 @@ def test_base_client_request_and_health(monkeypatch: pytest.MonkeyPatch) -> None
     """Base client should parse successful health and request responses."""
     responses = {
         ("GET", "/v1/health"): FakeResponse(200, {"status": 200, "data": {"status": "healthy"}}),
-        ("POST", "/v1/index"): FakeResponse(200, {"status": 200, "data": {"ok": True}}),
+        ("POST", "/v1/corpus/books/index"): FakeResponse(200, {"status": 200, "data": {"ok": True}}),
     }
 
     def fake_client_factory(*_: Any, **__: Any) -> FakeHttpClient:
@@ -70,7 +70,7 @@ def test_base_client_request_and_health(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setattr(base_module.httpx, "Client", fake_client_factory)
 
     client = DummyClient(host="127.0.0.1", port=7001)
-    payload = client.send_request(method="POST", path="/v1/index", payload={"x": 1}, require_healthy=True)
+    payload = client.send_request(method="POST", path="/v1/corpus/books/index", payload={"x": 1}, require_healthy=True)
 
     assert payload == {"ok": True}
 
@@ -85,24 +85,24 @@ def test_indexing_and_query_clients_parse_payloads(monkeypatch: pytest.MonkeyPat
 
     def fake_request(self: BaseClient, method: str, path: str, payload: object, require_healthy: bool) -> dict[str, object]:
         del self, payload, require_healthy
-        if method == "POST" and path == "/v1/index":
+        if method == "POST" and path == "/v1/corpus/books/index":
             return {"document_id": 1, "chunk_ids": [1, 2, 3]}
-        if method == "DELETE" and path == "/v1/index":
+        if method == "DELETE" and path == "/v1/corpus/books/index":
             return {"message": "index destroyed"}
-        if method == "POST" and path.startswith("/v1/query/"):
+        if method == "POST" and path.startswith("/v1/corpus/"):
             return {"results": [{"chunk_id": 1, "text": "x", "score": 0.9}]}
         return {"results": [{"chunk_id": 1, "text": "x", "score": 0.9}]}
 
     monkeypatch.setattr(BaseClient, "_request", fake_request)
 
     indexing = IndexingClient(host="127.0.0.1", port=7001)
-    doc_id, chunk_ids = indexing.index_document("hello")
+    doc_id, chunk_ids = indexing.index_document("books", "hello")
     assert doc_id == 1
     assert chunk_ids == [1, 2, 3]
-    indexing.destroy_index()
+    indexing.destroy_index("books")
 
     query = QueryClient(host="127.0.0.1", port=7001)
-    results = query.search_hybrid(query="hello", top_k=2)
+    results = query.search_hybrid(corpus="books", query="hello", top_k=2)
     assert len(results) == 1
     assert results[0].text == "x"
 
@@ -190,3 +190,28 @@ def test_unhealthy_service_raises(monkeypatch: pytest.MonkeyPatch) -> None:
 
     with pytest.raises(RuntimeError, match="shutting_down"):
         client.send_request(method="POST", path="/v1/test", payload=None, require_healthy=True)
+
+
+def test_indexing_client_rejects_empty_corpus() -> None:
+    """IndexingClient should reject empty corpus name."""
+    indexing = IndexingClient(host="127.0.0.1", port=7001)
+
+    with pytest.raises(ValueError, match="invalid corpus name"):
+        indexing.index_document("", "hello")
+
+    with pytest.raises(ValueError, match="invalid corpus name"):
+        indexing.destroy_index("")
+
+
+def test_query_client_rejects_empty_corpus() -> None:
+    """QueryClient should reject empty corpus name."""
+    query = QueryClient(host="127.0.0.1", port=7001)
+
+    with pytest.raises(ValueError, match="invalid corpus name"):
+        query.search_dense("", query="hello", top_k=3)
+
+    with pytest.raises(ValueError, match="invalid corpus name"):
+        query.search_sparse("", query="hello", top_k=3)
+
+    with pytest.raises(ValueError, match="invalid corpus name"):
+        query.search_hybrid("", query="hello", top_k=3)

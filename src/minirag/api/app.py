@@ -13,11 +13,8 @@ from minirag.api.routes_info import router as info_router
 from minirag.api.routes_query import router as query_router
 from minirag.api.utils import error_response
 from minirag.config import Config
-from minirag.orchestration import Orchestration
-from minirag.retrieval.faiss_dense import FAISSDense
-from minirag.retrieval.tantivy_sparse import TantivySparse
+from minirag.corpus import CorpusManager
 from minirag.search.embeddings import FastTextEmbeddings
-from minirag.storage.sqlite import SQLiteStorage
 
 logger = logging.getLogger(__name__)
 
@@ -31,10 +28,10 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Manage application lifecycle — close storage on shutdown."""
+    """Manage application lifecycle — close all corpus storage on shutdown."""
     yield
-    if hasattr(app.state, "storage"):
-        app.state.storage.close()
+    if hasattr(app.state, "corpus_manager"):
+        app.state.corpus_manager.close_all()
 
 
 def create_app(config: Config, project_root: Path) -> FastAPI:
@@ -48,31 +45,17 @@ def create_app(config: Config, project_root: Path) -> FastAPI:
         model_path=data_dir / "models" / index_config.embeddings.model_name,
         expected_dimension=index_config.embeddings.dimension,
     )
-    storage = SQLiteStorage(database_path=data_dir / "storage" / index_config.storage.db_filename)
-    dense = FAISSDense(
-        dimension=index_config.embeddings.dimension,
-        index_dir=data_dir / "index" / "faiss",
-        nprobe=index_config.faiss.nprobe,
-    )
-    sparse = TantivySparse(
-        index_dir=data_dir / "index" / "tantivy",
-        language=index_config.tantivy.language,
-        stemming=index_config.tantivy.stemming,
-    )
 
-    orchestration = Orchestration(
-        chunking_config=index_config.chunking,
-        embeddings=embeddings,
-        storage=storage,
-        dense=dense,
-        sparse=sparse,
+    corpus_manager = CorpusManager(
+        data_dir=data_dir,
+        index_config=index_config,
         search_config=config.get_search_config(),
+        embeddings=embeddings,
     )
 
     app = FastAPI(lifespan=lifespan)
     app.state.config = config
-    app.state.storage = storage
-    app.state.orchestration = orchestration
+    app.state.corpus_manager = corpus_manager
     app.state.app_status = "healthy"
     app.add_exception_handler(Exception, unhandled_exception_handler)
 
