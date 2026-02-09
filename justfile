@@ -140,6 +140,38 @@ ingest corpus="":
     uv run scripts/ingest.py --corpus "$CORPUS"
     echo ""
 
+# Delete a corpus index and storage
+delete corpus="":
+    #!/usr/bin/env bash
+    set -e
+    echo ""
+    printf "%b\n" "\033[0;34m=== Deleting Corpus ===\033[0m"
+    SERVICE_HOST=$(uv run python -c "import yaml; print(yaml.safe_load(open('config.yaml', encoding='utf-8'))['service']['host'])")
+    SERVICE_PORT=$(uv run python -c "import yaml; print(yaml.safe_load(open('config.yaml', encoding='utf-8'))['service']['port'])")
+    if ! curl -fsS "http://${SERVICE_HOST}:${SERVICE_PORT}/v1/health" >/dev/null 2>&1; then
+        printf "%b\n" "\033[0;31m✗ Service is not running. Start it first with: just start\033[0m"
+        exit 1
+    fi
+    CORPUS="{{corpus}}"
+    if [ -z "$CORPUS" ]; then
+        printf "Enter corpus name: "
+        read CORPUS
+    fi
+    printf "Are you sure you want to delete corpus '%s'? [y/N] " "$CORPUS"
+    read CONFIRM
+    if [ "$CONFIRM" != "y" ] && [ "$CONFIRM" != "Y" ]; then
+        echo "Aborted."
+        exit 0
+    fi
+    HTTP_CODE=$(curl -sS -o /dev/null -w "%{http_code}" -X DELETE "http://${SERVICE_HOST}:${SERVICE_PORT}/v1/corpus/${CORPUS}/index")
+    if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+        printf "%b\n" "\033[0;32m✓ Corpus '${CORPUS}' deleted\033[0m"
+    else
+        printf "%b\n" "\033[0;31m✗ Failed to delete corpus '${CORPUS}' (HTTP ${HTTP_CODE})\033[0m"
+        exit 1
+    fi
+    echo ""
+
 # Interactive search query loop for a corpus
 search corpus="":
     #!/usr/bin/env bash
