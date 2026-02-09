@@ -76,7 +76,7 @@ class Orchestration:
         self._storage.destroy()
         self._dense.destroy()
         self._sparse.destroy()
-        logger.info("Destroyed storage and retrieval indices")
+        logger.info("Deleted storage and retrieval indices")
 
     def close_storage(self) -> None:
         """Close the storage connection."""
