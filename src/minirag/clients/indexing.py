@@ -1,6 +1,5 @@
 """Indexing client for document/index management endpoints."""
 
-from typing import cast
 from urllib.parse import quote
 
 from minirag.clients.base import BaseClient
@@ -9,12 +8,6 @@ from minirag.corpus import validate_corpus_name
 
 class IndexingClient(BaseClient):
     """Client for indexing and destroying index data."""
-
-    def _as_object_list(self, value: object, context: str) -> list[object]:
-        """Validate and cast a generic object into a list of objects."""
-        if not isinstance(value, list):
-            raise RuntimeError(f"{context} must be a list")
-        return cast(list[object], value)
 
     def index_document(self, corpus: str, text: str) -> tuple[int, list[int]]:
         """Index one document and return document_id and chunk_ids."""

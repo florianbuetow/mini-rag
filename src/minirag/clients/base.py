@@ -1,6 +1,8 @@
 """Base HTTP client for mini-rag service communication."""
 
 import logging
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import cast
 
 import httpx
@@ -11,7 +13,7 @@ logger = logging.getLogger(__name__)
 class BaseClient:
     """Base HTTP client with health guard and envelope parsing."""
 
-    def __init__(self, host: str, port: int) -> None:
+    def __init__(self, host: str, port: int, http_client: httpx.Client | None) -> None:
         """Initialize base client with explicit host and port."""
         if host.strip() == "":
             raise ValueError("host must not be empty")
@@ -23,6 +25,22 @@ class BaseClient:
             raise ValueError("port must be less than or equal to 65535")
 
         self._base_url = f"http://{host}:{port}"
+        self._http_client = http_client
+
+    @contextmanager
+    def _client(self, timeout: float) -> Iterator[httpx.Client]:
+        """Yield an httpx.Client, reusing the injected one or creating a temporary one."""
+        if self._http_client is not None:
+            yield self._http_client
+        else:
+            with httpx.Client(base_url=self._base_url, timeout=timeout) as client:
+                yield client
+
+    def _as_object_list(self, value: object, context: str) -> list[object]:
+        """Validate and cast a generic object into a list of objects."""
+        if not isinstance(value, list):
+            raise RuntimeError(f"{context} must be a list")
+        return cast(list[object], value)
 
     def _as_object_map(self, value: object, context: str) -> dict[str, object]:
         """Validate and cast a generic object into a string-key object map."""
@@ -49,7 +67,7 @@ class BaseClient:
         if require_healthy:
             self._ensure_healthy()
 
-        with httpx.Client(base_url=self._base_url, timeout=30.0) as client:
+        with self._client(timeout=30.0) as client:
             response = client.request(method=method, url=path, json=payload)
 
         try:
@@ -77,7 +95,7 @@ class BaseClient:
 
     def _ensure_healthy(self) -> None:
         """Assert the service is healthy before making guarded calls."""
-        with httpx.Client(base_url=self._base_url, timeout=10.0) as client:
+        with self._client(timeout=10.0) as client:
             response = client.get("/v1/health")
 
         try:

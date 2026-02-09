@@ -1,6 +1,7 @@
 """Export and verify document chunks across all stores (SQLite, FAISS, Tantivy)."""
 
 import argparse
+import logging
 import os
 import sqlite3
 import sys
@@ -11,11 +12,14 @@ from minirag.retrieval.faiss_dense import FAISSDense
 from minirag.retrieval.tantivy_sparse import TantivySparse
 from minirag.search.embeddings import FastTextEmbeddings
 
+logger = logging.getLogger(__name__)
+
 
 def parse_args() -> argparse.Namespace:
     """Parse and validate command-line arguments."""
     parser = argparse.ArgumentParser(description="Export and verify document chunks")
     parser.add_argument("--corpus", required=True, help="Name of the corpus")
+    parser.add_argument("--config", default=None, help="Path to config file (default: config.yaml in project root)")
     parser.add_argument("document_id", type=int, help="Document ID to export")
     args = parser.parse_args()
 
@@ -32,13 +36,15 @@ def fetch_chunks(db_path: Path, document_id: int) -> list[tuple[int, str]]:
     Returns a list of (chunk_id, content) tuples.
     """
     connection = sqlite3.connect(str(db_path), timeout=5.0)
-    cursor = connection.cursor()
-    cursor.execute(
-        "SELECT chunk_id, content FROM chunks WHERE document_id = ? ORDER BY chunk_id",
-        (document_id,),
-    )
-    rows = cursor.fetchall()
-    connection.close()
+    try:
+        cursor = connection.cursor()
+        cursor.execute(
+            "SELECT chunk_id, content FROM chunks WHERE document_id = ? ORDER BY chunk_id",
+            (document_id,),
+        )
+        rows = cursor.fetchall()
+    finally:
+        connection.close()
     return [(int(row[0]), str(row[1])) for row in rows]
 
 
@@ -49,6 +55,7 @@ def check_faiss(dense: FAISSDense, embeddings: FastTextEmbeddings, chunk_id: int
         results = dense.search(query_embedding=vectors[0], top_k=1)
         return any(r.chunk_id == chunk_id for r in results)
     except Exception:
+        logger.exception("FAISS lookup failed for chunk_id=%d", chunk_id)
         return False
 
 
@@ -66,6 +73,7 @@ def check_tantivy(sparse: TantivySparse, chunk_id: int) -> bool:
                 return True
         return False
     except Exception:
+        logger.exception("Tantivy lookup failed for chunk_id=%d", chunk_id)
         return False
 
 
@@ -76,7 +84,8 @@ def main() -> None:
     document_id: int = args.document_id
 
     project_root = Path(__file__).resolve().parent.parent
-    config = Config.from_yaml(project_root / "config.yaml")
+    config_path = Path(args.config).resolve() if args.config else project_root / "config.yaml"
+    config = Config.from_yaml(config_path)
     data_dir = config.resolve_data_dir(project_root)
     index_config = config.get_index_config()
 
@@ -84,7 +93,9 @@ def main() -> None:
 
     stderr_fd = sys.stderr.fileno()
     old_stderr = os.dup(stderr_fd)
-    os.dup2(os.open(os.devnull, os.O_WRONLY), stderr_fd)
+    devnull_fd = os.open(os.devnull, os.O_WRONLY)
+    os.dup2(devnull_fd, stderr_fd)
+    os.close(devnull_fd)
     try:
         embeddings = FastTextEmbeddings(
             model_path=data_dir / "models" / index_config.embeddings.model_name,

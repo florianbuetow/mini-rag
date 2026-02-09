@@ -1,1 +1,1 @@
-"""End-to-end tests for mini-rag service."""
+"""End-to-end lifecycle tests for mini-rag service."""

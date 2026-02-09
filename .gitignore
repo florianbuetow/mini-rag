@@ -75,4 +75,8 @@ reports/
 config.yaml
 
 # Data directory (models, indices, storage, input files)
-data/
+data/*
+!data/input/
+data/input/*
+!data/input/test/
+data/input/test/txt/
