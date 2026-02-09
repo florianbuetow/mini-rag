@@ -1,5 +1,6 @@
 """Convert markdown files to plain-text UTF-8 files with Unicode escapes decoded."""
 
+import argparse
 import logging
 import re
 import sys
@@ -12,6 +13,13 @@ logger = logging.getLogger(__name__)
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent
+
+
+def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser(description="Convert markdown files to plain text")
+    parser.add_argument("--config", default=None, help="Path to config file (default: config.yaml in project root)")
+    return parser.parse_args()
 
 
 def decode_unicode_escapes(text: str) -> str:
@@ -87,7 +95,9 @@ def convert_corpus(md_dir: Path, txt_dir: Path) -> int:
 
 def main() -> None:
     """Convert .md files to .txt for each corpus subfolder in data/input/."""
-    config = Config.from_yaml(PROJECT_ROOT / "config.yaml")
+    args = parse_args()
+    config_path = Path(args.config).resolve() if args.config else PROJECT_ROOT / "config.yaml"
+    config = Config.from_yaml(config_path)
     input_base = config.resolve_data_dir(PROJECT_ROOT) / "input"
 
     if not input_base.is_dir():

@@ -41,6 +41,7 @@ dependencies = [
 
     # Git Hooks
     "pre-commit>=3.6.0",
+    "rouge-score>=0.1.2",
 ]
 
 [build-system]
@@ -91,7 +92,9 @@ convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["D", "ANN"]
+"tests_integration/**/*.py" = ["D", "ANN"]
 "tests_e2e/**/*.py" = ["D", "ANN"]
+"scripts/**/*.py" = ["D", "ANN"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -232,6 +235,7 @@ DEP002 = [
     "pip-audit",
     "semgrep",
     "pre-commit",
+    "rouge-score",
 ]
 
 [tool.codespell]
