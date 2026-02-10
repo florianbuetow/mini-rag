@@ -15,7 +15,10 @@ from minirag.api.routes_query import router as query_router
 from minirag.backend_factory import build_orchestration
 from minirag.config import Config
 from minirag.corpus import CorpusManager
+from minirag.reranking.cross_encoder import CrossEncoderReranker
+from minirag.reranking.interface import Reranker
 from minirag.search.embeddings import FastTextEmbeddings
+from minirag.startup_validation import validate_startup_environment
 
 logger = logging.getLogger(__name__)
 
@@ -40,22 +43,32 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 def create_app(config: Config, project_root: Path) -> FastAPI:
     """Create and configure FastAPI app and stateful backend services."""
-    config.validate_startup(project_root)
+    validate_startup_environment(config=config, project_root=project_root)
 
     data_dir = config.resolve_data_dir(project_root)
     index_config = config.get_index_config()
+    search_config = config.get_search_config()
 
     embeddings = FastTextEmbeddings(
         model_path=data_dir / "models" / index_config.embeddings.model_name,
         expected_dimension=index_config.embeddings.dimension,
     )
 
+    reranker: Reranker | None = None
+    if search_config.reranking.enabled:
+        reranker = CrossEncoderReranker(
+            model_name=search_config.reranking.model_name,
+            model_cache_dir=data_dir / "models",
+            candidate_multiplier=search_config.reranking.candidate_multiplier,
+        )
+
     corpus_manager = CorpusManager(
         data_dir=data_dir,
         index_config=index_config,
-        search_config=config.get_search_config(),
+        search_config=search_config,
         embeddings=embeddings,
         backend_factory=build_orchestration,
+        reranker=reranker,
     )
 
     app = FastAPI(lifespan=lifespan)

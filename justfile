@@ -401,7 +401,7 @@ test-integration:
 test-e2e:
     @echo ""
     @printf "%b\n" "\033[0;34m=== Running End-to-End Tests ===\033[0m"
-    @uv run pytest tests_e2e/ -v -s --timeout=300 -p no:randomly
+    @uv run pytest tests_e2e/ -v -s --timeout=30 -p no:randomly
     @echo ""
     @printf "%b\n" "\033[0;32m✓ End-to-end tests passed\033[0m"
     @echo ""

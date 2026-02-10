@@ -2,6 +2,17 @@
 
 A minimalistic hybrid search engine for your `.md` and `.txt` documents that runs locally without any cloud services and provides a fast MCP server for searching your documents with hybrid search (lexical + vector) for great search quality. This gives your AI agents super fast access to custom knowledge. Think books on refactoring, prompting, system architecture, or information that you want a personal assistant (like Claude) to have access to when generating stuff for you. Unlimited possibilities.
 
+### Features
+
+| Feature | Description |
+|---------|-------------|
+| Lexical Search | Super fast keyword-based search powered by BM25 |
+| Semantic Search | Meaning-aware retrieval using dense vector embeddings |
+| Hybrid Search | Combines lexical and semantic results with tunable balance |
+| Reranking | Superior relevance scoring for hybrid search via cross-encoder models |
+| Evaluation | Out-of-the-box support for measuring search quality using your own documents |
+| MCP Support | Ships with a ready-to-use MCP server to connect your AI to MiniRAG |
+
 Under the hood, MiniRAG uses Facebook's FastText for local embeddings, FAISS for dense vector search, Tantivy for BM25 lexical search, and SQLite for document and chunk storage — all running in-process with no external services required. The system is fully configuration-driven with no hardcoded defaults.
 
 | Document | Description |
@@ -58,7 +69,9 @@ Creates all directories shown above, installs dependencies via `uv sync --all-ex
 
 All configuration lives in `config.yaml` at the project root. A template (`config.yaml.template`) is provided and copied during `just init`. The file is gitignored.
 
-Key sections: **service** (host, port, log level), **data** (base directory), **index** (chunking, embeddings, SQLite, FAISS, Tantivy), **search** (hybrid alpha weighting).
+Key sections: **service** (host, port, log level), **data** (base directory), **index** (chunking, embeddings, SQLite, FAISS, Tantivy), **search** (hybrid alpha weighting, reranking).
+
+Reranking is disabled by default. To enable it, set `search.reranking.enabled: true` in `config.yaml`. You can also configure the cross-encoder model and the candidate multiplier (how many extra candidates to fetch before reranking).
 
 ## Usage
 

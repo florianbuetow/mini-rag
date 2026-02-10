@@ -14,6 +14,7 @@ This test exercises the full pipeline as a user would:
 
 import json
 import subprocess
+import time
 
 import httpx
 
@@ -22,6 +23,7 @@ from minirag.search.types import SearchResult
 from tests_e2e.conftest import E2EEnv
 
 SEARCH_MODES = ["sparse", "dense", "hybrid"]
+_E2E_COMMAND_TIMEOUT_S = 30
 
 # Conservative initial thresholds for average ROUGE-L recall per mode.
 # Tune upward once baseline scores are established.
@@ -32,13 +34,82 @@ ROUGE_L_THRESHOLDS = {
 }
 
 
-def _search_all_modes(client: QueryClient, corpus: str, query: str, top_k: int = 5) -> dict[str, list[SearchResult]]:
-    """Run search in all modes and return results keyed by mode."""
-    return {
-        "sparse": client.search_sparse(corpus=corpus, query=query, top_k=top_k),
-        "dense": client.search_dense(corpus=corpus, query=query, top_k=top_k),
-        "hybrid": client.search_hybrid(corpus=corpus, query=query, top_k=top_k),
-    }
+def _search_all_modes_with_timing(
+    client: QueryClient, corpus: str, query: str, top_k: int = 5
+) -> tuple[dict[str, list[SearchResult]], dict[str, float]]:
+    """Run all search modes and capture per-mode latency in milliseconds."""
+    timings_ms: dict[str, float] = {}
+
+    started = time.perf_counter()
+    sparse_results = client.search_sparse(corpus=corpus, query=query, top_k=top_k)
+    timings_ms["sparse"] = (time.perf_counter() - started) * 1000.0
+
+    started = time.perf_counter()
+    dense_results = client.search_dense(corpus=corpus, query=query, top_k=top_k)
+    timings_ms["dense"] = (time.perf_counter() - started) * 1000.0
+
+    started = time.perf_counter()
+    hybrid_results = client.search_hybrid(corpus=corpus, query=query, top_k=top_k)
+    timings_ms["hybrid"] = (time.perf_counter() - started) * 1000.0
+
+    return (
+        {
+            "sparse": sparse_results,
+            "dense": dense_results,
+            "hybrid": hybrid_results,
+        },
+        timings_ms,
+    )
+
+
+def _record_query_timings(
+    e2e_env: E2EEnv,
+    *,
+    phase: str,
+    query: str,
+    top_k: int,
+    timings_ms: dict[str, float],
+) -> None:
+    """Append per-mode query timing metrics to the mode-specific E2E report."""
+    with e2e_env.timings_report_path.open("a", encoding="utf-8") as file_handle:
+        for mode in SEARCH_MODES:
+            entry = {
+                "phase": phase,
+                "mode": mode,
+                "query": query,
+                "top_k": top_k,
+                "duration_ms": round(timings_ms[mode], 3),
+                "reranking_enabled": e2e_env.reranking_enabled,
+            }
+            file_handle.write(f"{json.dumps(entry)}\n")
+
+
+def _load_recorded_timings(e2e_env: E2EEnv) -> dict[str, dict[str, float]]:
+    """Load recorded timing entries as phase -> mode -> duration_ms."""
+    phase_to_mode: dict[str, dict[str, float]] = {}
+    with e2e_env.timings_report_path.open("r", encoding="utf-8") as file_handle:
+        for line in file_handle:
+            loaded: object = json.loads(line)
+            if not isinstance(loaded, dict):
+                continue
+
+            phase_obj = loaded.get("phase")
+            mode_obj = loaded.get("mode")
+            duration_obj = loaded.get("duration_ms")
+            if not isinstance(phase_obj, str):
+                continue
+            if not isinstance(mode_obj, str):
+                continue
+            if not isinstance(duration_obj, int | float):
+                continue
+            if mode_obj not in SEARCH_MODES:
+                continue
+
+            if phase_obj not in phase_to_mode:
+                phase_to_mode[phase_obj] = {}
+            phase_to_mode[phase_obj][mode_obj] = float(duration_obj)
+
+    return phase_to_mode
 
 
 class TestLifecycle:
@@ -64,7 +135,7 @@ class TestLifecycle:
             cwd=str(e2e_env.project_root),
             capture_output=True,
             text=True,
-            timeout=60,
+            timeout=_E2E_COMMAND_TIMEOUT_S,
         )
         assert result.returncode == 0, f"md2txt failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
 
@@ -76,7 +147,16 @@ class TestLifecycle:
     def test_03_search_before_ingest_returns_empty(self, e2e_env: E2EEnv) -> None:
         """Querying before indexing should return no results in all modes."""
         client = QueryClient(host=e2e_env.host, port=e2e_env.port, http_client=None)
-        results = _search_all_modes(client, e2e_env.corpus, "quantum computing")
+        query = "quantum computing"
+        top_k = 5
+        results, timings_ms = _search_all_modes_with_timing(client, e2e_env.corpus, query, top_k=top_k)
+        _record_query_timings(
+            e2e_env,
+            phase="before_ingest",
+            query=query,
+            top_k=top_k,
+            timings_ms=timings_ms,
+        )
 
         for mode in SEARCH_MODES:
             assert len(results[mode]) == 0, f"{mode} search returned results before indexing"
@@ -96,14 +176,23 @@ class TestLifecycle:
             cwd=str(e2e_env.project_root),
             capture_output=True,
             text=True,
-            timeout=120,
+            timeout=_E2E_COMMAND_TIMEOUT_S,
         )
         assert result.returncode == 0, f"Ingest failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
 
     def test_05_search_after_ingest_returns_results(self, e2e_env: E2EEnv) -> None:
         """Querying after indexing should return results in all modes."""
         client = QueryClient(host=e2e_env.host, port=e2e_env.port, http_client=None)
-        results = _search_all_modes(client, e2e_env.corpus, "quantum computing")
+        query = "quantum computing"
+        top_k = 5
+        results, timings_ms = _search_all_modes_with_timing(client, e2e_env.corpus, query, top_k=top_k)
+        _record_query_timings(
+            e2e_env,
+            phase="after_ingest",
+            query=query,
+            top_k=top_k,
+            timings_ms=timings_ms,
+        )
 
         for mode in SEARCH_MODES:
             assert len(results[mode]) > 0, f"{mode} search returned no results after indexing"
@@ -123,7 +212,7 @@ class TestLifecycle:
             cwd=str(e2e_env.project_root),
             capture_output=True,
             text=True,
-            timeout=300,
+            timeout=_E2E_COMMAND_TIMEOUT_S,
         )
         assert result.returncode == 0, f"Evaluate failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
 
@@ -143,15 +232,19 @@ class TestLifecycle:
             avg_score = report["modes"][mode]["avg_rouge_l_recall"]
             assert avg_score >= threshold, f"{mode} avg ROUGE-L recall {avg_score:.4f} below threshold {threshold:.4f}"
 
-        # Print summary for visibility in test output
+        timings_by_phase = _load_recorded_timings(e2e_env)
+        after_ingest_timings = timings_by_phase.get("after_ingest", {})
+
+        # Print combined quality + timing summary for visibility in test output
         print()
-        print(f"{'Mode':<10} {'Avg ROUGE-L':>12} {'Threshold':>12} {'Status':>8}")
-        print("-" * 44)
+        print(f"{'Mode':<10} {'Avg ROUGE-L':>12} {'Threshold':>12} {'Status':>8} {'Time (ms)':>10}")
+        print("-" * 60)
         for mode in SEARCH_MODES:
             avg = report["modes"][mode]["avg_rouge_l_recall"]
             thr = ROUGE_L_THRESHOLDS[mode]
             status = "PASS" if avg >= thr else "FAIL"
-            print(f"{mode:<10} {avg:>12.4f} {thr:>12.4f} {status:>8}")
+            timing_ms = after_ingest_timings.get(mode, float("nan"))
+            print(f"{mode:<10} {avg:>12.4f} {thr:>12.4f} {status:>8} {timing_ms:>10.3f}")
         print()
 
     def test_08_delete_index(self, e2e_env: E2EEnv) -> None:
@@ -165,7 +258,16 @@ class TestLifecycle:
     def test_09_search_after_delete_returns_empty(self, e2e_env: E2EEnv) -> None:
         """Querying after deletion should return no results in all modes."""
         client = QueryClient(host=e2e_env.host, port=e2e_env.port, http_client=None)
-        results = _search_all_modes(client, e2e_env.corpus, "quantum computing")
+        query = "quantum computing"
+        top_k = 5
+        results, timings_ms = _search_all_modes_with_timing(client, e2e_env.corpus, query, top_k=top_k)
+        _record_query_timings(
+            e2e_env,
+            phase="after_delete",
+            query=query,
+            top_k=top_k,
+            timings_ms=timings_ms,
+        )
 
         for mode in SEARCH_MODES:
             assert len(results[mode]) == 0, f"{mode} search returned results after index deletion"
