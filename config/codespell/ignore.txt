@@ -35,3 +35,5 @@ servicer
 # Technical terms
 uuid
 uuids
+reranker
+reranking

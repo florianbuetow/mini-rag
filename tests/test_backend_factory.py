@@ -91,6 +91,7 @@ def test_build_orchestration_happy_path_constructs_expected_paths(monkeypatch: p
         index_config=index_config,  # type: ignore[arg-type]
         search_config=search_config,  # type: ignore[arg-type]
         embeddings=embeddings,  # type: ignore[arg-type]
+        reranker=None,
     )
 
     assert result == {"ok": True}
@@ -110,6 +111,7 @@ def test_build_orchestration_happy_path_constructs_expected_paths(monkeypatch: p
     assert sparse.index_dir == data_dir / "index" / "books" / "tantivy"
     assert sparse.language == "en"
     assert sparse.stemming is True
+    assert kwargs["reranker"] is None
 
 
 def test_build_orchestration_closes_storage_when_faiss_init_fails(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -136,6 +138,7 @@ def test_build_orchestration_closes_storage_when_faiss_init_fails(monkeypatch: p
             index_config=FakeIndexConfig(),  # type: ignore[arg-type]
             search_config=object(),  # type: ignore[arg-type]
             embeddings=object(),  # type: ignore[arg-type]
+            reranker=None,
         )
 
     assert len(created_storage) == 1
@@ -175,6 +178,7 @@ def test_build_orchestration_closes_storage_and_closes_dense_when_tantivy_init_f
             index_config=FakeIndexConfig(),  # type: ignore[arg-type]
             search_config=object(),  # type: ignore[arg-type]
             embeddings=object(),  # type: ignore[arg-type]
+            reranker=None,
         )
 
     assert len(created_storage) == 1
@@ -210,6 +214,7 @@ def test_build_orchestration_raises_exception_group_when_faiss_init_and_storage_
             index_config=FakeIndexConfig(),  # type: ignore[arg-type]
             search_config=object(),  # type: ignore[arg-type]
             embeddings=object(),  # type: ignore[arg-type]
+            reranker=None,
         )
 
     messages = [str(err) for err in exc_info.value.exceptions]
@@ -252,6 +257,7 @@ def test_build_orchestration_raises_exception_group_when_tantivy_init_and_cleanu
             index_config=FakeIndexConfig(),  # type: ignore[arg-type]
             search_config=object(),  # type: ignore[arg-type]
             embeddings=object(),  # type: ignore[arg-type]
+            reranker=None,
         )
 
     messages = [str(err) for err in exc_info.value.exceptions]

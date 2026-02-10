@@ -69,6 +69,7 @@ class TestCorpusManager:
             search_config=FakeSearchConfig(),  # type: ignore[arg-type]
             embeddings=FakeEmbeddings(),  # type: ignore[arg-type]
             backend_factory=fake_backend_factory,  # type: ignore[arg-type]
+            reranker=None,
         )
         return mgr
 
