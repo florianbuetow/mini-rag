@@ -27,7 +27,6 @@ init:
     mkdir -p reports/pyright
     mkdir -p reports/deptry
     mkdir -p scripts
-    mkdir -p prompts
     echo "Installing Python dependencies..."
     uv sync
     if [ ! -f config.yaml ]; then
@@ -332,9 +331,9 @@ code-stats:
     @echo ""
     @printf "%b\n" "\033[0;34m=== Code Statistics ===\033[0m"
     @mkdir -p reports
-    @uv run pygount src/ tests/ scripts/ prompts/ *.md *.toml --suffix=py,md,txt,toml,yaml,yml --format=summary
+    @uv run pygount src/ tests/ scripts/ *.md *.toml --suffix=py,md,txt,toml,yaml,yml --format=summary
     @echo ""
-    @uv run pygount src/ tests/ scripts/ prompts/ *.md *.toml --suffix=py,md,txt,toml,yaml,yml --format=summary > reports/code-stats.txt
+    @uv run pygount src/ tests/ scripts/ *.md *.toml --suffix=py,md,txt,toml,yaml,yml --format=summary > reports/code-stats.txt
     @printf "%b\n" "\033[0;32m✓ Report saved to reports/code-stats.txt\033[0m"
     @echo ""
 
@@ -343,7 +342,7 @@ code-stats:
 code-spell:
     @echo ""
     @printf "%b\n" "\033[0;34m=== Checking Spelling ===\033[0m"
-    @uv run codespell src tests tests_integration tests_e2e scripts prompts *.md *.toml
+    @uv run codespell src tests tests_integration tests_e2e scripts *.md *.toml
     @echo ""
     @printf "%b\n" "\033[0;32m✓ Spelling checks passed\033[0m"
     @echo ""

@@ -47,7 +47,6 @@ This file provides guidance to AI agents and AI-assisted development tools when 
 ## Project Structure
 - All source code lives in `src/`
 - Test scripts and utilities go in `scripts/`
-- Prompt templates go in `prompts/`
 - **Input data is organized**: `data/input/txt/`
 - **Models are stored in**: `data/models/`
 - **Storage and indices are in**: `data/storage/`, `data/index/`
