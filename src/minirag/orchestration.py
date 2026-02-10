@@ -104,13 +104,17 @@ class Orchestration:
         logger.debug("%s: %s", source, json.dumps(score_log))
         return resolved_results
 
-    def search_dense(self, query: str, top_k: int) -> list[SearchResult]:
-        """Run dense search and resolve chunk texts."""
+    def _validate_search_params(self, query: str, top_k: int) -> None:
+        """Validate shared query-time parameters for all search modes."""
         if query.strip() == "":
             raise ValueError("query must not be empty")
 
         if top_k <= 0:
             raise ValueError("top_k must be greater than 0")
+
+    def search_dense(self, query: str, top_k: int) -> list[SearchResult]:
+        """Run dense search and resolve chunk texts."""
+        self._validate_search_params(query=query, top_k=top_k)
 
         query_embedding = self._embeddings.embed([query])[0]
         dense_matches = self._dense.search(query_embedding=query_embedding, top_k=top_k)
@@ -118,22 +122,14 @@ class Orchestration:
 
     def search_sparse(self, query: str, top_k: int) -> list[SearchResult]:
         """Run sparse search and resolve chunk texts."""
-        if query.strip() == "":
-            raise ValueError("query must not be empty")
-
-        if top_k <= 0:
-            raise ValueError("top_k must be greater than 0")
+        self._validate_search_params(query=query, top_k=top_k)
 
         sparse_matches = self._sparse.search(query=query, top_k=top_k)
         return self._resolve_results(scored_chunk_ids=sparse_matches, source="sparse")
 
     def search_hybrid(self, query: str, top_k: int) -> list[SearchResult]:
         """Run hybrid search by merging dense and sparse result sets."""
-        if query.strip() == "":
-            raise ValueError("query must not be empty")
-
-        if top_k <= 0:
-            raise ValueError("top_k must be greater than 0")
+        self._validate_search_params(query=query, top_k=top_k)
 
         retrieval_top_k = self._reranker.candidate_count(top_k=top_k) if self._reranker is not None else top_k
 

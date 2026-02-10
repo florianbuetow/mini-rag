@@ -57,11 +57,12 @@ def build_orchestration(
     except Exception as exc:
         logger.exception("Failed to initialize FAISS backend for corpus=%s", corpus)
         cleanup_errors: list[Exception] = []
-        try:
-            storage.close()
-        except Exception as cleanup_exc:
-            logger.exception("Failed to close storage after FAISS init failure for corpus=%s", corpus)
-            cleanup_errors.append(cleanup_exc)
+        _optional_close(
+            resource=storage,
+            cleanup_errors=cleanup_errors,
+            resource_name="storage",
+            corpus=corpus,
+        )
         if len(cleanup_errors) > 0:
             raise ExceptionGroup(
                 f"failed to initialize FAISS backend and cleanup for corpus={corpus}",
@@ -83,11 +84,12 @@ def build_orchestration(
             resource_name="FAISS backend",
             corpus=corpus,
         )
-        try:
-            storage.close()
-        except Exception as cleanup_exc:
-            logger.exception("Failed to close storage after Tantivy init failure for corpus=%s", corpus)
-            sparse_cleanup_errors.append(cleanup_exc)
+        _optional_close(
+            resource=storage,
+            cleanup_errors=sparse_cleanup_errors,
+            resource_name="storage",
+            corpus=corpus,
+        )
         if len(sparse_cleanup_errors) > 0:
             raise ExceptionGroup(
                 f"failed to initialize Tantivy backend and cleanup for corpus={corpus}",

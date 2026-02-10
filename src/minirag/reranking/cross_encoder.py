@@ -1,7 +1,6 @@
 """Cross-encoder reranker for hybrid search results."""
 
 import importlib
-import inspect
 import logging
 import math
 from collections.abc import Iterable
@@ -18,6 +17,13 @@ class CrossEncoderModel(Protocol):
 
     def predict(self, sentences: list[list[str]]) -> object:
         """Score sentence pairs and return array of relevance scores."""
+
+
+class CrossEncoderConstructor(Protocol):
+    """Callable signature used to construct CrossEncoder models."""
+
+    def __call__(self, model_name: str, **kwargs: object) -> object:
+        """Construct a cross-encoder model."""
 
 
 class CrossEncoderReranker:
@@ -37,27 +43,12 @@ class CrossEncoderReranker:
         if not hasattr(sentence_transformers_module, "CrossEncoder"):
             raise RuntimeError("sentence_transformers.CrossEncoder is not available")
 
-        cross_encoder_ctor = sentence_transformers_module.CrossEncoder
-        constructor_signature = inspect.signature(cross_encoder_ctor)
-        constructor_params = constructor_signature.parameters
-
-        if "cache_folder" in constructor_params:
-            loaded_model = cross_encoder_ctor(
-                model_name,
-                cache_folder=str(model_cache_dir),
-            )
-        elif "cache_dir" in constructor_params:
-            loaded_model = cross_encoder_ctor(
-                model_name,
-                cache_dir=str(model_cache_dir),
-            )
-        elif "model_kwargs" in constructor_params:
-            loaded_model = cross_encoder_ctor(
-                model_name,
-                model_kwargs={"cache_dir": str(model_cache_dir)},
-            )
-        else:
-            loaded_model = cross_encoder_ctor(model_name)
+        cross_encoder_ctor = cast(CrossEncoderConstructor, sentence_transformers_module.CrossEncoder)
+        loaded_model = self._load_model_with_cache(
+            cross_encoder_ctor=cross_encoder_ctor,
+            model_name=model_name,
+            model_cache_dir=model_cache_dir,
+        )
 
         self._model = cast(CrossEncoderModel, loaded_model)
         self._model_name = model_name
@@ -68,6 +59,34 @@ class CrossEncoderReranker:
             model_name,
             candidate_multiplier,
         )
+
+    def _load_model_with_cache(self, cross_encoder_ctor: CrossEncoderConstructor, model_name: str, model_cache_dir: Path) -> object:
+        """Load CrossEncoder while explicitly attempting supported cache parameters."""
+        cache_directory = str(model_cache_dir)
+        constructor_attempts: list[tuple[str, dict[str, object]]] = [
+            ("cache_folder", {"cache_folder": cache_directory}),
+            ("cache_dir", {"cache_dir": cache_directory}),
+            ("model_kwargs", {"model_kwargs": {"cache_dir": cache_directory}}),
+        ]
+
+        for parameter_name, kwargs in constructor_attempts:
+            try:
+                model = cross_encoder_ctor(model_name, **kwargs)
+                logger.info(
+                    "Initialized cross-encoder model=%s using constructor parameter=%s",
+                    model_name,
+                    parameter_name,
+                )
+                return model
+            except TypeError as exc:
+                if "unexpected keyword argument" not in str(exc):
+                    raise
+
+        logger.warning(
+            "CrossEncoder constructor for model=%s does not accept cache directory parameters; loading without explicit cache directory",
+            model_name,
+        )
+        return cross_encoder_ctor(model_name)
 
     def candidate_count(self, top_k: int) -> int:
         """Return candidate count needed before reranking."""
