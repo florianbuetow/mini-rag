@@ -8,6 +8,7 @@ from typing import Protocol
 
 from minirag.config import IndexConfig, SearchConfig
 from minirag.orchestration import Orchestration
+from minirag.reranking.interface import Reranker
 from minirag.search.embeddings_interface import Embeddings
 
 logger = logging.getLogger(__name__)
@@ -26,6 +27,7 @@ class OrchestrationFactory(Protocol):
         index_config: IndexConfig,
         search_config: SearchConfig,
         embeddings: Embeddings,
+        reranker: Reranker | None,
     ) -> Orchestration:
         """Create an orchestration instance for one corpus."""
         ...
@@ -55,12 +57,14 @@ class CorpusManager:
         search_config: SearchConfig,
         embeddings: Embeddings,
         backend_factory: OrchestrationFactory,
+        reranker: Reranker | None,
     ) -> None:
         self._data_dir = data_dir
         self._index_config = index_config
         self._search_config = search_config
         self._embeddings = embeddings
         self._backend_factory = backend_factory
+        self._reranker = reranker
         self._cache: dict[str, Orchestration] = {}
         self._lock = threading.Lock()
 
@@ -134,4 +138,5 @@ class CorpusManager:
             index_config=self._index_config,
             search_config=self._search_config,
             embeddings=self._embeddings,
+            reranker=self._reranker,
         )

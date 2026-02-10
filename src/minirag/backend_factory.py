@@ -6,6 +6,7 @@ from typing import Protocol, runtime_checkable
 
 from minirag.config import IndexConfig, SearchConfig
 from minirag.orchestration import Orchestration
+from minirag.reranking.interface import Reranker
 from minirag.retrieval.faiss_dense import FAISSDense
 from minirag.retrieval.tantivy_sparse import TantivySparse
 from minirag.search.embeddings_interface import Embeddings
@@ -41,6 +42,7 @@ def build_orchestration(
     index_config: IndexConfig,
     search_config: SearchConfig,
     embeddings: Embeddings,
+    reranker: Reranker | None,
 ) -> Orchestration:
     """Build an orchestration instance and perform cascading cleanup on init failures."""
     storage = SQLiteStorage(
@@ -55,11 +57,12 @@ def build_orchestration(
     except Exception as exc:
         logger.exception("Failed to initialize FAISS backend for corpus=%s", corpus)
         cleanup_errors: list[Exception] = []
-        try:
-            storage.close()
-        except Exception as cleanup_exc:
-            logger.exception("Failed to close storage after FAISS init failure for corpus=%s", corpus)
-            cleanup_errors.append(cleanup_exc)
+        _optional_close(
+            resource=storage,
+            cleanup_errors=cleanup_errors,
+            resource_name="storage",
+            corpus=corpus,
+        )
         if len(cleanup_errors) > 0:
             raise ExceptionGroup(
                 f"failed to initialize FAISS backend and cleanup for corpus={corpus}",
@@ -81,11 +84,12 @@ def build_orchestration(
             resource_name="FAISS backend",
             corpus=corpus,
         )
-        try:
-            storage.close()
-        except Exception as cleanup_exc:
-            logger.exception("Failed to close storage after Tantivy init failure for corpus=%s", corpus)
-            sparse_cleanup_errors.append(cleanup_exc)
+        _optional_close(
+            resource=storage,
+            cleanup_errors=sparse_cleanup_errors,
+            resource_name="storage",
+            corpus=corpus,
+        )
         if len(sparse_cleanup_errors) > 0:
             raise ExceptionGroup(
                 f"failed to initialize Tantivy backend and cleanup for corpus={corpus}",
@@ -101,4 +105,5 @@ def build_orchestration(
         dense=dense,
         sparse=sparse,
         search_config=search_config,
+        reranker=reranker,
     )
