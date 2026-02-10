@@ -14,9 +14,14 @@ def test_sqlite_storage_crud_and_destroy(tmp_path: Path) -> None:
 
     document_id = storage.insert_document("hello world document")
     chunk_id = storage.insert_chunk(document_id=document_id, content="hello world")
+    chunk_id_two = storage.insert_chunk(document_id=document_id, content="goodbye world")
 
     assert storage.get_document(document_id) == "hello world document"
     assert storage.get_chunk(chunk_id) == (document_id, "hello world")
+    assert storage.list_chunks(document_id) == [
+        (chunk_id, "hello world"),
+        (chunk_id_two, "goodbye world"),
+    ]
 
     storage.destroy()
 
@@ -45,3 +50,6 @@ def test_sqlite_storage_rejects_invalid_values(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError):
         storage.get_chunk(0)
+
+    with pytest.raises(ValueError):
+        storage.list_chunks(0)

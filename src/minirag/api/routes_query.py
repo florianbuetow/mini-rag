@@ -9,7 +9,8 @@ from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
 from minirag.api.models.query import QueryRequest, QueryResponse, QueryResult
-from minirag.api.utils import ensure_healthy, error_response, get_corpus_manager, success_response
+from minirag.api.responses import error_response, success_response
+from minirag.api.utils import ensure_healthy, get_corpus_manager
 from minirag.search.types import SearchResult
 
 logger = logging.getLogger(__name__)
