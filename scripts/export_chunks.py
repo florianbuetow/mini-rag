@@ -3,7 +3,6 @@
 import argparse
 import logging
 import os
-import sqlite3
 import sys
 from pathlib import Path
 
@@ -11,6 +10,9 @@ from minirag.config import Config
 from minirag.retrieval.faiss_dense import FAISSDense
 from minirag.retrieval.tantivy_sparse import TantivySparse
 from minirag.search.embeddings import FastTextEmbeddings
+from minirag.search.embeddings_interface import Embeddings
+from minirag.storage.interface import StorageReader
+from minirag.storage.sqlite import SQLiteStorage
 
 logger = logging.getLogger(__name__)
 
@@ -30,25 +32,12 @@ def parse_args() -> argparse.Namespace:
     return args
 
 
-def fetch_chunks(db_path: Path, document_id: int) -> list[tuple[int, str]]:
-    """Query SQLite for all chunks belonging to a document.
-
-    Returns a list of (chunk_id, content) tuples.
-    """
-    connection = sqlite3.connect(str(db_path), timeout=5.0)
-    try:
-        cursor = connection.cursor()
-        cursor.execute(
-            "SELECT chunk_id, content FROM chunks WHERE document_id = ? ORDER BY chunk_id",
-            (document_id,),
-        )
-        rows = cursor.fetchall()
-    finally:
-        connection.close()
-    return [(int(row[0]), str(row[1])) for row in rows]
+def fetch_chunks(storage_reader: StorageReader, document_id: int) -> list[tuple[int, str]]:
+    """Read all chunks belonging to a document from storage."""
+    return storage_reader.list_chunks(document_id=document_id)
 
 
-def check_faiss(dense: FAISSDense, embeddings: FastTextEmbeddings, chunk_id: int, content: str) -> bool:
+def check_faiss(dense: FAISSDense, embeddings: Embeddings, chunk_id: int, content: str) -> bool:
     """Check whether a chunk is retrievable from the FAISS index."""
     try:
         vectors = embeddings.embed([content])
@@ -89,7 +78,7 @@ def main() -> None:
     data_dir = config.resolve_data_dir(project_root)
     index_config = config.get_index_config()
 
-    db_path = data_dir / "storage" / corpus / index_config.storage.db_filename
+    database_path = data_dir / "storage" / corpus / index_config.storage.db_filename
 
     stderr_fd = sys.stderr.fileno()
     old_stderr = os.dup(stderr_fd)
@@ -115,7 +104,11 @@ def main() -> None:
         stemming=index_config.tantivy.stemming,
     )
 
-    chunks = fetch_chunks(db_path, document_id)
+    storage = SQLiteStorage(database_path=database_path)
+    try:
+        chunks = fetch_chunks(storage_reader=storage, document_id=document_id)
+    finally:
+        storage.close()
     if len(chunks) == 0:
         print(f"Error: no chunks found for document_id {document_id} in corpus {corpus}", file=sys.stderr)
         raise SystemExit(1)

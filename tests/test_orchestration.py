@@ -8,7 +8,7 @@ from minirag.config import ChunkingConfig, DenseSearchConfig, HybridConfig, Sear
 from minirag.orchestration import Orchestration
 from minirag.retrieval.dense_interface import DenseRetrieval
 from minirag.retrieval.sparse_interface import SparseRetrieval
-from minirag.search.embeddings import FastTextEmbeddings
+from minirag.search.embeddings_interface import Embeddings
 from minirag.search.types import ScoredChunk, SearchResult
 from minirag.storage.interface import Storage
 
@@ -46,6 +46,9 @@ class FakeStorage:
 
     def get_chunk(self, chunk_id: int) -> tuple[int, str]:
         return self.chunks[chunk_id]
+
+    def list_chunks(self, document_id: int) -> list[tuple[int, str]]:
+        return [(chunk_id, content) for chunk_id, (doc_id, content) in self.chunks.items() if doc_id == document_id]
 
     def close(self) -> None:
         pass
@@ -107,7 +110,7 @@ def make_orchestration() -> Orchestration:
 
     return Orchestration(
         chunking_config=ChunkingConfig(chunk_size=4, overlap=0.5),
-        embeddings=cast(FastTextEmbeddings, FakeEmbeddings()),
+        embeddings=cast(Embeddings, FakeEmbeddings()),
         storage=cast(Storage, FakeStorage()),
         dense=cast(DenseRetrieval, FakeDense()),
         sparse=cast(SparseRetrieval, FakeSparse()),
@@ -172,7 +175,7 @@ def test_orchestration_partial_chunk_failure() -> None:
     )
     orchestration = Orchestration(
         chunking_config=ChunkingConfig(chunk_size=4, overlap=0.5),
-        embeddings=cast(FastTextEmbeddings, FakeEmbeddings()),
+        embeddings=cast(Embeddings, FakeEmbeddings()),
         storage=cast(Storage, storage),
         dense=cast(DenseRetrieval, FakeDense()),
         sparse=cast(SparseRetrieval, FakeSparse()),
@@ -195,7 +198,7 @@ def test_orchestration_skips_stale_chunks() -> None:
     )
     orchestration = Orchestration(
         chunking_config=ChunkingConfig(chunk_size=4, overlap=0.5),
-        embeddings=cast(FastTextEmbeddings, FakeEmbeddings()),
+        embeddings=cast(Embeddings, FakeEmbeddings()),
         storage=cast(Storage, storage),
         dense=cast(DenseRetrieval, FakeDense()),
         sparse=cast(SparseRetrieval, FakeSparse()),

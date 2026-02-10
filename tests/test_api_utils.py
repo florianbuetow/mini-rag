@@ -4,7 +4,8 @@ from fastapi import FastAPI
 from starlette.requests import Request
 from starlette.types import Scope
 
-from minirag.api.utils import ensure_healthy, error_response, success_response
+from minirag.api.responses import error_response, success_response
+from minirag.api.utils import ensure_healthy
 
 
 def make_request(app_status: str) -> Request:

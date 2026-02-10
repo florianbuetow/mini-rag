@@ -20,6 +20,11 @@ class FakeEmbeddings:
     pass
 
 
+def fake_backend_factory(**kwargs: object) -> object:
+    del kwargs
+    return FakeOrchestration()
+
+
 class TestValidateCorpusName:
     """Tests for validate_corpus_name()."""
 
@@ -63,8 +68,8 @@ class TestCorpusManager:
             index_config=FakeIndexConfig(),  # type: ignore[arg-type]
             search_config=FakeSearchConfig(),  # type: ignore[arg-type]
             embeddings=FakeEmbeddings(),  # type: ignore[arg-type]
+            backend_factory=fake_backend_factory,  # type: ignore[arg-type]
         )
-        mgr._create_orchestration = lambda corpus: FakeOrchestration()  # type: ignore[assignment]
         return mgr
 
     def test_get_creates_and_caches(self, manager: CorpusManager) -> None:

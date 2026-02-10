@@ -8,10 +8,11 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from minirag.api.responses import error_response
 from minirag.api.routes_index import router as index_router
 from minirag.api.routes_info import router as info_router
 from minirag.api.routes_query import router as query_router
-from minirag.api.utils import error_response
+from minirag.backend_factory import build_orchestration
 from minirag.config import Config
 from minirag.corpus import CorpusManager
 from minirag.search.embeddings import FastTextEmbeddings
@@ -54,6 +55,7 @@ def create_app(config: Config, project_root: Path) -> FastAPI:
         index_config=index_config,
         search_config=config.get_search_config(),
         embeddings=embeddings,
+        backend_factory=build_orchestration,
     )
 
     app = FastAPI(lifespan=lifespan)

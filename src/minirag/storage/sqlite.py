@@ -141,6 +141,30 @@ class SQLiteStorage(Storage):
 
         return (document_id_value, content_value)
 
+    def list_chunks(self, document_id: int) -> list[tuple[int, str]]:
+        """Return all chunk rows for one document as (chunk_id, chunk_content)."""
+        if document_id <= 0:
+            raise ValueError("document_id must be greater than 0")
+
+        cursor = self._connection.cursor()
+        cursor.execute(
+            "SELECT chunk_id, content FROM chunks WHERE document_id = ? ORDER BY chunk_id",
+            (document_id,),
+        )
+        rows = cursor.fetchall()
+
+        chunks: list[tuple[int, str]] = []
+        for row in rows:
+            chunk_id_value = row[0]
+            content_value = row[1]
+            if not isinstance(chunk_id_value, int):
+                raise ValueError(f"chunk_id is not int for document ID: {document_id}")
+            if not isinstance(content_value, str):
+                raise ValueError(f"chunk content is not text for document ID: {document_id}")
+            chunks.append((chunk_id_value, content_value))
+
+        return chunks
+
     def close(self) -> None:
         """Close the SQLite database connection."""
         with self._lock:
