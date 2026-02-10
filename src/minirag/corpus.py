@@ -80,13 +80,29 @@ class CorpusManager:
             if orch is None:
                 orch = self._create_orchestration(corpus)
 
+        destroy_error: Exception | None = None
         try:
             orch.destroy_index()
-        except Exception:
+        except Exception as exc:
             logger.exception("Failed to destroy index for corpus %r", corpus)
-            raise
-        finally:
+            destroy_error = exc
+
+        close_error: Exception | None = None
+        try:
             orch.close_storage()
+        except Exception as exc:
+            logger.exception("Failed to close storage while destroying corpus %r", corpus)
+            close_error = exc
+
+        if destroy_error is not None and close_error is not None:
+            raise ExceptionGroup(
+                f"failed to destroy and close corpus={corpus}",
+                [destroy_error, close_error],
+            ) from destroy_error
+        if destroy_error is not None:
+            raise destroy_error
+        if close_error is not None:
+            raise close_error
 
     def close_all(self) -> None:
         """Close all cached storage connections and clear the cache.

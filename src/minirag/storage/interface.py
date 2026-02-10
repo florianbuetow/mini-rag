@@ -27,11 +27,11 @@ class StorageReader(ABC):
 
     @abstractmethod
     def get_chunk(self, chunk_id: int) -> ChunkWithDocument:
-        """Return (document_id, chunk_content) for the given chunk ID."""
+        """Return chunk content and owning document ID for the given chunk ID."""
 
     @abstractmethod
     def list_chunks(self, document_id: int) -> list[ChunkRecord]:
-        """Return all (chunk_id, chunk_content) tuples for one document."""
+        """Return all chunk records for one document."""
 
 
 class StorageWriter(ABC):

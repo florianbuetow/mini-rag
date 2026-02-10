@@ -116,7 +116,7 @@ class SQLiteStorage(Storage):
         return content_value
 
     def get_chunk(self, chunk_id: int) -> ChunkWithDocument:
-        """Return (document_id, chunk_content) by chunk ID."""
+        """Return chunk content and owning document ID by chunk ID."""
         if chunk_id <= 0:
             raise ValueError("chunk_id must be greater than 0")
 
@@ -142,7 +142,7 @@ class SQLiteStorage(Storage):
         return ChunkWithDocument(document_id=document_id_value, content=content_value)
 
     def list_chunks(self, document_id: int) -> list[ChunkRecord]:
-        """Return all chunk rows for one document as (chunk_id, chunk_content)."""
+        """Return all chunk records for one document."""
         if document_id <= 0:
             raise ValueError("document_id must be greater than 0")
 
