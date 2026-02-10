@@ -21,6 +21,10 @@ Under the hood, MiniRAG uses Facebook's FastText for local embeddings, FAISS for
 | [Data Flow](docs/SPECIFICATION-DATA-FLOW.md) | Indexing and search data flow |
 | [MCP Server](mcp/README.md) | MCP server setup and client configuration |
 
+## Design Principles
+
+MiniRAG is a lightweight, text-based search and indexing system. To reduce complexity, deletion of individual documents is not supported. Instead, all ingestible documents are stored in the input folders so they can be re-ingested at any time — whether after editing content, changing the embedding model, or adjusting chunking parameters. Re-indexing is fast: 10,000 documents typically takes less than 10 minutes on a modern laptop.
+
 ## Prerequisites
 
 - **Python 3.12+**
@@ -36,7 +40,6 @@ Under the hood, MiniRAG uses Facebook's FastText for local embeddings, FAISS for
 ├── tests/                  # Unit tests
 ├── tests_e2e/              # End-to-end tests
 ├── scripts/                # Utility scripts (md2txt, ingest, search)
-├── prompts/                # Prompt templates
 ├── docs/                   # Specification and data flow docs
 ├── config/                 # Semgrep rules
 ├── data/
