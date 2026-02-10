@@ -6,6 +6,7 @@ from typing import Protocol, runtime_checkable
 
 from minirag.config import IndexConfig, SearchConfig
 from minirag.orchestration import Orchestration
+from minirag.reranking.interface import Reranker
 from minirag.retrieval.faiss_dense import FAISSDense
 from minirag.retrieval.tantivy_sparse import TantivySparse
 from minirag.search.embeddings_interface import Embeddings
@@ -41,6 +42,7 @@ def build_orchestration(
     index_config: IndexConfig,
     search_config: SearchConfig,
     embeddings: Embeddings,
+    reranker: Reranker | None,
 ) -> Orchestration:
     """Build an orchestration instance and perform cascading cleanup on init failures."""
     storage = SQLiteStorage(
@@ -101,4 +103,5 @@ def build_orchestration(
         dense=dense,
         sparse=sparse,
         search_config=search_config,
+        reranker=reranker,
     )

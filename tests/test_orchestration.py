@@ -4,7 +4,14 @@ from typing import Final, cast
 
 import pytest
 
-from minirag.config import ChunkingConfig, DenseSearchConfig, HybridConfig, SearchConfig, SparseSearchConfig
+from minirag.config import (
+    ChunkingConfig,
+    DenseSearchConfig,
+    HybridConfig,
+    RerankingConfig,
+    SearchConfig,
+    SparseSearchConfig,
+)
 from minirag.orchestration import Orchestration
 from minirag.retrieval.dense_interface import DenseRetrieval
 from minirag.retrieval.sparse_interface import SparseRetrieval
@@ -109,6 +116,11 @@ def make_orchestration() -> Orchestration:
         hybrid=HybridConfig(alpha=0.5),
         dense=DenseSearchConfig(),
         sparse=SparseSearchConfig(),
+        reranking=RerankingConfig(
+            enabled=False,
+            model_name="cross-encoder/ms-marco-MiniLM-L12-v2",
+            candidate_multiplier=3,
+        ),
     )
 
     return Orchestration(
@@ -118,6 +130,7 @@ def make_orchestration() -> Orchestration:
         dense=cast(DenseRetrieval, FakeDense()),
         sparse=cast(SparseRetrieval, FakeSparse()),
         search_config=search_config,
+        reranker=None,
     )
 
 
@@ -175,6 +188,11 @@ def test_orchestration_partial_chunk_failure() -> None:
         hybrid=HybridConfig(alpha=0.5),
         dense=DenseSearchConfig(),
         sparse=SparseSearchConfig(),
+        reranking=RerankingConfig(
+            enabled=False,
+            model_name="cross-encoder/ms-marco-MiniLM-L12-v2",
+            candidate_multiplier=3,
+        ),
     )
     orchestration = Orchestration(
         chunking_config=ChunkingConfig(chunk_size=4, overlap=0.5),
@@ -183,6 +201,7 @@ def test_orchestration_partial_chunk_failure() -> None:
         dense=cast(DenseRetrieval, FakeDense()),
         sparse=cast(SparseRetrieval, FakeSparse()),
         search_config=search_config,
+        reranker=None,
     )
 
     with pytest.raises(RuntimeError, match="failed to index chunk"):
@@ -198,6 +217,11 @@ def test_orchestration_skips_stale_chunks() -> None:
         hybrid=HybridConfig(alpha=0.5),
         dense=DenseSearchConfig(),
         sparse=SparseSearchConfig(),
+        reranking=RerankingConfig(
+            enabled=False,
+            model_name="cross-encoder/ms-marco-MiniLM-L12-v2",
+            candidate_multiplier=3,
+        ),
     )
     orchestration = Orchestration(
         chunking_config=ChunkingConfig(chunk_size=4, overlap=0.5),
@@ -206,6 +230,7 @@ def test_orchestration_skips_stale_chunks() -> None:
         dense=cast(DenseRetrieval, FakeDense()),
         sparse=cast(SparseRetrieval, FakeSparse()),
         search_config=search_config,
+        reranker=None,
     )
 
     orchestration.index_document("one two three four five six seven eight")

@@ -5,6 +5,7 @@ import logging
 
 from minirag.config import ChunkingConfig, SearchConfig
 from minirag.ingestion.chunker import chunk_text
+from minirag.reranking.interface import Reranker
 from minirag.retrieval.dense_interface import DenseRetrieval
 from minirag.retrieval.sparse_interface import SparseRetrieval
 from minirag.search.embeddings_interface import Embeddings
@@ -26,6 +27,7 @@ class Orchestration:
         dense: DenseRetrieval,
         sparse: SparseRetrieval,
         search_config: SearchConfig,
+        reranker: Reranker | None,
     ) -> None:
         """Initialize orchestration with all backend dependencies."""
         self._chunking_config = chunking_config
@@ -34,6 +36,7 @@ class Orchestration:
         self._dense = dense
         self._sparse = sparse
         self._search_config = search_config
+        self._reranker = reranker
 
     def index_document(self, text: str) -> tuple[int, list[int]]:
         """Index one document through storage, chunking, embeddings, and both indices."""
@@ -132,13 +135,20 @@ class Orchestration:
         if top_k <= 0:
             raise ValueError("top_k must be greater than 0")
 
-        dense_results = self.search_dense(query=query, top_k=top_k)
-        sparse_results = self.search_sparse(query=query, top_k=top_k)
+        retrieval_top_k = self._reranker.candidate_count(top_k=top_k) if self._reranker is not None else top_k
+
+        dense_results = self.search_dense(query=query, top_k=retrieval_top_k)
+        sparse_results = self.search_sparse(query=query, top_k=retrieval_top_k)
 
         alpha = self._search_config.hybrid.alpha
-        return merge_hybrid_results(
+        merged_results = merge_hybrid_results(
             dense_results=dense_results,
             sparse_results=sparse_results,
             alpha=alpha,
-            top_k=top_k,
+            top_k=retrieval_top_k,
         )
+
+        if self._reranker is not None:
+            return self._reranker.rerank(query=query, results=merged_results, top_k=top_k)
+
+        return merged_results
