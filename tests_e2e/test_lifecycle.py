@@ -6,10 +6,12 @@ This test exercises the full pipeline as a user would:
 3. Verify search returns empty results before indexing.
 4. Shell out to scripts/ingest.py to ingest the test corpus.
 5. Verify search returns results after indexing.
-6. Shell out to scripts/evaluate.py to run evaluation.
-7. Read the JSON report and assert average ROUGE-L thresholds per mode.
-8. Delete the test corpus index.
-9. Verify search returns empty results after deletion.
+6. Verify citation endpoint returns data.
+7. Shell out to scripts/evaluate.py to run evaluation.
+8. Read the JSON report and assert average ROUGE-L thresholds per mode.
+9. Delete the test corpus index.
+10. Verify search returns empty results after deletion.
+11. Verify citation endpoint returns 404 after deletion.
 """
 
 import json
@@ -181,7 +183,7 @@ class TestLifecycle:
         assert result.returncode == 0, f"Ingest failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
 
     def test_05_search_after_ingest_returns_results(self, e2e_env: E2EEnv) -> None:
-        """Querying after indexing should return results in all modes."""
+        """Querying after indexing should return results with citation fields in all modes."""
         client = QueryClient(host=e2e_env.host, port=e2e_env.port, http_client=None)
         query = "quantum computing"
         top_k = 5
@@ -196,8 +198,27 @@ class TestLifecycle:
 
         for mode in SEARCH_MODES:
             assert len(results[mode]) > 0, f"{mode} search returned no results after indexing"
+            for result in results[mode]:
+                assert result.document_id > 0, f"{mode} result missing document_id"
+                assert result.citation_key.strip() != "", f"{mode} result missing citation_key"
 
-    def test_06_evaluate_test_corpus(self, e2e_env: E2EEnv) -> None:
+    def test_06_citation_endpoint_returns_data(self, e2e_env: E2EEnv) -> None:
+        """Citation endpoint should return data for a known citation_key after indexing."""
+        client = QueryClient(host=e2e_env.host, port=e2e_env.port, http_client=None)
+        results = client.search_hybrid(corpus=e2e_env.corpus, query="quantum computing", top_k=1)
+        assert len(results) > 0, "Need at least one result to test citation endpoint"
+
+        citation_key = results[0].citation_key
+        resp = httpx.get(
+            f"{e2e_env.base_url}/v1/corpus/{e2e_env.corpus}/citation/{citation_key}",
+            timeout=5.0,
+        )
+        assert resp.status_code == 200, f"Citation endpoint failed: {resp.text}"
+        data = resp.json()["data"]
+        assert data["citation_key"] == citation_key
+        assert "source_type" in data
+
+    def test_07_evaluate_test_corpus(self, e2e_env: E2EEnv) -> None:
         """Run evaluation via scripts/evaluate.py."""
         result = subprocess.run(
             [
@@ -219,7 +240,7 @@ class TestLifecycle:
         report_path = e2e_env.project_root / "reports" / e2e_env.corpus / "evaluation.json"
         assert report_path.exists(), f"Evaluation report not found at {report_path}"
 
-    def test_07_quality_thresholds(self, e2e_env: E2EEnv) -> None:
+    def test_08_quality_thresholds(self, e2e_env: E2EEnv) -> None:
         """Assert average ROUGE-L recall per mode meets thresholds."""
         report_path = e2e_env.project_root / "reports" / e2e_env.corpus / "evaluation.json"
         with report_path.open("r", encoding="utf-8") as fh:
@@ -247,7 +268,7 @@ class TestLifecycle:
             print(f"{mode:<10} {avg:>12.4f} {thr:>12.4f} {status:>8} {timing_ms:>10.3f}")
         print()
 
-    def test_08_delete_index(self, e2e_env: E2EEnv) -> None:
+    def test_09_delete_index(self, e2e_env: E2EEnv) -> None:
         """Delete the test corpus index."""
         resp = httpx.delete(
             f"{e2e_env.base_url}/v1/corpus/{e2e_env.corpus}/index",
@@ -255,7 +276,7 @@ class TestLifecycle:
         )
         assert resp.status_code == 200
 
-    def test_09_search_after_delete_returns_empty(self, e2e_env: E2EEnv) -> None:
+    def test_10_search_after_delete_returns_empty(self, e2e_env: E2EEnv) -> None:
         """Querying after deletion should return no results in all modes."""
         client = QueryClient(host=e2e_env.host, port=e2e_env.port, http_client=None)
         query = "quantum computing"
@@ -271,3 +292,11 @@ class TestLifecycle:
 
         for mode in SEARCH_MODES:
             assert len(results[mode]) == 0, f"{mode} search returned results after index deletion"
+
+    def test_11_citation_returns_404_after_delete(self, e2e_env: E2EEnv) -> None:
+        """Citation endpoint should return 404 after index deletion."""
+        resp = httpx.get(
+            f"{e2e_env.base_url}/v1/corpus/{e2e_env.corpus}/citation/nonexistent",
+            timeout=5.0,
+        )
+        assert resp.status_code == 404

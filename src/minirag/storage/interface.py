@@ -33,6 +33,14 @@ class StorageReader(ABC):
     def list_chunks(self, document_id: int) -> list[ChunkRecord]:
         """Return all chunk records for one document."""
 
+    @abstractmethod
+    def get_citation_key(self, document_id: int) -> str | None:
+        """Return the citation_key for a document, or None if not found."""
+
+    @abstractmethod
+    def get_citation(self, citation_key: str) -> str | None:
+        """Return raw citation JSON string for a citation_key, or None if not found."""
+
 
 class StorageWriter(ABC):
     """Write contract for persisted documents and chunks."""
@@ -44,6 +52,10 @@ class StorageWriter(ABC):
     @abstractmethod
     def insert_chunk(self, document_id: int, content: str) -> int:
         """Store a chunk and return its ID."""
+
+    @abstractmethod
+    def insert_citation(self, citation_key: str, document_id: int, citation_json: str) -> None:
+        """Store a citation record for a document."""
 
 
 class StorageLifecycle(ABC):

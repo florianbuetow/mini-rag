@@ -33,6 +33,8 @@ class FakeStorage:
     def __init__(self) -> None:
         self.documents: dict[int, str] = {}
         self.chunks: dict[int, tuple[int, str]] = {}
+        self.citations: dict[str, tuple[int, str]] = {}
+        self._citation_by_doc: dict[int, str] = {}
         self._next_document_id = 1
         self._next_chunk_id = 1
 
@@ -48,12 +50,25 @@ class FakeStorage:
         self.chunks[chunk_id] = (document_id, content)
         return chunk_id
 
+    def insert_citation(self, citation_key: str, document_id: int, citation_json: str) -> None:
+        self.citations[citation_key] = (document_id, citation_json)
+        self._citation_by_doc[document_id] = citation_key
+
     def get_document(self, document_id: int) -> str:
         return self.documents[document_id]
 
     def get_chunk(self, chunk_id: int) -> ChunkWithDocument:
         document_id, content = self.chunks[chunk_id]
         return ChunkWithDocument(document_id=document_id, content=content)
+
+    def get_citation_key(self, document_id: int) -> str | None:
+        return self._citation_by_doc.get(document_id)
+
+    def get_citation(self, citation_key: str) -> str | None:
+        entry = self.citations.get(citation_key)
+        if entry is None:
+            return None
+        return entry[1]
 
     def list_chunks(self, document_id: int) -> list[ChunkRecord]:
         return [
@@ -66,6 +81,8 @@ class FakeStorage:
     def destroy(self) -> None:
         self.documents = {}
         self.chunks = {}
+        self.citations = {}
+        self._citation_by_doc = {}
 
 
 class FakeDense:
@@ -139,7 +156,7 @@ def test_orchestration_index_and_search() -> None:
     orchestration = make_orchestration()
     text: Final[str] = "one two three four five six"
 
-    document_id, chunk_ids = orchestration.index_document(text)
+    document_id, chunk_ids = orchestration.index_document(text, citation=None)
 
     assert document_id == 1
     assert len(chunk_ids) >= 2
@@ -152,6 +169,30 @@ def test_orchestration_index_and_search() -> None:
     assert len(sparse_results) >= 1
     assert len(hybrid_results) >= 1
     assert isinstance(hybrid_results[0], SearchResult)
+    assert hybrid_results[0].document_id == 1
+    assert hybrid_results[0].citation_key == "1"
+
+
+def test_orchestration_index_with_citation() -> None:
+    """Orchestration should store provided citation."""
+    orchestration = make_orchestration()
+    citation: dict[str, object] = {"citation_key": "smith2026", "source_type": "journal", "common": {}, "source_data": {}}
+    document_id, _chunk_ids = orchestration.index_document("one two three four five six", citation=citation)
+
+    results = orchestration.search_dense(query="one", top_k=5)
+    assert len(results) >= 1
+    assert results[0].citation_key == "smith2026"
+    assert results[0].document_id == document_id
+
+
+def test_orchestration_index_auto_generates_citation() -> None:
+    """Orchestration should auto-generate citation when none provided."""
+    orchestration = make_orchestration()
+    document_id, _chunk_ids = orchestration.index_document("one two three four five six", citation=None)
+
+    results = orchestration.search_dense(query="one", top_k=5)
+    assert len(results) >= 1
+    assert results[0].citation_key == str(document_id)
 
 
 class FailOnSecondChunkStorage(FakeStorage):
@@ -205,7 +246,7 @@ def test_orchestration_partial_chunk_failure() -> None:
     )
 
     with pytest.raises(RuntimeError, match="failed to index chunk"):
-        orchestration.index_document("one two three four five six seven eight")
+        orchestration.index_document("one two three four five six seven eight", citation=None)
 
     assert len(storage.chunks) == 1
 
@@ -233,7 +274,7 @@ def test_orchestration_skips_stale_chunks() -> None:
         reranker=None,
     )
 
-    orchestration.index_document("one two three four five six seven eight")
+    orchestration.index_document("one two three four five six seven eight", citation=None)
 
     results = orchestration.search_dense(query="one", top_k=10)
     chunk_ids_in_results = [r.chunk_id for r in results]
@@ -244,13 +285,13 @@ def test_orchestration_skips_stale_chunks() -> None:
 def test_orchestration_destroy_and_validation() -> None:
     """Destroy should clear backends and invalid inputs should fail."""
     orchestration = make_orchestration()
-    orchestration.index_document("one two three four five")
+    orchestration.index_document("one two three four five", citation=None)
     orchestration.destroy_index()
 
     assert orchestration.search_dense(query="q", top_k=3) == []
 
     with pytest.raises(ValueError):
-        orchestration.index_document("  ")
+        orchestration.index_document("  ", citation=None)
 
     with pytest.raises(ValueError):
         orchestration.search_sparse(query="", top_k=1)

@@ -3,6 +3,7 @@
 import argparse
 import logging
 import re
+import shutil
 import sys
 from pathlib import Path
 
@@ -89,6 +90,13 @@ def convert_corpus(md_dir: Path, txt_dir: Path) -> int:
 
         convert_file(md_file, txt_file)
         logger.info("  OK: %s -> %s", relative, txt_relative)
+
+        json_source = md_file.with_suffix(".json")
+        if json_source.exists():
+            json_dest = txt_file.with_suffix(".json")
+            json_dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(json_source, json_dest)
+            logger.info("  OK: %s -> %s (citation)", relative.with_suffix(".json"), txt_relative.with_suffix(".json"))
 
     return len(md_files)
 

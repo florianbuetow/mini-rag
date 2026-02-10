@@ -9,6 +9,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from minirag.api.responses import error_response
+from minirag.api.routes_citation import router as citation_router
 from minirag.api.routes_index import router as index_router
 from minirag.api.routes_info import router as info_router
 from minirag.api.routes_query import router as query_router
@@ -80,5 +81,6 @@ def create_app(config: Config, project_root: Path) -> FastAPI:
     app.include_router(info_router)
     app.include_router(index_router)
     app.include_router(query_router)
+    app.include_router(citation_router)
 
     return app

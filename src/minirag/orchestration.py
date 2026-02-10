@@ -2,6 +2,7 @@
 
 import json
 import logging
+from functools import lru_cache
 
 from minirag.config import ChunkingConfig, SearchConfig
 from minirag.ingestion.chunker import chunk_text
@@ -37,8 +38,9 @@ class Orchestration:
         self._sparse = sparse
         self._search_config = search_config
         self._reranker = reranker
+        self._get_citation_key_for_document = lru_cache(maxsize=1024)(self._get_citation_key_impl)
 
-    def index_document(self, text: str) -> tuple[int, list[int]]:
+    def index_document(self, text: str, citation: dict[str, object] | None) -> tuple[int, list[int]]:
         """Index one document through storage, chunking, embeddings, and both indices."""
         if text.strip() == "":
             raise ValueError("document text must not be empty")
@@ -71,6 +73,25 @@ class Orchestration:
         self._dense.persist()
         self._sparse.persist()
 
+        if citation is not None:
+            citation_key = citation.get("citation_key")
+            source_type = citation.get("source_type")
+            if not isinstance(citation_key, str) or citation_key.strip() == "":
+                raise ValueError("citation must contain a non-empty 'citation_key'")
+            if not isinstance(source_type, str) or source_type.strip() == "":
+                raise ValueError("citation must contain a non-empty 'source_type'")
+            citation_json = json.dumps(citation)
+            self._storage.insert_citation(citation_key=citation_key, document_id=document_id, citation_json=citation_json)
+        else:
+            auto_citation = {
+                "citation_key": str(document_id),
+                "source_type": "text_file",
+                "common": {"title": str(document_id)},
+                "source_data": {},
+            }
+            citation_json = json.dumps(auto_citation)
+            self._storage.insert_citation(citation_key=str(document_id), document_id=document_id, citation_json=citation_json)
+
         logger.info("Indexed document_id=%s with %s chunks", document_id, len(chunk_ids))
         return (document_id, chunk_ids)
 
@@ -79,11 +100,23 @@ class Orchestration:
         self._storage.destroy()
         self._dense.destroy()
         self._sparse.destroy()
+        self._get_citation_key_for_document.cache_clear()
         logger.info("Deleted storage and retrieval indices")
 
     def close_storage(self) -> None:
         """Close the storage connection."""
         self._storage.close()
+
+    def _get_citation_key_impl(self, document_id: int) -> str:
+        """Look up citation_key for a document, falling back to str(document_id)."""
+        citation_key = self._storage.get_citation_key(document_id)
+        if citation_key is not None:
+            return citation_key
+        return str(document_id)
+
+    def get_citation(self, citation_key: str) -> str | None:
+        """Return raw citation JSON string for a citation_key, or None if not found."""
+        return self._storage.get_citation(citation_key)
 
     def _resolve_results(self, scored_chunk_ids: list[ScoredChunk], source: str) -> list[SearchResult]:
         """Resolve chunk IDs from retrieval engines into SearchResult payloads."""
@@ -97,7 +130,16 @@ class Orchestration:
                 logger.warning("Skipping stale chunk_id=%s: not found in storage", chunk_id)
                 skipped_count += 1
                 continue
-            resolved_results.append(SearchResult(chunk_id=chunk_id, text=chunk_text_value, score=score))
+            citation_key = self._get_citation_key_for_document(document_id)
+            resolved_results.append(
+                SearchResult(
+                    chunk_id=chunk_id,
+                    document_id=document_id,
+                    citation_key=citation_key,
+                    text=chunk_text_value,
+                    score=score,
+                )
+            )
             score_log[str(chunk_id)] = {"score": round(score, 4), "doc_id": document_id}
         if skipped_count > 0:
             logger.warning("Skipped %d stale chunk(s) during result resolution", skipped_count)

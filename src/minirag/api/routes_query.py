@@ -44,7 +44,16 @@ async def _parse_query_request(request: Request) -> QueryRequest | JSONResponse:
 
 def _build_query_response(results: list[SearchResult]) -> QueryResponse:
     """Convert domain search results into API model response."""
-    response_results = [QueryResult(chunk_id=result.chunk_id, text=result.text, score=result.score) for result in results]
+    response_results = [
+        QueryResult(
+            chunk_id=result.chunk_id,
+            document_id=result.document_id,
+            citation_key=result.citation_key,
+            text=result.text,
+            score=result.score,
+        )
+        for result in results
+    ]
     return QueryResponse(results=response_results)
 
 

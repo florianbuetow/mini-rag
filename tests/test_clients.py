@@ -90,13 +90,13 @@ def test_indexing_and_query_clients_parse_payloads(monkeypatch: pytest.MonkeyPat
         if method == "DELETE" and path == "/v1/corpus/books/index":
             return {"message": "index destroyed"}
         if method == "POST" and path.startswith("/v1/corpus/"):
-            return {"results": [{"chunk_id": 1, "text": "x", "score": 0.9}]}
-        return {"results": [{"chunk_id": 1, "text": "x", "score": 0.9}]}
+            return {"results": [{"chunk_id": 1, "document_id": 1, "citation_key": "k1", "text": "x", "score": 0.9}]}
+        return {"results": [{"chunk_id": 1, "document_id": 1, "citation_key": "k1", "text": "x", "score": 0.9}]}
 
     monkeypatch.setattr(BaseClient, "_request", fake_request)
 
     indexing = IndexingClient(host="127.0.0.1", port=7001, http_client=None)
-    doc_id, chunk_ids = indexing.index_document("books", "hello")
+    doc_id, chunk_ids = indexing.index_document("books", "hello", citation=None)
     assert doc_id == 1
     assert chunk_ids == [1, 2, 3]
     indexing.destroy_index("books")
@@ -197,7 +197,7 @@ def test_indexing_client_rejects_empty_corpus() -> None:
     indexing = IndexingClient(host="127.0.0.1", port=7001, http_client=None)
 
     with pytest.raises(ValueError, match="invalid corpus name"):
-        indexing.index_document("", "hello")
+        indexing.index_document("", "hello", citation=None)
 
     with pytest.raises(ValueError, match="invalid corpus name"):
         indexing.destroy_index("")
@@ -236,10 +236,10 @@ def test_indexing_client_rejects_empty_text() -> None:
     indexing = IndexingClient(host="127.0.0.1", port=7001, http_client=None)
 
     with pytest.raises(ValueError, match="text must not be empty"):
-        indexing.index_document("books", "")
+        indexing.index_document("books", "", citation=None)
 
     with pytest.raises(ValueError, match="text must not be empty"):
-        indexing.index_document("books", "   ")
+        indexing.index_document("books", "   ", citation=None)
 
 
 def test_query_client_rejects_empty_query() -> None:

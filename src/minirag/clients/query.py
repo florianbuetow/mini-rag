@@ -34,11 +34,19 @@ class QueryClient(BaseClient):
             result_map = self._as_object_map(raw_result, "query result item")
 
             chunk_id_value = result_map.get("chunk_id")
+            document_id_value = result_map.get("document_id")
+            citation_key_value = result_map.get("citation_key")
             text_value = result_map.get("text")
             score_value = result_map.get("score")
 
             if not isinstance(chunk_id_value, int):
                 raise RuntimeError("query result missing integer chunk_id")
+
+            if not isinstance(document_id_value, int):
+                raise RuntimeError("query result missing integer document_id")
+
+            if not isinstance(citation_key_value, str):
+                raise RuntimeError("query result missing string citation_key")
 
             if not isinstance(text_value, str):
                 raise RuntimeError("query result missing string text")
@@ -46,7 +54,15 @@ class QueryClient(BaseClient):
             if not isinstance(score_value, (int, float)):
                 raise RuntimeError("query result missing numeric score")
 
-            parsed_results.append(SearchResult(chunk_id=chunk_id_value, text=text_value, score=float(score_value)))
+            parsed_results.append(
+                SearchResult(
+                    chunk_id=chunk_id_value,
+                    document_id=document_id_value,
+                    citation_key=citation_key_value,
+                    text=text_value,
+                    score=float(score_value),
+                )
+            )
 
         return parsed_results
 
