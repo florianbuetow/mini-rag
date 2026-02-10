@@ -1,6 +1,21 @@
 """Storage abstraction interface."""
 
 from abc import ABC, abstractmethod
+from typing import NamedTuple
+
+
+class ChunkWithDocument(NamedTuple):
+    """Chunk payload paired with owning document ID."""
+
+    document_id: int
+    content: str
+
+
+class ChunkRecord(NamedTuple):
+    """Persisted chunk row containing chunk ID and content."""
+
+    chunk_id: int
+    content: str
 
 
 class StorageReader(ABC):
@@ -11,11 +26,11 @@ class StorageReader(ABC):
         """Return document content for the given ID."""
 
     @abstractmethod
-    def get_chunk(self, chunk_id: int) -> tuple[int, str]:
+    def get_chunk(self, chunk_id: int) -> ChunkWithDocument:
         """Return (document_id, chunk_content) for the given chunk ID."""
 
     @abstractmethod
-    def list_chunks(self, document_id: int) -> list[tuple[int, str]]:
+    def list_chunks(self, document_id: int) -> list[ChunkRecord]:
         """Return all (chunk_id, chunk_content) tuples for one document."""
 
 
@@ -32,16 +47,16 @@ class StorageWriter(ABC):
 
 
 class StorageLifecycle(ABC):
-    """Lifecycle and destructive operations for storage backends."""
+    """Lifecycle operations for storage backends."""
 
     @abstractmethod
     def close(self) -> None:
-        """Close the storage connection."""
+        """Close the storage connection without deleting data."""
 
     @abstractmethod
     def destroy(self) -> None:
-        """Destroy all stored data."""
+        """Destroy all stored data while keeping the connection usable."""
 
 
 class Storage(StorageReader, StorageWriter, StorageLifecycle, ABC):
-    """Full storage contract used by indexing orchestration."""
+    """Full storage contract combining read, write, and lifecycle behavior."""

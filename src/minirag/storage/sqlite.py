@@ -5,7 +5,7 @@ import sqlite3
 import threading
 from pathlib import Path
 
-from minirag.storage.interface import Storage
+from minirag.storage.interface import ChunkRecord, ChunkWithDocument, Storage
 
 logger = logging.getLogger(__name__)
 
@@ -115,7 +115,7 @@ class SQLiteStorage(Storage):
 
         return content_value
 
-    def get_chunk(self, chunk_id: int) -> tuple[int, str]:
+    def get_chunk(self, chunk_id: int) -> ChunkWithDocument:
         """Return (document_id, chunk_content) by chunk ID."""
         if chunk_id <= 0:
             raise ValueError("chunk_id must be greater than 0")
@@ -139,9 +139,9 @@ class SQLiteStorage(Storage):
         if not isinstance(content_value, str):
             raise ValueError(f"chunk content is not text for chunk ID: {chunk_id}")
 
-        return (document_id_value, content_value)
+        return ChunkWithDocument(document_id=document_id_value, content=content_value)
 
-    def list_chunks(self, document_id: int) -> list[tuple[int, str]]:
+    def list_chunks(self, document_id: int) -> list[ChunkRecord]:
         """Return all chunk rows for one document as (chunk_id, chunk_content)."""
         if document_id <= 0:
             raise ValueError("document_id must be greater than 0")
@@ -153,7 +153,7 @@ class SQLiteStorage(Storage):
         )
         rows = cursor.fetchall()
 
-        chunks: list[tuple[int, str]] = []
+        chunks: list[ChunkRecord] = []
         for row in rows:
             chunk_id_value = row[0]
             content_value = row[1]
@@ -161,7 +161,7 @@ class SQLiteStorage(Storage):
                 raise ValueError(f"chunk_id is not int for document ID: {document_id}")
             if not isinstance(content_value, str):
                 raise ValueError(f"chunk content is not text for document ID: {document_id}")
-            chunks.append((chunk_id_value, content_value))
+            chunks.append(ChunkRecord(chunk_id=chunk_id_value, content=content_value))
 
         return chunks
 
