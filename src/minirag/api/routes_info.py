@@ -7,7 +7,8 @@ from fastapi import APIRouter, BackgroundTasks, Request
 from fastapi.responses import JSONResponse
 
 from minirag.api.models.info import HealthResponse, InfoResponse, ShutdownResponse
-from minirag.api.utils import ensure_healthy, get_config, success_response
+from minirag.api.responses import success_response
+from minirag.api.utils import ensure_healthy, get_config
 
 router = APIRouter(prefix="/v1")
 

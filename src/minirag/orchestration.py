@@ -7,7 +7,7 @@ from minirag.config import ChunkingConfig, SearchConfig
 from minirag.ingestion.chunker import chunk_text
 from minirag.retrieval.dense_interface import DenseRetrieval
 from minirag.retrieval.sparse_interface import SparseRetrieval
-from minirag.search.embeddings import FastTextEmbeddings
+from minirag.search.embeddings_interface import Embeddings
 from minirag.search.hybrid import merge_hybrid_results
 from minirag.search.types import ScoredChunk, SearchResult
 from minirag.storage.interface import Storage
@@ -21,7 +21,7 @@ class Orchestration:
     def __init__(
         self,
         chunking_config: ChunkingConfig,
-        embeddings: FastTextEmbeddings,
+        embeddings: Embeddings,
         storage: Storage,
         dense: DenseRetrieval,
         sparse: SparseRetrieval,

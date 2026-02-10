@@ -3,18 +3,30 @@
 import asyncio
 import json
 import logging
+from collections.abc import Callable
+from typing import Protocol
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
 from minirag.api.models.query import QueryRequest, QueryResponse, QueryResult
-from minirag.api.utils import ensure_healthy, error_response, get_corpus_manager, success_response
+from minirag.api.responses import error_response, success_response
+from minirag.api.utils import ensure_healthy, get_corpus_manager
+from minirag.orchestration import Orchestration
 from minirag.search.types import SearchResult
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1/corpus/{corpus}/query")
+
+
+class QuerySearchFn(Protocol):
+    """Typed query search callable used by query route dispatch."""
+
+    def __call__(self, *, query: str, top_k: int) -> list[SearchResult]:
+        """Execute one query mode and return search results."""
+        ...
 
 
 async def _parse_query_request(request: Request) -> QueryRequest | JSONResponse:
@@ -36,7 +48,12 @@ def _build_query_response(results: list[SearchResult]) -> QueryResponse:
     return QueryResponse(results=response_results)
 
 
-async def _run_query(request: Request, corpus: str, method_name: str) -> JSONResponse:
+async def _run_query(
+    request: Request,
+    corpus: str,
+    search_name: str,
+    search_fn_getter: Callable[[Orchestration], QuerySearchFn],
+) -> JSONResponse:
     """Shared query handler for dense, sparse, and hybrid search."""
     guard_response = ensure_healthy(request)
     if guard_response is not None:
@@ -55,7 +72,7 @@ async def _run_query(request: Request, corpus: str, method_name: str) -> JSONRes
     except ValueError as exc:
         return error_response(status=400, message=str(exc))
 
-    search_fn = getattr(orchestration, method_name)
+    search_fn = search_fn_getter(orchestration)
     try:
         results = await asyncio.to_thread(
             search_fn,
@@ -65,10 +82,10 @@ async def _run_query(request: Request, corpus: str, method_name: str) -> JSONRes
     except ValueError as exc:
         return error_response(status=400, message=str(exc))
     except RuntimeError as exc:
-        logger.exception("Failed to execute %s, corpus=%s", method_name, corpus)
+        logger.exception("Failed to execute %s search, corpus=%s", search_name, corpus)
         return error_response(status=500, message=str(exc))
     except Exception:
-        logger.exception("Failed to execute %s, corpus=%s", method_name, corpus)
+        logger.exception("Failed to execute %s search, corpus=%s", search_name, corpus)
         return error_response(status=500, message="Internal server error")
 
     response_model = _build_query_response(results)
@@ -78,16 +95,31 @@ async def _run_query(request: Request, corpus: str, method_name: str) -> JSONRes
 @router.post("/dense")
 async def query_dense(request: Request, corpus: str) -> JSONResponse:
     """Run dense search query."""
-    return await _run_query(request, corpus, "search_dense")
+    return await _run_query(
+        request=request,
+        corpus=corpus,
+        search_name="dense",
+        search_fn_getter=lambda orchestration: orchestration.search_dense,
+    )
 
 
 @router.post("/sparse")
 async def query_sparse(request: Request, corpus: str) -> JSONResponse:
     """Run sparse search query."""
-    return await _run_query(request, corpus, "search_sparse")
+    return await _run_query(
+        request=request,
+        corpus=corpus,
+        search_name="sparse",
+        search_fn_getter=lambda orchestration: orchestration.search_sparse,
+    )
 
 
 @router.post("/hybrid")
 async def query_hybrid(request: Request, corpus: str) -> JSONResponse:
     """Run hybrid search query."""
-    return await _run_query(request, corpus, "search_hybrid")
+    return await _run_query(
+        request=request,
+        corpus=corpus,
+        search_name="hybrid",
+        search_fn_getter=lambda orchestration: orchestration.search_hybrid,
+    )

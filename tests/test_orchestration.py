@@ -8,9 +8,9 @@ from minirag.config import ChunkingConfig, DenseSearchConfig, HybridConfig, Sear
 from minirag.orchestration import Orchestration
 from minirag.retrieval.dense_interface import DenseRetrieval
 from minirag.retrieval.sparse_interface import SparseRetrieval
-from minirag.search.embeddings import FastTextEmbeddings
+from minirag.search.embeddings_interface import Embeddings
 from minirag.search.types import ScoredChunk, SearchResult
-from minirag.storage.interface import Storage
+from minirag.storage.interface import ChunkRecord, ChunkWithDocument, Storage
 
 
 class FakeEmbeddings:
@@ -44,8 +44,14 @@ class FakeStorage:
     def get_document(self, document_id: int) -> str:
         return self.documents[document_id]
 
-    def get_chunk(self, chunk_id: int) -> tuple[int, str]:
-        return self.chunks[chunk_id]
+    def get_chunk(self, chunk_id: int) -> ChunkWithDocument:
+        document_id, content = self.chunks[chunk_id]
+        return ChunkWithDocument(document_id=document_id, content=content)
+
+    def list_chunks(self, document_id: int) -> list[ChunkRecord]:
+        return [
+            ChunkRecord(chunk_id=chunk_id, content=content) for chunk_id, (doc_id, content) in self.chunks.items() if doc_id == document_id
+        ]
 
     def close(self) -> None:
         pass
@@ -107,7 +113,7 @@ def make_orchestration() -> Orchestration:
 
     return Orchestration(
         chunking_config=ChunkingConfig(chunk_size=4, overlap=0.5),
-        embeddings=cast(FastTextEmbeddings, FakeEmbeddings()),
+        embeddings=cast(Embeddings, FakeEmbeddings()),
         storage=cast(Storage, FakeStorage()),
         dense=cast(DenseRetrieval, FakeDense()),
         sparse=cast(SparseRetrieval, FakeSparse()),
@@ -156,7 +162,7 @@ class StaleChunkStorage(FakeStorage):
         super().__init__()
         self._stale_chunk_id = stale_chunk_id
 
-    def get_chunk(self, chunk_id: int) -> tuple[int, str]:
+    def get_chunk(self, chunk_id: int) -> ChunkWithDocument:
         if chunk_id == self._stale_chunk_id:
             raise ValueError(f"chunk not found: {chunk_id}")
         return super().get_chunk(chunk_id)
@@ -172,7 +178,7 @@ def test_orchestration_partial_chunk_failure() -> None:
     )
     orchestration = Orchestration(
         chunking_config=ChunkingConfig(chunk_size=4, overlap=0.5),
-        embeddings=cast(FastTextEmbeddings, FakeEmbeddings()),
+        embeddings=cast(Embeddings, FakeEmbeddings()),
         storage=cast(Storage, storage),
         dense=cast(DenseRetrieval, FakeDense()),
         sparse=cast(SparseRetrieval, FakeSparse()),
@@ -195,7 +201,7 @@ def test_orchestration_skips_stale_chunks() -> None:
     )
     orchestration = Orchestration(
         chunking_config=ChunkingConfig(chunk_size=4, overlap=0.5),
-        embeddings=cast(FastTextEmbeddings, FakeEmbeddings()),
+        embeddings=cast(Embeddings, FakeEmbeddings()),
         storage=cast(Storage, storage),
         dense=cast(DenseRetrieval, FakeDense()),
         sparse=cast(SparseRetrieval, FakeSparse()),
