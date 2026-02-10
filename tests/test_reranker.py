@@ -49,6 +49,18 @@ class FakeCrossEncoderModule:
         return self._model
 
 
+class FakeCrossEncoderModuleNoCacheKwargs:
+    """Fake sentence_transformers module whose constructor accepts no cache kwargs."""
+
+    def __init__(self, model: FakeCrossEncoderModel) -> None:
+        self._model = model
+        self.calls: list[str] = []
+
+    def CrossEncoder(self, model_name: str) -> FakeCrossEncoderModel:
+        self.calls.append(model_name)
+        return self._model
+
+
 def _make_cross_encoder_reranker(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, scores: list[float]
 ) -> tuple[CrossEncoderReranker, FakeCrossEncoderModel, FakeCrossEncoderModule]:
@@ -68,6 +80,30 @@ def _make_cross_encoder_reranker(
         candidate_multiplier=3,
     )
     return reranker, fake_model, fake_module
+
+
+def test_reranker_logs_warning_when_cache_kwargs_are_unsupported(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    fake_model = FakeCrossEncoderModel(scores=[0.1])
+    fake_module = FakeCrossEncoderModuleNoCacheKwargs(model=fake_model)
+
+    def fake_import_module(name: str) -> object:
+        if name == "sentence_transformers":
+            return fake_module
+        raise RuntimeError(f"unexpected module import: {name}")
+
+    monkeypatch.setattr(importlib, "import_module", fake_import_module)
+
+    with caplog.at_level("WARNING"):
+        CrossEncoderReranker(
+            model_name="cross-encoder/ms-marco-MiniLM-L12-v2",
+            model_cache_dir=tmp_path / "models",
+            candidate_multiplier=2,
+        )
+
+    assert fake_module.calls == ["cross-encoder/ms-marco-MiniLM-L12-v2"]
+    assert "loading without explicit cache directory" in caplog.text
 
 
 def test_reranker_reranks_and_normalizes_scores(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
