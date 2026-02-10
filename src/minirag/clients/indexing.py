@@ -9,17 +9,21 @@ from minirag.corpus import validate_corpus_name
 class IndexingClient(BaseClient):
     """Client for indexing and destroying index data."""
 
-    def index_document(self, corpus: str, text: str) -> tuple[int, list[int]]:
+    def index_document(self, corpus: str, text: str, citation: dict[str, object] | None) -> tuple[int, list[int]]:
         """Index one document and return document_id and chunk_ids."""
         validate_corpus_name(corpus)
 
         if text.strip() == "":
             raise ValueError("text must not be empty")
 
+        payload: dict[str, object] = {"document": text}
+        if citation is not None:
+            payload["citation"] = citation
+
         data = self._request(
             method="POST",
             path=f"/v1/corpus/{quote(corpus, safe='')}/index",
-            payload={"document": text},
+            payload=payload,
             require_healthy=True,
         )
 

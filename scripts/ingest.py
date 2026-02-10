@@ -1,8 +1,10 @@
 """Ingest all text files from a corpus input directory into mini-rag."""
 
 import argparse
+import json
 import logging
 from pathlib import Path
+from typing import cast
 
 from minirag.clients.indexing import IndexingClient
 from minirag.config import Config
@@ -28,6 +30,49 @@ def resolve_input_dir(data_dir: Path, corpus: str) -> Path:
         raise ValueError(f"input path is not a directory: {input_dir}")
 
     return input_dir
+
+
+def load_citation(txt_path: Path) -> dict[str, object]:
+    """Load citation JSON for a text file, or auto-generate one.
+
+    Looks for a .json file with the same stem in the same directory.
+    If found, validates citation_key and source_type are present.
+    If not found, auto-generates a minimal citation.
+    """
+    json_path = txt_path.with_suffix(".json")
+    stem = txt_path.stem
+
+    if json_path.exists():
+        raw = json_path.read_text(encoding="utf-8")
+        try:
+            raw_parsed: object = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"malformed citation JSON in {json_path}: {exc}") from exc
+
+        if not isinstance(raw_parsed, dict):
+            raise ValueError(f"citation JSON must be an object in {json_path}")
+
+        parsed: dict[str, object] = cast(dict[str, object], raw_parsed)
+
+        citation_key = parsed.get("citation_key")
+        if not isinstance(citation_key, str) or citation_key.strip() == "":
+            raise ValueError(f"citation JSON missing 'citation_key' in {json_path}")
+
+        source_type = parsed.get("source_type")
+        if not isinstance(source_type, str) or source_type.strip() == "":
+            raise ValueError(f"citation JSON missing 'source_type' in {json_path}")
+
+        logger.info("Loaded citation from %s (key=%s)", json_path.name, citation_key)
+        return parsed
+
+    auto_citation: dict[str, object] = {
+        "citation_key": stem,
+        "source_type": "text_file",
+        "common": {"title": txt_path.name},
+        "source_data": {},
+    }
+    logger.debug("Auto-generated citation for %s (key=%s)", txt_path.name, stem)
+    return auto_citation
 
 
 def ingest_files(client: IndexingClient, corpus: str, input_dir: Path, data_dir: Path) -> None:
@@ -65,7 +110,8 @@ def ingest_files(client: IndexingClient, corpus: str, input_dir: Path, data_dir:
                     "[%d/%d] Skipping %s (empty content) — %d indexed, %d remaining", i, num_files, relative_path, indexed_count, remaining
                 )
                 continue
-            _document_id, chunk_ids = client.index_document(corpus, file_text)
+            citation = load_citation(file_path)
+            _document_id, chunk_ids = client.index_document(corpus, file_text, citation=citation)
             indexed_count += 1
             total_chunks += len(chunk_ids)
             remaining = num_files - indexed_count - skipped_count

@@ -48,7 +48,7 @@ async def index_document(request: Request, corpus: str) -> JSONResponse:
         return error_response(status=400, message=str(exc))
 
     try:
-        document_id, chunk_ids = await asyncio.to_thread(orchestration.index_document, parsed_payload.document)
+        document_id, chunk_ids = await asyncio.to_thread(orchestration.index_document, parsed_payload.document, parsed_payload.citation)
     except ValueError as exc:
         return error_response(status=400, message=str(exc))
     except RuntimeError as exc:

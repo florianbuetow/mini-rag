@@ -9,6 +9,7 @@ class IndexRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     document: str
+    citation: dict[str, object] | None = None
 
     @field_validator("document")
     @classmethod

@@ -34,6 +34,8 @@ class QueryResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     chunk_id: int
+    document_id: int
+    citation_key: str
     text: str
     score: float
 

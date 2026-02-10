@@ -16,6 +16,8 @@ class SearchResult:
     """Search result payload with chunk ID, text, and normalized score."""
 
     chunk_id: int
+    document_id: int
+    citation_key: str
     text: str
     score: float
 
@@ -23,6 +25,10 @@ class SearchResult:
         """Validate invariants on construction."""
         if self.chunk_id <= 0:
             raise ValueError("chunk_id must be greater than 0")
+        if self.document_id <= 0:
+            raise ValueError("document_id must be greater than 0")
+        if self.citation_key.strip() == "":
+            raise ValueError("citation_key must not be empty")
         if self.text.strip() == "":
             raise ValueError("text must not be empty")
         if self.score < 0.0:
