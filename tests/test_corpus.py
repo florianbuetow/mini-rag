@@ -20,6 +20,11 @@ class FakeEmbeddings:
     pass
 
 
+def fake_backend_factory(**kwargs: object) -> object:
+    del kwargs
+    return FakeOrchestration()
+
+
 class TestValidateCorpusName:
     """Tests for validate_corpus_name()."""
 
@@ -63,8 +68,8 @@ class TestCorpusManager:
             index_config=FakeIndexConfig(),  # type: ignore[arg-type]
             search_config=FakeSearchConfig(),  # type: ignore[arg-type]
             embeddings=FakeEmbeddings(),  # type: ignore[arg-type]
+            backend_factory=fake_backend_factory,  # type: ignore[arg-type]
         )
-        mgr._create_orchestration = lambda corpus: FakeOrchestration()  # type: ignore[assignment]
         return mgr
 
     def test_get_creates_and_caches(self, manager: CorpusManager) -> None:
@@ -169,3 +174,24 @@ class TestCorpusManager:
         orch = manager.get("fresh")
         assert isinstance(orch, FakeOrchestration)
         assert not orch.destroyed
+
+    def test_destroy_preserves_destroy_and_close_errors(self, manager: CorpusManager) -> None:
+        """destroy() should raise ExceptionGroup when destroy and close both fail."""
+        orch = manager.get("books")
+        assert isinstance(orch, FakeOrchestration)
+
+        def failing_destroy() -> None:
+            raise RuntimeError("destroy failed")
+
+        def failing_close() -> None:
+            raise RuntimeError("close failed")
+
+        orch.destroy_index = failing_destroy  # type: ignore[assignment]
+        orch.close_storage = failing_close  # type: ignore[assignment]
+
+        with pytest.raises(ExceptionGroup) as exc_info:
+            manager.destroy("books")
+
+        messages = [str(err) for err in exc_info.value.exceptions]
+        assert any("destroy failed" in message for message in messages)
+        assert any("close failed" in message for message in messages)

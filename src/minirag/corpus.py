@@ -4,17 +4,31 @@ import logging
 import re
 import threading
 from pathlib import Path
+from typing import Protocol
 
 from minirag.config import IndexConfig, SearchConfig
 from minirag.orchestration import Orchestration
-from minirag.retrieval.faiss_dense import FAISSDense
-from minirag.retrieval.tantivy_sparse import TantivySparse
-from minirag.search.embeddings import FastTextEmbeddings
-from minirag.storage.sqlite import SQLiteStorage
+from minirag.search.embeddings_interface import Embeddings
 
 logger = logging.getLogger(__name__)
 
 _CORPUS_NAME_PATTERN = re.compile(r"^[a-zA-Z][a-zA-Z0-9_-]*$")
+
+
+class OrchestrationFactory(Protocol):
+    """Factory contract for creating corpus-scoped orchestration instances."""
+
+    def __call__(
+        self,
+        *,
+        corpus: str,
+        data_dir: Path,
+        index_config: IndexConfig,
+        search_config: SearchConfig,
+        embeddings: Embeddings,
+    ) -> Orchestration:
+        """Create an orchestration instance for one corpus."""
+        ...
 
 
 def validate_corpus_name(name: str) -> str:
@@ -39,12 +53,14 @@ class CorpusManager:
         data_dir: Path,
         index_config: IndexConfig,
         search_config: SearchConfig,
-        embeddings: FastTextEmbeddings,
+        embeddings: Embeddings,
+        backend_factory: OrchestrationFactory,
     ) -> None:
         self._data_dir = data_dir
         self._index_config = index_config
         self._search_config = search_config
         self._embeddings = embeddings
+        self._backend_factory = backend_factory
         self._cache: dict[str, Orchestration] = {}
         self._lock = threading.Lock()
 
@@ -64,13 +80,29 @@ class CorpusManager:
             if orch is None:
                 orch = self._create_orchestration(corpus)
 
+        destroy_error: Exception | None = None
         try:
             orch.destroy_index()
-        except Exception:
+        except Exception as exc:
             logger.exception("Failed to destroy index for corpus %r", corpus)
-            raise
-        finally:
+            destroy_error = exc
+
+        close_error: Exception | None = None
+        try:
             orch.close_storage()
+        except Exception as exc:
+            logger.exception("Failed to close storage while destroying corpus %r", corpus)
+            close_error = exc
+
+        if destroy_error is not None and close_error is not None:
+            raise ExceptionGroup(
+                f"failed to destroy and close corpus={corpus}",
+                [destroy_error, close_error],
+            ) from destroy_error
+        if destroy_error is not None:
+            raise destroy_error
+        if close_error is not None:
+            raise close_error
 
     def close_all(self) -> None:
         """Close all cached storage connections and clear the cache.
@@ -95,37 +127,11 @@ class CorpusManager:
             raise RuntimeError(f"failed to close storage for corpora: {names}")
 
     def _create_orchestration(self, corpus: str) -> Orchestration:
-        """Build backends at corpus-namespaced paths and return an Orchestration."""
-        ic = self._index_config
-
-        storage = SQLiteStorage(
-            database_path=self._data_dir / "storage" / corpus / ic.storage.db_filename,
-        )
-        try:
-            dense = FAISSDense(
-                dimension=ic.embeddings.dimension,
-                index_dir=self._data_dir / "index" / corpus / "faiss",
-                nprobe=ic.faiss.nprobe,
-            )
-        except Exception:
-            storage.close()
-            raise
-        try:
-            sparse = TantivySparse(
-                index_dir=self._data_dir / "index" / corpus / "tantivy",
-                language=ic.tantivy.language,
-                stemming=ic.tantivy.stemming,
-            )
-        except Exception:
-            storage.close()
-            raise
-
-        logger.info("Created backends for corpus=%s", corpus)
-        return Orchestration(
-            chunking_config=ic.chunking,
-            embeddings=self._embeddings,
-            storage=storage,
-            dense=dense,
-            sparse=sparse,
+        """Build backends for a corpus using the configured factory."""
+        return self._backend_factory(
+            corpus=corpus,
+            data_dir=self._data_dir,
+            index_config=self._index_config,
             search_config=self._search_config,
+            embeddings=self._embeddings,
         )

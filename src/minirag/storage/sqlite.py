@@ -5,7 +5,7 @@ import sqlite3
 import threading
 from pathlib import Path
 
-from minirag.storage.interface import Storage
+from minirag.storage.interface import ChunkRecord, ChunkWithDocument, Storage
 
 logger = logging.getLogger(__name__)
 
@@ -115,8 +115,8 @@ class SQLiteStorage(Storage):
 
         return content_value
 
-    def get_chunk(self, chunk_id: int) -> tuple[int, str]:
-        """Return (document_id, chunk_content) by chunk ID."""
+    def get_chunk(self, chunk_id: int) -> ChunkWithDocument:
+        """Return chunk content and owning document ID by chunk ID."""
         if chunk_id <= 0:
             raise ValueError("chunk_id must be greater than 0")
 
@@ -139,7 +139,31 @@ class SQLiteStorage(Storage):
         if not isinstance(content_value, str):
             raise ValueError(f"chunk content is not text for chunk ID: {chunk_id}")
 
-        return (document_id_value, content_value)
+        return ChunkWithDocument(document_id=document_id_value, content=content_value)
+
+    def list_chunks(self, document_id: int) -> list[ChunkRecord]:
+        """Return all chunk records for one document."""
+        if document_id <= 0:
+            raise ValueError("document_id must be greater than 0")
+
+        cursor = self._connection.cursor()
+        cursor.execute(
+            "SELECT chunk_id, content FROM chunks WHERE document_id = ? ORDER BY chunk_id",
+            (document_id,),
+        )
+        rows = cursor.fetchall()
+
+        chunks: list[ChunkRecord] = []
+        for row in rows:
+            chunk_id_value = row[0]
+            content_value = row[1]
+            if not isinstance(chunk_id_value, int):
+                raise ValueError(f"chunk_id is not int for document ID: {document_id}")
+            if not isinstance(content_value, str):
+                raise ValueError(f"chunk content is not text for document ID: {document_id}")
+            chunks.append(ChunkRecord(chunk_id=chunk_id_value, content=content_value))
+
+        return chunks
 
     def close(self) -> None:
         """Close the SQLite database connection."""

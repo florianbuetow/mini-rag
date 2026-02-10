@@ -72,8 +72,9 @@ def test_create_app_wires_state_and_routes(monkeypatch: pytest.MonkeyPatch, tmp_
         index_config: object,
         search_config: object,
         embeddings: object,
+        backend_factory: object,
     ) -> object:
-        del data_dir, index_config, search_config, embeddings
+        del data_dir, index_config, search_config, embeddings, backend_factory
         return object()
 
     monkeypatch.setattr(app_module, "FastTextEmbeddings", fake_embeddings)
