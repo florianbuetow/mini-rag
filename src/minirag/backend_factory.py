@@ -31,8 +31,19 @@ def build_orchestration(
             index_dir=data_dir / "index" / corpus / "faiss",
             nprobe=index_config.faiss.nprobe,
         )
-    except Exception:
-        storage.close()
+    except Exception as exc:
+        logger.exception("Failed to initialize FAISS backend for corpus=%s", corpus)
+        cleanup_errors: list[Exception] = []
+        try:
+            storage.close()
+        except Exception as cleanup_exc:
+            logger.exception("Failed to close storage after FAISS init failure for corpus=%s", corpus)
+            cleanup_errors.append(cleanup_exc)
+        if len(cleanup_errors) > 0:
+            raise ExceptionGroup(
+                f"failed to initialize FAISS backend and cleanup for corpus={corpus}",
+                [exc, *cleanup_errors],
+            ) from exc
         raise
     try:
         sparse = TantivySparse(
@@ -40,8 +51,24 @@ def build_orchestration(
             language=index_config.tantivy.language,
             stemming=index_config.tantivy.stemming,
         )
-    except Exception:
-        storage.close()
+    except Exception as exc:
+        logger.exception("Failed to initialize Tantivy backend for corpus=%s", corpus)
+        sparse_cleanup_errors: list[Exception] = []
+        try:
+            dense.destroy()
+        except Exception as cleanup_exc:
+            logger.exception("Failed to destroy FAISS backend after Tantivy init failure for corpus=%s", corpus)
+            sparse_cleanup_errors.append(cleanup_exc)
+        try:
+            storage.close()
+        except Exception as cleanup_exc:
+            logger.exception("Failed to close storage after Tantivy init failure for corpus=%s", corpus)
+            sparse_cleanup_errors.append(cleanup_exc)
+        if len(sparse_cleanup_errors) > 0:
+            raise ExceptionGroup(
+                f"failed to initialize Tantivy backend and cleanup for corpus={corpus}",
+                [exc, *sparse_cleanup_errors],
+            ) from exc
         raise
 
     logger.info("Created backends for corpus=%s", corpus)

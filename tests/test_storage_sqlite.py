@@ -53,3 +53,9 @@ def test_sqlite_storage_rejects_invalid_values(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError):
         storage.list_chunks(0)
+
+
+def test_sqlite_storage_list_chunks_returns_empty_for_missing_document(tmp_path: Path) -> None:
+    """list_chunks should return empty list when document does not exist."""
+    storage = SQLiteStorage(database_path=tmp_path / "storage" / "missing.db")
+    assert storage.list_chunks(999) == []
