@@ -1,12 +1,14 @@
 # mini-rag Specification
 
-**Version:** 2.2
+**Version:** 3.0
 **Status:** Draft
-**Date:** 2026-02-07
+**Date:** 2026-02-10
 
 ## 1. Overview
 
-mini-rag is a minimalist Retrieval-Augmented Generation (RAG) system implemented as a FastAPI service. It provides document indexing and retrieval through three search modes: dense vector search (semantic similarity), sparse lexical search (BM25 keyword matching), and hybrid search combining both approaches with configurable weighting.
+mini-rag is a minimalist Retrieval-Augmented Generation (RAG) system implemented as a FastAPI service. It provides document indexing and retrieval through three search modes: dense vector search (semantic similarity), sparse lexical search (BM25 keyword matching), and hybrid search combining both approaches with configurable weighting. Hybrid search results can optionally be reranked using a cross-encoder model for improved relevance.
+
+Every indexed document carries citation metadata, enabling RAG consumers to attribute retrieved content to its source. Citations are either provided via JSON sidecar files during ingestion or auto-generated from file metadata.
 
 The system is fully configuration-driven, with no hardcoded default values anywhere in the codebase. All backend components are accessed through abstraction interfaces, making them independently swappable.
 
@@ -26,42 +28,54 @@ mini-rag follows a modular client-server architecture:
 
 The service layer is built on three independent backend components, each accessed through an abstraction interface:
 
-- **Storage** (interface) — document and chunk persistence. Implemented by `SQLiteStorage`.
+- **Storage** (interface) — document, chunk, and citation persistence. Implemented by `SQLiteStorage`.
 - **DenseRetrieval** (interface) — vector similarity search using embeddings. Implemented by `FAISSDense`.
 - **SparseRetrieval** (interface) — lexical full-text search using BM25 scoring. Implemented by `TantivySparse`.
 
 Each interface defines a contract for indexing, searching, and destroying data. The concrete implementations (SQLite, FAISS, Tantivy) can be swapped out independently without affecting the rest of the system.
 
-### 2.3 Orchestration Layer
+An optional **Reranker** component (Protocol-based interface) post-processes hybrid search results using a cross-encoder model for improved relevance ranking.
 
-A single **Orchestration** class (`orchestration.py` at the `minirag/` package root) coordinates all operations across the three backend components:
+### 2.3 Multi-Corpus Management
+
+A **CorpusManager** (`corpus.py`) lazily creates and caches per-corpus `Orchestration` instances. Each corpus gets its own isolated set of backends (Storage, DenseRetrieval, SparseRetrieval). Corpus names must match `^[a-zA-Z][a-zA-Z0-9_-]*$`.
+
+At startup, the `Config` and `CorpusManager` are created once and stored on `app.state`. All API endpoints are scoped to a corpus via the URL path: `/v1/corpus/{corpus}/...`. Route handlers access the corpus-scoped orchestration via `corpus_manager.get(corpus)`.
+
+### 2.4 Orchestration Layer
+
+A single **Orchestration** class (`orchestration.py` at the `minirag/` package root) coordinates all operations across the backend components for one corpus:
 
 **Indexing operations:**
 
-- `index_document(text)` — the full pipeline: store document in Storage → chunk text → store chunks in Storage → generate embeddings → index in DenseRetrieval → index in SparseRetrieval. Returns document ID and list of chunk IDs.
-- `destroy_index()` — wipes all three backends (Storage, DenseRetrieval, SparseRetrieval).
+- `index_document(text, citation)` — the full pipeline: store document in Storage → chunk text → store chunks in Storage → generate embeddings → index in DenseRetrieval → index in SparseRetrieval → store citation in Storage. Returns document ID and list of chunk IDs.
+- `destroy_index()` — wipes all backends (Storage, DenseRetrieval, SparseRetrieval) and clears the citation key cache.
 
 **Search operations:**
 
-- `search_dense(query, top_k)` — embed query → search DenseRetrieval → look up chunk text from Storage.
-- `search_sparse(query, top_k)` — search SparseRetrieval → look up chunk text from Storage.
-- `search_hybrid(query, top_k)` — run both dense and sparse search → pass results to the hybrid merge function → return merged results.
+- `search_dense(query, top_k)` — embed query → search DenseRetrieval → look up chunk text and citation key from Storage.
+- `search_sparse(query, top_k)` — search SparseRetrieval → look up chunk text and citation key from Storage.
+- `search_hybrid(query, top_k)` — run both dense and sparse search → merge results → optionally rerank with cross-encoder → return final results.
 
-The orchestration layer does not contain search logic or merge logic. It delegates to the appropriate components and pipes data between them.
+**Citation operations:**
 
-At startup, the `Config` and `Orchestration` instances are created once and stored on `app.state` (`app.state.config`, `app.state.orchestration`). Route handlers access them via `request.app.state`. This is FastAPI's built-in mechanism for sharing application-wide singletons with route handlers without global variables.
+- `get_citation(citation_key)` — delegates to Storage to retrieve raw citation JSON.
 
-### 2.4 Other Key Components
+The orchestration layer does not contain search logic or merge logic. It delegates to the appropriate components and pipes data between them. Citation key lookups are cached per-instance using `functools.lru_cache` (maxsize=1024) to avoid repeated database queries during result resolution.
+
+### 2.5 Other Key Components
 
 - **Config** — Pydantic-based configuration loader, parsing `config.yaml` with strict validation and no optional values.
 - **FastAPI Service** — REST API with versioned endpoints (`/v1/...`), running on Uvicorn with configurable reload.
 - **FastText Embeddings** — Generates dense vector embeddings using Facebook's FastText library. Vectors are normalized to unit length so that inner product equals cosine similarity.
 - **Chunker** — Word-based text chunking with configurable chunk size and overlap.
 - **Hybrid Merge** — A pure function in `search/hybrid.py` that takes dense and sparse result sets, normalizes scores, applies alpha weighting, and re-ranks.
+- **Cross-Encoder Reranker** — Optional post-processing step for hybrid search. Uses a sentence-transformers cross-encoder model to re-score candidate results by query relevance, applying sigmoid normalization. Controlled by `search.reranking` config.
 - **API Models** — Pydantic request and response models in `api/models/`, used for input validation and serialization on all endpoints.
 - **Clients** — HTTP clients (`IndexingClient`, `QueryClient`) with health-check-before-operation behavior.
+- **MCP Server** — A Model Context Protocol server (`mcp/mini-rag.ts`) exposing search and citation tools for integration with LLM agents.
 
-### 2.5 Technology Stack
+### 2.6 Technology Stack
 
 - Python 3.12+
 - FastAPI + Uvicorn (ASGI server)
@@ -71,16 +85,21 @@ At startup, the `Config` and `Orchestration` instances are created once and stor
 - Tantivy via tantivy-py (sparse lexical index with BM25 scoring, stemming, tokenization)
 - FastText (`cc.en.300.bin` — 300-dimensional Common Crawl embeddings)
 - PyYAML (configuration file parsing)
+- sentence-transformers (cross-encoder reranking models, optional)
 - httpx (HTTP client library)
 - uv (package manager)
 - just (task runner)
+- Node.js + TypeScript (MCP server)
 
-### 2.6 Component Interaction Diagram
+### 2.7 Component Interaction Diagram
 
 ```
 FastAPI Routes (api/)
     │
     ├──► API Models (api/models/) — Pydantic request/response validation
+    │
+    ▼
+  CorpusManager (minirag/corpus.py) — per-corpus orchestration cache
     │
     ▼
   Orchestration (minirag/orchestration.py)
@@ -89,7 +108,8 @@ FastAPI Routes (api/)
     ├──► Embeddings (text → vectors, normalized to unit length)
     │
     ├──► Storage (interface)           ──► SQLiteStorage
-    │       insert_document / insert_chunk / get_chunk / destroy
+    │       insert_document / insert_chunk / get_chunk
+    │       insert_citation / get_citation_key / get_citation / destroy
     │
     ├──► DenseRetrieval (interface)    ──► FAISSDense
     │       index / search / destroy
@@ -97,8 +117,11 @@ FastAPI Routes (api/)
     ├──► SparseRetrieval (interface)   ──► TantivySparse
     │       index / search / destroy
     │
-    └──► HybridMerge (pure function)
-            normalize + alpha-weight + re-rank
+    ├──► HybridMerge (pure function)
+    │       normalize + alpha-weight + re-rank
+    │
+    └──► Reranker (protocol, optional) ──► CrossEncoderReranker
+            re-score candidates by query relevance + sigmoid normalize
 ```
 
 ## 3. Project Structure
@@ -109,27 +132,34 @@ src/
 └── minirag/
     ├── __init__.py
     ├── config.py                      # Config class — parses config.yaml, model_dump()
+    ├── corpus.py                      # CorpusManager — per-corpus orchestration cache
     ├── orchestration.py               # Orchestration layer for indexing and search
+    ├── backend_factory.py             # Factory for creating corpus-scoped backends
+    ├── startup_validation.py          # Startup environment checks
     ├── api/                           # FastAPI service layer
     │   ├── __init__.py
     │   ├── app.py                     # FastAPI app creation & lifecycle
-    │   ├── routes_index.py            # POST /index, DELETE /index
-    │   ├── routes_query.py            # POST /query/dense, /query/sparse, /query/hybrid
-    │   ├── routes_info.py            # GET /health, GET /info, POST /shutdown
+    │   ├── routes_index.py            # POST /corpus/{corpus}/index, DELETE
+    │   ├── routes_query.py            # POST /corpus/{corpus}/query/dense|sparse|hybrid
+    │   ├── routes_citation.py         # GET /corpus/{corpus}/citation/{citation_key}
+    │   ├── routes_info.py             # GET /health, GET /info, POST /shutdown
     │   ├── utils.py                   # Response envelope helpers + ensure_healthy() guard
+    │   ├── responses.py               # Response construction helpers
     │   └── models/                    # Pydantic request/response models
     │       ├── __init__.py
     │       ├── index.py               # IndexRequest, IndexResponse
-    │       ├── query.py               # QueryRequest, QueryResponse
+    │       ├── query.py               # QueryRequest, QueryResponse, QueryResult
+    │       ├── citation.py            # CitationResponse
     │       └── info.py                # HealthResponse, InfoResponse, ShutdownResponse
     ├── search/                        # Search utilities
     │   ├── __init__.py
     │   ├── hybrid.py                  # Score normalization & re-ranking (pure function)
     │   ├── embeddings.py              # FastText embedding generation + unit normalization
-    │   └── types.py                   # SearchResult dataclass
+    │   ├── embeddings_interface.py    # Embeddings protocol
+    │   └── types.py                   # SearchResult, ScoredChunk dataclasses
     ├── storage/                       # Storage abstraction
     │   ├── __init__.py
-    │   ├── interface.py               # Storage interface definition
+    │   ├── interface.py               # Storage interface definition (Reader/Writer/Lifecycle)
     │   └── sqlite.py                  # SQLiteStorage implementation
     ├── retrieval/                     # Retrieval abstractions
     │   ├── __init__.py
@@ -137,6 +167,10 @@ src/
     │   ├── sparse_interface.py        # SparseRetrieval interface definition
     │   ├── faiss_dense.py             # FAISSDense implementation
     │   └── tantivy_sparse.py          # TantivySparse implementation
+    ├── reranking/                     # Reranking abstraction
+    │   ├── __init__.py
+    │   ├── interface.py               # Reranker protocol
+    │   └── cross_encoder.py           # CrossEncoderReranker (sentence-transformers)
     ├── ingestion/                     # Document processing
     │   ├── __init__.py
     │   └── chunker.py                 # Word-based chunking
@@ -147,7 +181,13 @@ src/
         └── query.py                   # QueryClient (dense, sparse, hybrid search)
 
 scripts/
-└── ingest.py                          # Reads data/input/txt/, uses IndexingClient
+├── ingest.py                          # Reads data/input/txt/, uses IndexingClient
+├── md2txt.py                          # Converts markdown to text, copies JSON sidecars
+├── search.py                          # CLI search tool
+└── evaluate.py                        # ROUGE-L evaluation against Q&A pairs
+
+mcp/
+└── mini-rag.ts                        # MCP server (search + citation tools)
 
 config.yaml.template                   # Committed config template (ready-to-go defaults)
 config.yaml                            # Local config (gitignored, created by just init)
@@ -204,6 +244,11 @@ search:
   dense: {}
 
   sparse: {}
+
+  reranking:
+    enabled: false
+    model_name: "cross-encoder/ms-marco-MiniLM-L12-v2"
+    candidate_multiplier: 3
 ```
 
 ### 4.3 Pydantic Model Hierarchy
@@ -223,6 +268,7 @@ The configuration is parsed into the following nested Pydantic models:
     - `HybridConfig` — alpha
     - `DenseSearchConfig` — (reserved for future query-time settings)
     - `SparseSearchConfig` — (reserved for future query-time settings)
+    - `RerankingConfig` — enabled, model_name, candidate_multiplier
 
 ### 4.4 Path Resolution
 
@@ -241,15 +287,23 @@ Components only know their own subdirectory conventions (e.g., the ingestion mod
 ```
 data/
 ├── input/
-│   ├── txt/                  # Plain text files for ingestion
-│   └── md/                   # Markdown files (future)
-├── models/                   # FastText embedding models
+│   └── {corpus}/
+│       ├── md/               # Markdown source files
+│       │   ├── doc.md
+│       │   └── doc.json      # Citation JSON sidecar (optional)
+│       ├── txt/              # Plain text files for ingestion (from md2txt or manual)
+│       │   ├── doc.txt
+│       │   └── doc.json      # Copied from md/ by md2txt
+│       └── evals/            # Evaluation Q&A pairs (optional)
+├── models/                   # Embedding and reranking models
 │   └── cc.en.300.bin
-├── storage/                  # SQLite document/chunk database
-│   └── minirag.db
+├── storage/
+│   └── {corpus}/
+│       └── minirag.db        # SQLite database per corpus
 └── index/
-    ├── faiss/                # FAISS vector index files
-    └── tantivy/              # Tantivy lexical index files
+    └── {corpus}/
+        ├── faiss/            # FAISS vector index files
+        └── tantivy/          # Tantivy lexical index files
 ```
 
 ### 4.6 Startup Validation
@@ -363,21 +417,29 @@ Initiates a graceful shutdown. Sets `app.state.app_status` to `"shutting_down"` 
 }
 ```
 
-#### POST /v1/index
+#### POST /v1/corpus/{corpus}/index
 
-Indexes a single document. The service handles the full pipeline: store document → chunk → store chunks → embed → index in dense and sparse indices. The response is returned only after all steps complete.
+Indexes a single document into the specified corpus. The service handles the full pipeline: store document → chunk → store chunks → embed → index in dense and sparse indices → store citation. The response is returned only after all steps complete.
 
 Empty or whitespace-only document text is rejected with HTTP 422 before any processing begins.
 
-If any step in the indexing pipeline fails, the service returns an error immediately. No rollback is performed; partial state may remain. Use `DELETE /v1/index` to clean up before re-indexing.
+If any step in the indexing pipeline fails, the service returns an error immediately. No rollback is performed; partial state may remain. Use `DELETE /v1/corpus/{corpus}/index` to clean up before re-indexing.
 
 **Request:**
 
 ```json
 {
-  "document": "the full text content of the document..."
+  "document": "the full text content of the document...",
+  "citation": {
+    "citation_key": "smith2026",
+    "source_type": "journal",
+    "common": { "title": "Paper Title", "author": "Smith et al." },
+    "source_data": { "doi": "10.1234/example" }
+  }
 }
 ```
+
+The `citation` field is optional. If omitted or null, a citation record is auto-generated using the document ID as the citation key and `"text_file"` as the source type.
 
 **Response:**
 
@@ -394,9 +456,9 @@ If any step in the indexing pipeline fails, the service returns an error immedia
 
 The `chunk_ids` field returns all chunk IDs assigned by the storage layer during indexing. This aids debugging and enables integration tests to verify that chunks were stored correctly. `chunks_indexed` equals `len(chunk_ids)`.
 
-#### DELETE /v1/index
+#### DELETE /v1/corpus/{corpus}/index
 
-Destroys the entire index across all three backends (Storage, DenseRetrieval, SparseRetrieval).
+Destroys the entire index for a corpus across all backends (Storage, DenseRetrieval, SparseRetrieval), including all citation records.
 
 **Request:** No body.
 
@@ -409,7 +471,7 @@ Destroys the entire index across all three backends (Storage, DenseRetrieval, Sp
 }
 ```
 
-#### POST /v1/query/dense
+#### POST /v1/corpus/{corpus}/query/dense
 
 Performs dense vector similarity search using FastText embeddings and FAISS.
 
@@ -429,8 +491,8 @@ Performs dense vector similarity search using FastText embeddings and FAISS.
   "status": 200,
   "data": {
     "results": [
-      { "text": "matched chunk text...", "score": 0.87 },
-      { "text": "another chunk...", "score": 0.74 }
+      { "chunk_id": 1, "document_id": 1, "citation_key": "smith2026", "text": "matched chunk text...", "score": 0.87 },
+      { "chunk_id": 2, "document_id": 1, "citation_key": "smith2026", "text": "another chunk...", "score": 0.74 }
     ]
   }
 }
@@ -447,19 +509,23 @@ Performs dense vector similarity search using FastText embeddings and FAISS.
 }
 ```
 
+Each result includes `chunk_id`, `document_id`, `citation_key`, `text`, and `score`. The `citation_key` can be used to fetch full citation metadata via the citation endpoint.
+
 Scores are normalized between 0 and 1, with higher values indicating greater relevance. For dense search, scores are cosine similarities computed via inner product on unit-normalized embeddings. An empty results list is returned when no matches are found or when the index is empty — this is not an error.
 
-#### POST /v1/query/sparse
+#### POST /v1/corpus/{corpus}/query/sparse
 
-Performs sparse lexical search using Tantivy's BM25 scoring. Same request and response format as `/v1/query/dense`.
+Performs sparse lexical search using Tantivy's BM25 scoring. Same request and response format as the dense query endpoint.
 
 Scores are BM25 relevance scores normalized to [0, 1] by dividing by the maximum score in the result set.
 
-#### POST /v1/query/hybrid
+#### POST /v1/corpus/{corpus}/query/hybrid
 
-Performs hybrid search combining dense and sparse results with score normalization, alpha-weighted merging, and re-ranking. Same request and response format as `/v1/query/dense`.
+Performs hybrid search combining dense and sparse results with score normalization, alpha-weighted merging, and optional cross-encoder reranking. Same request and response format as the dense query endpoint.
 
 The balance between dense and sparse results is controlled by the `search.hybrid.alpha` configuration parameter (0.0 = pure sparse/lexical, 1.0 = pure dense/vector).
+
+When reranking is enabled (`search.reranking.enabled: true`), the hybrid search retrieves `top_k * candidate_multiplier` candidates from each retrieval backend before merging. The merged candidates are then re-scored by the cross-encoder model, and the final top-k results are returned. Reranking scores are raw cross-encoder logits passed through a sigmoid function, producing values in [0, 1].
 
 **Hybrid merge behavior for edge cases:**
 
@@ -468,12 +534,42 @@ The balance between dense and sparse results is controlled by the `search.hybrid
 - If both result sets are empty, an empty results list is returned.
 - Querying an empty index returns an empty results list (not an error).
 
+#### GET /v1/corpus/{corpus}/citation/{citation_key}
+
+Returns full citation metadata for a given citation key.
+
+**Request:** No body.
+
+**Response (found):**
+
+```json
+{
+  "status": 200,
+  "data": {
+    "citation_key": "smith2026",
+    "source_type": "journal",
+    "common": { "title": "Paper Title", "author": "Smith et al." },
+    "source_data": { "doi": "10.1234/example" }
+  }
+}
+```
+
+**Response (not found):**
+
+```json
+{
+  "status": 404,
+  "error": "citation not found: unknown_key"
+}
+```
+
 ### 5.5 Pydantic API Models
 
 All API request and response payloads are defined as Pydantic models in `api/models/`. Each file maps to a route group:
 
-- `api/models/index.py` — `IndexRequest` (document field, validates non-empty text), `IndexResponse` (document_id, chunks_indexed, chunk_ids).
-- `api/models/query.py` — `QueryRequest` (query string, top_k as positive integer), `QueryResponse` (results list).
+- `api/models/index.py` — `IndexRequest` (document field, optional citation dict), `IndexResponse` (document_id, chunks_indexed, chunk_ids).
+- `api/models/query.py` — `QueryRequest` (query string, top_k as positive integer), `QueryResponse` (results list), `QueryResult` (chunk_id, document_id, citation_key, text, score).
+- `api/models/citation.py` — `CitationResponse` (citation_key, source_type, common, source_data).
 - `api/models/info.py` — `HealthResponse`, `InfoResponse`, `ShutdownResponse`.
 
 FastAPI uses these models to automatically validate incoming JSON. Invalid payloads are rejected with HTTP 422 and the Pydantic validation error message is included in the error response envelope.
@@ -496,11 +592,12 @@ The service maintains a formal app state stored on `app.state.app_status`. The p
 
 **Guarded endpoints** — every route handler for these endpoints calls `ensure_healthy()` as its first action:
 
-- POST /v1/index
-- DELETE /v1/index
-- POST /v1/query/dense
-- POST /v1/query/sparse
-- POST /v1/query/hybrid
+- POST /v1/corpus/{corpus}/index
+- DELETE /v1/corpus/{corpus}/index
+- POST /v1/corpus/{corpus}/query/dense
+- POST /v1/corpus/{corpus}/query/sparse
+- POST /v1/corpus/{corpus}/query/hybrid
+- GET /v1/corpus/{corpus}/citation/{citation_key}
 - POST /v1/shutdown
 
 **Unguarded endpoints** — these are always available regardless of app state:
@@ -514,14 +611,25 @@ The health endpoint reflects the current app state in its response. When the sta
 
 ### 6.1 Storage Interface
 
-The Storage interface (`storage/interface.py`) defines the contract for document and chunk persistence:
+The Storage interface (`storage/interface.py`) is split into three ABCs — `StorageReader`, `StorageWriter`, and `StorageLifecycle` — combined into a single `Storage` ABC:
+
+**Writer methods:**
 
 - `insert_document(content: str) -> int` — stores the full document text and returns an auto-assigned document ID.
 - `insert_chunk(document_id: int, content: str) -> int` — stores a chunk with a foreign key reference to its document and returns an auto-assigned chunk ID.
+- `insert_citation(citation_key: str, document_id: int, citation_json: str) -> None` — stores a citation record keyed by citation_key. Fails fast on duplicate keys.
+
+**Reader methods:**
+
 - `get_document(document_id: int) -> str` — retrieves document content by ID.
-- `get_chunk(chunk_id: int) -> tuple[int, str]` — retrieves a chunk by ID, returning (document_id, chunk_content).
+- `get_chunk(chunk_id: int) -> ChunkWithDocument` — retrieves a chunk by ID, returning a named tuple of (document_id, content).
+- `get_citation_key(document_id: int) -> str | None` — returns the citation key for a document, or None if not found.
+- `get_citation(citation_key: str) -> str | None` — returns the raw citation JSON string, or None if not found.
+
+**Lifecycle methods:**
+
 - `close() -> None` — closes the underlying database connection.
-- `destroy() -> None` — wipes all stored data.
+- `destroy() -> None` — wipes all stored data including citations.
 
 ### 6.2 SQLite Implementation
 
@@ -542,7 +650,17 @@ The Storage interface (`storage/interface.py`) defines the contract for document
 | `document_id` | INTEGER | FOREIGN KEY → documents(document_id), NOT NULL |
 | `content` | TEXT | NOT NULL |
 
-The SQLite database file is stored at `{data_dir}/storage/{db_filename}`.
+**Document citations table:**
+
+| Column | Type | Constraint |
+|--------|------|------------|
+| `citation_key` | TEXT | PRIMARY KEY |
+| `document_id` | INTEGER | FOREIGN KEY → documents(document_id), NOT NULL |
+| `citation_json` | TEXT | NOT NULL |
+
+An index `idx_citations_document_id` exists on `document_citations(document_id)` for efficient reverse lookups.
+
+The SQLite database file is stored at `{data_dir}/storage/{corpus}/{db_filename}`.
 
 Document and chunk IDs are assigned automatically by SQLite's autoincrement mechanism. ID assignment is fully internal to the service and transparent to clients.
 
@@ -630,23 +748,84 @@ The hybrid merge function (`search/hybrid.py`) is a pure function that combines 
 - Both sets empty returns an empty list.
 - All scores identical within a set: normalization preserves them as-is (they were already normalized by the retrieval layer).
 
-## 10. Ingestion Pipeline
+## 10. Reranking
 
-### 10.1 Document Flow
+### 10.1 Reranker Interface
 
-1. Text files are placed in `{data_dir}/input/txt/`.
-2. The `scripts/ingest.py` helper script reads all `.txt` files from that directory.
-3. For each file, the script uses the `IndexingClient` to POST the document text to the service.
-4. The service receives the text and the orchestration layer runs the full indexing pipeline:
+The Reranker interface (`reranking/interface.py`) is a Python `Protocol` defining the contract for post-processing search results:
+
+- `candidate_count(top_k: int) -> int` — returns how many merged candidates should be retrieved before reranking. Typically `top_k * candidate_multiplier`.
+- `rerank(query: str, results: list[SearchResult], top_k: int) -> list[SearchResult]` — re-scores and re-ranks results by query relevance, returning the top-k.
+
+### 10.2 Cross-Encoder Implementation
+
+`reranking/cross_encoder.py` implements the Reranker interface using sentence-transformers:
+
+- Uses a cross-encoder model (default: `cross-encoder/ms-marco-MiniLM-L12-v2`) that scores query-passage pairs jointly.
+- Model is loaded via `importlib.import_module("sentence_transformers")` with cache directory support.
+- Scoring: all candidate results are paired with the query as `[query, chunk_text]` and scored in a single batch via `model.predict()`.
+- Raw cross-encoder logits are normalized to [0, 1] via sigmoid: `score = 1 / (1 + exp(-logit))`.
+- Results are re-sorted by the normalized score descending and truncated to `top_k`.
+
+### 10.3 Configuration
+
+Reranking is controlled by `search.reranking` in the config:
+
+- `enabled` (bool) — whether to apply reranking to hybrid search results.
+- `model_name` (str) — cross-encoder model identifier (must not be empty).
+- `candidate_multiplier` (int) — multiplier for how many candidates to retrieve before reranking (must be > 0).
+
+When `enabled: false`, no reranker is instantiated at startup and hybrid search returns merged results directly.
+
+### 10.4 Integration with Hybrid Search
+
+When reranking is enabled, the hybrid search flow becomes:
+
+1. Compute `retrieval_top_k = reranker.candidate_count(top_k)` (= `top_k * candidate_multiplier`).
+2. Run dense and sparse search each with `retrieval_top_k`.
+3. Merge results via hybrid merge (alpha-weighted).
+4. Pass merged candidates to `reranker.rerank(query, merged, top_k)`.
+5. Return the reranked top-k results.
+
+## 11. Ingestion Pipeline
+
+### 11.1 Document Flow
+
+1. Markdown files are placed in `{data_dir}/input/{corpus}/md/` with optional `.json` citation sidecars.
+2. `scripts/md2txt.py` converts `.md` files to `.txt` and copies `.json` sidecars to `{data_dir}/input/{corpus}/txt/`.
+3. `scripts/ingest.py` reads all `.txt` files from the `txt/` directory.
+4. For each file, the script loads the citation (from `.json` sidecar or auto-generated), then uses the `IndexingClient` to POST the document text and citation to the service.
+5. The service receives the text and citation, and the orchestration layer runs the full indexing pipeline:
    a. Store the full document in Storage → get `document_id`.
    b. Chunk the text (word-based, configurable size and overlap) → get list of chunks.
    c. Store each chunk in Storage → get `chunk_id` for each.
    d. Generate embeddings for all chunks (FastText, unit-normalized).
    e. Index each chunk in DenseRetrieval (chunk_id + embedding).
    f. Index each chunk in SparseRetrieval (chunk_id + chunk text).
-   g. Return `document_id` and list of `chunk_ids`.
+   g. Store the citation record in Storage (from request or auto-generated).
+   h. Return `document_id` and list of `chunk_ids`.
 
-### 10.2 Chunking Strategy
+### 11.2 Citation Sidecar Files
+
+Citation metadata can be provided as a JSON file with the same stem as the `.txt` file (e.g., `doc.json` for `doc.txt`). The JSON must contain at minimum:
+
+- `citation_key` (str) — unique identifier for this citation.
+- `source_type` (str) — category of the source (e.g., `"journal"`, `"blog"`, `"text_file"`).
+- `common` (object) — shared metadata fields (title, author, date, etc.).
+- `source_data` (object) — source-type-specific metadata.
+
+If no `.json` sidecar exists, the ingestion script auto-generates a minimal citation:
+
+```json
+{
+  "citation_key": "{file_stem}",
+  "source_type": "text_file",
+  "common": { "title": "{filename}" },
+  "source_data": {}
+}
+```
+
+### 11.3 Chunking Strategy
 
 Word-based chunking is implemented in `ingestion/chunker.py`:
 
@@ -656,7 +835,7 @@ Word-based chunking is implemented in `ingestion/chunker.py`:
 - Empty or whitespace-only input text is rejected with a `ValueError`.
 - Invalid chunk parameters (non-positive chunk size, overlap outside [0.0, 1.0), overlap yielding non-positive step) are rejected with a `ValueError`.
 
-### 10.3 Ingestion Behavior
+### 11.4 Ingestion Behavior
 
 - The `just ingest` target destroys the existing index before indexing.
 - Files are sorted alphanumerically by filename for deterministic, reproducible ordering.
@@ -664,13 +843,13 @@ Word-based chunking is implemented in `ingestion/chunker.py`:
 - If any file fails to index, the script fails immediately with the original error. No further files are processed.
 - There are no update or deduplication operations — only index, destroy, and query.
 
-### 10.4 Indexing Error Behavior
+### 11.5 Indexing Error Behavior
 
 The ingestion script (`scripts/ingest.py`) follows a fail-fast approach. If any file fails to index, the error propagates immediately and the script aborts. Partial state from the failed file may remain — use `DELETE /v1/index` to clean up before re-indexing.
 
-## 11. Clients
+## 12. Clients
 
-### 11.1 Base Client
+### 12.1 Base Client
 
 `clients/base.py` provides shared HTTP logic:
 
@@ -678,45 +857,50 @@ The ingestion script (`scripts/ingest.py`) follows a fail-fast approach. If any 
 - Checks the `/v1/health` endpoint before any operation — if the service is not healthy, the client aborts with an exception.
 - Handles HTTP errors and surfaces them as exceptions.
 
-### 11.2 IndexingClient
+### 12.2 IndexingClient
 
 `clients/indexing.py` provides:
 
-- `index_document(text)` — POSTs a document to `/v1/index`.
-- `destroy_index()` — sends DELETE to `/v1/index`.
+- `index_document(corpus, text, citation)` — POSTs a document with optional citation to `/v1/corpus/{corpus}/index`.
+- `destroy_index(corpus)` — sends DELETE to `/v1/corpus/{corpus}/index`.
 
-### 11.3 QueryClient
+### 12.3 QueryClient
 
 `clients/query.py` provides:
 
-- `search_dense(query, top_k)` — sends POST to `/v1/query/dense`.
-- `search_sparse(query, top_k)` — sends POST to `/v1/query/sparse`.
-- `search_hybrid(query, top_k)` — sends POST to `/v1/query/hybrid`.
+- `search_dense(corpus, query, top_k)` — sends POST to `/v1/corpus/{corpus}/query/dense`.
+- `search_sparse(corpus, query, top_k)` — sends POST to `/v1/corpus/{corpus}/query/sparse`.
+- `search_hybrid(corpus, query, top_k)` — sends POST to `/v1/corpus/{corpus}/query/hybrid`.
 
-All three methods return results in the same format.
+All three methods return `list[SearchResult]` with `chunk_id`, `document_id`, `citation_key`, `text`, and `score` fields.
 
-## 12. SearchResult Type
+## 13. SearchResult Type
 
-All search results throughout the system use a consistent `SearchResult` type defined as a dataclass in a shared location (`search/types.py`):
+All search results throughout the system use a consistent `SearchResult` type defined as a frozen dataclass in a shared location (`search/types.py`):
 
 ```python
-@dataclass
+@dataclass(frozen=True)
 class SearchResult:
-    chunk_id: int
-    text: str
-    score: float
+    chunk_id: int       # storage chunk identifier
+    document_id: int    # parent document identifier
+    citation_key: str   # citation key for source attribution
+    text: str           # chunk text content
+    score: float        # normalized relevance score in [0.0, 1.0]
 ```
+
+Validation in `__post_init__`: `chunk_id > 0`, `document_id > 0`, `citation_key` non-empty after strip, `text` non-empty after strip, `score` in [0.0, 1.0].
 
 This type is used by:
 
 - The orchestration layer's search methods (return `list[SearchResult]`).
 - The hybrid merge function (accepts and returns `list[SearchResult]`).
+- The reranker (accepts and returns `list[SearchResult]`).
 - The client methods (return `list[SearchResult]` parsed from JSON).
-- The API response serialization (converts to `{"text": ..., "score": ...}`).
+- The API response serialization (converts to `{"chunk_id": ..., "document_id": ..., "citation_key": ..., "text": ..., "score": ...}`).
 
-Retrieval interfaces return `list[tuple[int, float]]` (chunk_id, score). The orchestration layer resolves chunk IDs to text via the Storage layer and constructs `SearchResult` objects.
+Retrieval interfaces return `list[ScoredChunk]` (chunk_id, score). The orchestration layer resolves chunk IDs to text and citation keys via the Storage layer and constructs `SearchResult` objects.
 
-## 13. Just Targets
+## 14. Just Targets
 
 | Target | Description |
 |--------|-------------|
@@ -730,9 +914,9 @@ Retrieval interfaces return `list[tuple[int, float]]` (chunk_id, score). The orc
 
 The existing `just run` target is replaced by `just start` for the service. Existing CI targets (`just ci`, `just ci-quiet`, etc.) remain unchanged.
 
-## 14. Error Handling
+## 15. Error Handling
 
-### 14.1 Principles
+### 15.1 Principles
 
 - **Fail fast** — if something is wrong, report it immediately and stop.
 - **No error masking** — no degraded states, no silent fallbacks, no default values.
@@ -740,7 +924,7 @@ The existing `just run` target is replaced by `just start` for the service. Exis
 - **Internal error messages are exposed as-is** — no sanitization or rewriting for the client. This is a minimalist system.
 - **No automatic rollback** — if an indexing step fails partway through, partial state may remain. Use `DELETE /v1/index` to clean up.
 
-### 14.2 Startup Failures
+### 15.2 Startup Failures
 
 The service refuses to start if:
 
@@ -751,32 +935,32 @@ The service refuses to start if:
 - FAISS index cannot be initialized.
 - Tantivy index cannot be initialized.
 
-### 14.3 Runtime Errors
+### 15.3 Runtime Errors
 
 All runtime errors (FAISS failures, Tantivy failures, SQLite failures, embedding failures, etc.) are caught by route handlers and returned as error responses with HTTP 500 and the exception message.
 
-## 15. Logging
+## 16. Logging
 
 - All logging goes through Python's standard `logging` module — never `print()`. This applies to both `src/` and `scripts/`.
 - The log level is configurable via `service.log_level` in `config.yaml`.
 - The committed template defaults to `INFO`. Developers can switch to `DEBUG` locally.
 - All errors, warnings, info, and debug messages use the logger.
 
-## 16. Testing
+## 17. Testing
 
-### 16.1 Current Requirements
+### 17.1 Current Requirements
 
 - Foundational components must have unit tests from the start: config parsing, chunker, hybrid merge logic, response utilities.
 - The CI pipeline enforces 80% test coverage.
 - Tests run with `just test` (unit tests) and `just test-coverage` (with threshold enforcement).
 
-### 16.2 Test Configuration
+### 17.2 Test Configuration
 
 - pytest with randomized test order (pytest-randomly).
 - 30-second timeout per test (pytest-timeout).
 - Async support via pytest-asyncio.
 
-## 17. CI Pipeline
+## 18. CI Pipeline
 
 The CI pipeline is set in stone and runs the following steps in order:
 
@@ -792,7 +976,18 @@ The CI pipeline is set in stone and runs the following steps in order:
 10. `test` — Unit tests
 11. `code-lspchecks` — Strict type checking (pyright)
 
-## 18. Future To-Do
+## 19. MCP Server
+
+The `mcp/` directory contains a Model Context Protocol server (`mini-rag.ts`) that exposes mini-rag functionality as tools for LLM agents:
+
+**Tools:**
+
+- `search` — performs search (dense, sparse, or hybrid) against a corpus and returns results with citation keys.
+- `get_citation` — retrieves full citation metadata by corpus and citation key.
+
+The MCP server communicates with the mini-rag service over HTTP (same host/port as configured in `config.yaml`). It includes health checking before each operation and returns structured JSON results.
+
+## 20. Future To-Do
 
 The following items are out of scope for the first iteration but planned for future work:
 
