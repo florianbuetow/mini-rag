@@ -59,3 +59,16 @@ def test_sqlite_storage_list_chunks_returns_empty_for_missing_document(tmp_path:
     """list_chunks should return empty list when document does not exist."""
     storage = SQLiteStorage(database_path=tmp_path / "storage" / "missing.db")
     assert storage.list_chunks(999) == []
+
+
+def test_sqlite_storage_list_chunks_isolated_by_document(tmp_path: Path) -> None:
+    """list_chunks should only return chunks for the requested document ID."""
+    storage = SQLiteStorage(database_path=tmp_path / "storage" / "isolated.db")
+    document_one = storage.insert_document("doc one")
+    document_two = storage.insert_document("doc two")
+
+    chunk_one = storage.insert_chunk(document_id=document_one, content="one-a")
+    chunk_two = storage.insert_chunk(document_id=document_two, content="two-a")
+
+    assert storage.list_chunks(document_one) == [(chunk_one, "one-a")]
+    assert storage.list_chunks(document_two) == [(chunk_two, "two-a")]

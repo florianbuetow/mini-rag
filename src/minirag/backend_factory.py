@@ -2,6 +2,7 @@
 
 import logging
 from pathlib import Path
+from typing import Protocol, runtime_checkable
 
 from minirag.config import IndexConfig, SearchConfig
 from minirag.orchestration import Orchestration
@@ -13,6 +14,26 @@ from minirag.storage.sqlite import SQLiteStorage
 logger = logging.getLogger(__name__)
 
 
+@runtime_checkable
+class SupportsClose(Protocol):
+    """Protocol for backends that expose non-destructive close()."""
+
+    def close(self) -> None:
+        """Release resources without deleting persisted data."""
+        ...
+
+
+def _optional_close(resource: object, cleanup_errors: list[Exception], *, resource_name: str, corpus: str) -> None:
+    """Close a resource when it exposes a callable close() hook."""
+    if not isinstance(resource, SupportsClose):
+        return
+    try:
+        resource.close()
+    except Exception as cleanup_exc:
+        logger.exception("Failed to close %s for corpus=%s", resource_name, corpus)
+        cleanup_errors.append(cleanup_exc)
+
+
 def build_orchestration(
     *,
     corpus: str,
@@ -21,7 +42,7 @@ def build_orchestration(
     search_config: SearchConfig,
     embeddings: Embeddings,
 ) -> Orchestration:
-    """Build an orchestration instance from concrete backend implementations."""
+    """Build an orchestration instance and perform cascading cleanup on init failures."""
     storage = SQLiteStorage(
         database_path=data_dir / "storage" / corpus / index_config.storage.db_filename,
     )
@@ -54,11 +75,12 @@ def build_orchestration(
     except Exception as exc:
         logger.exception("Failed to initialize Tantivy backend for corpus=%s", corpus)
         sparse_cleanup_errors: list[Exception] = []
-        try:
-            dense.destroy()
-        except Exception as cleanup_exc:
-            logger.exception("Failed to destroy FAISS backend after Tantivy init failure for corpus=%s", corpus)
-            sparse_cleanup_errors.append(cleanup_exc)
+        _optional_close(
+            resource=dense,
+            cleanup_errors=sparse_cleanup_errors,
+            resource_name="FAISS backend",
+            corpus=corpus,
+        )
         try:
             storage.close()
         except Exception as cleanup_exc:
