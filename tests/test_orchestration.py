@@ -1,5 +1,6 @@
 """Unit tests for orchestration coordination logic."""
 
+import json
 from typing import Final, cast
 
 import pytest
@@ -193,6 +194,59 @@ def test_orchestration_index_auto_generates_citation() -> None:
     results = orchestration.search_dense(query="one", top_k=5)
     assert len(results) >= 1
     assert results[0].citation_key == str(document_id)
+
+
+def test_orchestration_get_citation_returns_stored_data() -> None:
+    """get_citation should return the stored citation JSON after indexing."""
+    orchestration = make_orchestration()
+    citation: dict[str, object] = {
+        "citation_key": "martinez2026",
+        "source_type": "research_story",
+        "common": {"title": "The Quantum Discovery", "author": "Dr. Elena Martinez"},
+        "source_data": {"topic": "quantum_computing", "institution": "Stanford University"},
+    }
+    orchestration.index_document("one two three four five six", citation=citation)
+
+    result = orchestration.get_citation("martinez2026")
+    assert result is not None
+    parsed = json.loads(result)
+    assert parsed["citation_key"] == "martinez2026"
+    assert parsed["source_type"] == "research_story"
+    assert parsed["common"]["title"] == "The Quantum Discovery"
+    assert parsed["common"]["author"] == "Dr. Elena Martinez"
+    assert parsed["source_data"]["topic"] == "quantum_computing"
+    assert parsed["source_data"]["institution"] == "Stanford University"
+
+
+def test_orchestration_get_citation_returns_none_when_not_found() -> None:
+    """get_citation should return None for an unknown citation_key."""
+    orchestration = make_orchestration()
+    assert orchestration.get_citation("nonexistent") is None
+
+
+def test_orchestration_get_citation_returns_none_after_destroy() -> None:
+    """get_citation should return None after destroy_index clears all data."""
+    orchestration = make_orchestration()
+    citation: dict[str, object] = {"citation_key": "key1", "source_type": "journal", "common": {}, "source_data": {}}
+    orchestration.index_document("one two three four five six", citation=citation)
+    assert orchestration.get_citation("key1") is not None
+
+    orchestration.destroy_index()
+    assert orchestration.get_citation("key1") is None
+
+
+def test_orchestration_get_citation_auto_generated() -> None:
+    """get_citation should return auto-generated citation when none was provided."""
+    orchestration = make_orchestration()
+    document_id, _chunk_ids = orchestration.index_document("one two three four five six", citation=None)
+
+    result = orchestration.get_citation(str(document_id))
+    assert result is not None
+    parsed = json.loads(result)
+    assert parsed["citation_key"] == str(document_id)
+    assert parsed["source_type"] == "text_file"
+    assert parsed["common"]["title"] == str(document_id)
+    assert parsed["source_data"] == {}
 
 
 class FailOnSecondChunkStorage(FakeStorage):
