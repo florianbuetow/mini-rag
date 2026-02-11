@@ -75,3 +75,34 @@ DOC2_CHUNK2_UNIQUE = "bioluminescence"
 DOC2_OVERLAP_23 = "hydrothermal"
 # Keywords unique to chunk 3 (indices 85-104)
 DOC2_CHUNK3_UNIQUE = "chemosynthetic"
+
+# ---------- Citation data ----------
+CITATION_1: dict[str, object] = {
+    "citation_key": "feynman2026quantum",
+    "source_type": "journal",
+    "common": {
+        "author": "Feynman, Richard",
+        "title": "Quantum Computing Principles",
+        "year": 2026,
+    },
+    "source_data": {
+        "journal_name": "Physical Review Letters",
+        "volume": "42",
+        "doi": "10.1000/quantum-test",
+    },
+}
+
+CITATION_2: dict[str, object] = {
+    "citation_key": "cousteau2026coral",
+    "source_type": "blog",
+    "common": {
+        "author": "Cousteau, Jacques",
+        "title": "Coral Reef Ecosystems",
+        "year": 2026,
+        "url": "https://example.com/coral-reefs",
+    },
+    "source_data": {
+        "blog_name": "Ocean Science Today",
+        "platform": "WordPress",
+    },
+}

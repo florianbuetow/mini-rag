@@ -10,7 +10,10 @@ Test plan
 6. Hybrid search returns results combining both modes.
 7. Cross-document isolation: searching for doc-1-only terms does not
    return doc-2 chunks and vice-versa.
-8. Index destruction clears all data.
+8. Citation keys appear in search results and map to correct documents.
+9. Citation endpoint returns full citation metadata.
+10. Index destruction clears all data including citations.
+11. Auto-generated citations work when no citation is provided.
 """
 
 import pytest
@@ -18,6 +21,8 @@ import pytest
 from minirag.search.types import SearchResult
 from tests_integration.conftest import INTEGRATION_CORPUS
 from tests_integration.documents import (
+    CITATION_1,
+    CITATION_2,
     DOC1_CHUNK1_UNIQUE,
     DOC1_CHUNK2_UNIQUE,
     DOC1_OVERLAP,
@@ -229,15 +234,115 @@ class TestHybridSearch:
         assert len(matching) >= 2
 
 
-# ──────────── index destruction ─────────────────────────────
+# ──────────── citations in search results ─────────────────────
+
+
+class TestCitationInSearchResults:
+    """Verify that search results include correct citation keys."""
+
+    def test_sparse_results_have_citation_key(self, query_client, indexed_documents):
+        """Every sparse search result must carry a non-empty citation_key."""
+        results = query_client.search_sparse(INTEGRATION_CORPUS, DOC1_CHUNK1_UNIQUE, top_k=10)
+        assert len(results) >= 1
+        for r in results:
+            assert r.citation_key != ""
+
+    def test_dense_results_have_citation_key(self, query_client, indexed_documents):
+        """Every dense search result must carry a non-empty citation_key."""
+        results = query_client.search_dense(INTEGRATION_CORPUS, "quantum computing", top_k=5)
+        assert len(results) >= 1
+        for r in results:
+            assert r.citation_key != ""
+
+    def test_hybrid_results_have_citation_key(self, query_client, indexed_documents):
+        """Every hybrid search result must carry a non-empty citation_key."""
+        results = query_client.search_hybrid(INTEGRATION_CORPUS, "coral reef", top_k=5)
+        assert len(results) >= 1
+        for r in results:
+            assert r.citation_key != ""
+
+    def test_doc1_chunks_have_doc1_citation_key(self, query_client, indexed_documents):
+        """Chunks from doc1 should carry the doc1 citation key."""
+        results = query_client.search_sparse(INTEGRATION_CORPUS, DOC1_CHUNK1_UNIQUE, top_k=10)
+        matching = [r for r in results if DOC1_CHUNK1_UNIQUE.lower() in r.text.lower()]
+        assert len(matching) >= 1
+        for r in matching:
+            assert r.citation_key == CITATION_1["citation_key"]
+
+    def test_doc2_chunks_have_doc2_citation_key(self, query_client, indexed_documents):
+        """Chunks from doc2 should carry the doc2 citation key."""
+        results = query_client.search_sparse(INTEGRATION_CORPUS, DOC2_CHUNK1_UNIQUE, top_k=10)
+        matching = [r for r in results if DOC2_CHUNK1_UNIQUE.lower() in r.text.lower()]
+        assert len(matching) >= 1
+        for r in matching:
+            assert r.citation_key == CITATION_2["citation_key"]
+
+    def test_results_have_positive_document_id(self, query_client, indexed_documents):
+        """Every search result must have a positive document_id."""
+        results = query_client.search_sparse(INTEGRATION_CORPUS, DOC1_CHUNK1_UNIQUE, top_k=10)
+        assert len(results) >= 1
+        for r in results:
+            assert r.document_id > 0
+
+
+# ──────────── citation endpoint ───────────────────────────────
+
+
+class TestCitationEndpoint:
+    """Verify the citation retrieval API endpoint."""
+
+    def test_get_citation_doc1(self, integration_http_client, indexed_documents):
+        """Retrieve full citation for doc1 by citation_key."""
+        citation_key = CITATION_1["citation_key"]
+        resp = integration_http_client.get(f"/v1/corpus/{INTEGRATION_CORPUS}/citation/{citation_key}")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == 200
+        data = body["data"]
+        assert data["citation_key"] == citation_key
+        assert data["source_type"] == CITATION_1["source_type"]
+        assert data["common"]["author"] == "Feynman, Richard"
+        assert data["common"]["title"] == "Quantum Computing Principles"
+
+    def test_get_citation_doc2(self, integration_http_client, indexed_documents):
+        """Retrieve full citation for doc2 by citation_key."""
+        citation_key = CITATION_2["citation_key"]
+        resp = integration_http_client.get(f"/v1/corpus/{INTEGRATION_CORPUS}/citation/{citation_key}")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == 200
+        data = body["data"]
+        assert data["citation_key"] == citation_key
+        assert data["source_type"] == CITATION_2["source_type"]
+        assert data["common"]["url"] == "https://example.com/coral-reefs"
+        assert data["source_data"]["blog_name"] == "Ocean Science Today"
+
+    def test_get_citation_source_data_preserved(self, integration_http_client, indexed_documents):
+        """Source-type-specific fields are stored and returned correctly."""
+        citation_key = CITATION_1["citation_key"]
+        resp = integration_http_client.get(f"/v1/corpus/{INTEGRATION_CORPUS}/citation/{citation_key}")
+        data = resp.json()["data"]
+        assert data["source_data"]["journal_name"] == "Physical Review Letters"
+        assert data["source_data"]["doi"] == "10.1000/quantum-test"
+
+    def test_citation_not_found_returns_404(self, integration_http_client, indexed_documents):
+        """Unknown citation_key should return 404."""
+        resp = integration_http_client.get(f"/v1/corpus/{INTEGRATION_CORPUS}/citation/nonexistent_key_xyz")
+        assert resp.status_code == 404
+        body = resp.json()
+        assert body["status"] == 404
+        assert "nonexistent_key_xyz" in body["error"]
+
+
+# ──────────── index destruction (MUST BE LAST) ────────────────
+#
+# These classes destroy the index. They MUST remain at the bottom of the
+# file because integration tests run with -p no:randomly, so class order
+# follows file order.  No test above should depend on state after this point.
 
 
 class TestIndexDestruction:
-    """Verify that destroying the index clears all data.
-
-    IMPORTANT: this test class runs last because it wipes the index.
-    Other tests must not depend on the index state after this class.
-    """
+    """Verify that destroying the index clears all data."""
 
     def test_destroy_and_verify_empty(self, indexing_client, query_client):
         """After destroy, sparse search should return no results."""
@@ -248,9 +353,36 @@ class TestIndexDestruction:
 
     def test_reindex_after_destroy(self, indexing_client, query_client):
         """Re-indexing after destroy should work normally."""
-        doc_id, chunk_ids = indexing_client.index_document(INTEGRATION_CORPUS, DOCUMENT_1)
+        indexing_client.destroy_index(INTEGRATION_CORPUS)
+        doc_id, chunk_ids = indexing_client.index_document(INTEGRATION_CORPUS, DOCUMENT_1, CITATION_1)
         assert doc_id > 0
         assert len(chunk_ids) == 2
 
         results = query_client.search_sparse(INTEGRATION_CORPUS, DOC1_CHUNK1_UNIQUE, top_k=10)
         assert len(results) >= 1
+
+
+class TestCitationAfterDestruction:
+    """Verify citations are cleared when the index is destroyed."""
+
+    def test_citation_cleared_after_destroy(self, indexing_client, integration_http_client):
+        """After destroy, citation lookup should return 404."""
+        indexing_client.destroy_index(INTEGRATION_CORPUS)
+
+        citation_key = CITATION_1["citation_key"]
+        resp = integration_http_client.get(f"/v1/corpus/{INTEGRATION_CORPUS}/citation/{citation_key}")
+        assert resp.status_code == 404
+
+    def test_auto_generated_citation(self, indexing_client, integration_http_client):
+        """Indexing without citation should auto-generate one."""
+        indexing_client.destroy_index(INTEGRATION_CORPUS)
+        doc_id, _ = indexing_client.index_document(INTEGRATION_CORPUS, DOCUMENT_1, None)
+
+        # Auto-generated citation uses document_id as citation_key
+        auto_key = str(doc_id)
+        resp = integration_http_client.get(f"/v1/corpus/{INTEGRATION_CORPUS}/citation/{auto_key}")
+        assert resp.status_code == 200
+        body = resp.json()
+        data = body["data"]
+        assert data["citation_key"] == auto_key
+        assert data["source_type"] == "text_file"

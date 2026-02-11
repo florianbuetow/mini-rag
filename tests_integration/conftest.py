@@ -27,6 +27,8 @@ from minirag.clients.indexing import IndexingClient
 from minirag.clients.query import QueryClient
 from minirag.config import Config
 from tests_integration.documents import (
+    CITATION_1,
+    CITATION_2,
     DOCUMENT_1,
     DOCUMENT_2,
     E2E_CHUNK_SIZE,
@@ -118,6 +120,11 @@ def integration_config(integration_data_dir):
             "hybrid": {"alpha": 0.5},
             "dense": {},
             "sparse": {},
+            "reranking": {
+                "enabled": False,
+                "model_name": "cross-encoder/ms-marco-MiniLM-L12-v2",
+                "candidate_multiplier": 3,
+            },
         },
     }
 
@@ -197,8 +204,8 @@ def indexed_documents(indexing_client):
     """
     indexing_client.destroy_index(INTEGRATION_CORPUS)
 
-    doc1_id, doc1_chunks = indexing_client.index_document(INTEGRATION_CORPUS, DOCUMENT_1)
-    doc2_id, doc2_chunks = indexing_client.index_document(INTEGRATION_CORPUS, DOCUMENT_2)
+    doc1_id, doc1_chunks = indexing_client.index_document(INTEGRATION_CORPUS, DOCUMENT_1, CITATION_1)
+    doc2_id, doc2_chunks = indexing_client.index_document(INTEGRATION_CORPUS, DOCUMENT_2, CITATION_2)
 
     return {
         "doc1": {"id": doc1_id, "chunk_ids": doc1_chunks},
