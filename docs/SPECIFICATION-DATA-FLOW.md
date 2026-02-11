@@ -99,7 +99,7 @@ Orchestration (orchestration.py)
     ├── shares: Embeddings instance (across all corpora)
     ├── shares: Reranker instance (optional, across all corpora)
     ├── calls: hybrid_merge() pure function
-    └── caches: citation key lookups via lru_cache(maxsize=1024)
+    └── caches: citation key lookups via thread-safe dict (positive results only)
 
 FastAPI App (api/app.py)
 └── created by app factory, wires everything together
@@ -217,7 +217,7 @@ Error:    {"status": 400, "error": "invalid corpus name: ..."}
           {"status": 503, "error": "service is shutting_down"}
 ```
 
-Guarded by `ensure_healthy()`. The route handler resolves the corpus via `corpus_manager.get(corpus)`, calls `orchestration.get_citation(citation_key)` to fetch raw JSON, parses it, and returns a `CitationResponse` model.
+Guarded by `ensure_healthy()`. The route handler resolves the corpus via `corpus_manager.get(corpus)`, calls `orchestration.get_citation(citation_key)` which returns a parsed citation dict (or None), and constructs a `CitationResponse` model from it.
 
 ## 5. Inter-Component Data Flow
 
@@ -239,7 +239,7 @@ orchestration = await asyncio.to_thread(corpus_manager.get, corpus)  # lazy crea
 | `orchestration.search_dense(query, top_k)` | `query: str, top_k: int` | `list[SearchResult]` |
 | `orchestration.search_sparse(query, top_k)` | `query: str, top_k: int` | `list[SearchResult]` |
 | `orchestration.search_hybrid(query, top_k)` | `query: str, top_k: int` | `list[SearchResult]` |
-| `orchestration.get_citation(citation_key)` | `citation_key: str` | `str \| None` — raw JSON or None |
+| `orchestration.get_citation(citation_key)` | `citation_key: str` | `dict[str, object] \| None` — parsed citation dict or None |
 
 For `destroy_index`, the route handler calls `corpus_manager.destroy(corpus)` instead of the orchestration method directly. This destroys the index, closes storage, and evicts the cache entry.
 
@@ -346,7 +346,7 @@ candidate_count: int = reranker.candidate_count(top_k: int)
 The retrieval interfaces return `list[ScoredChunk]` (chunk_id, score). The orchestration layer resolves each chunk ID via `_resolve_results()`:
 
 1. Call `storage.get_chunk(chunk_id)` → `ChunkWithDocument(document_id, chunk_text)`.
-2. Call `_get_citation_key_for_document(document_id)` → citation_key (cached via `lru_cache(maxsize=1024)`).
+2. Call `_get_citation_key_for_document(document_id)` → citation_key (cached, positive results only).
 3. Construct `SearchResult(chunk_id, document_id, citation_key, text, score)`.
 
 Stale chunk IDs (not found in storage) are logged and skipped. This resolution happens before results are returned to route handlers or passed to the hybrid merge function.
@@ -462,8 +462,15 @@ sequenceDiagram
     CM->>CM: validate corpus name
     CM-->>R: Orchestration (created or cached)
     R->>O: index_document(text, citation)
+    O->>O: validate citation_key and source_type (if citation provided)
     O->>ST: insert_document(text)
     ST-->>O: document_id = 1
+    alt citation provided
+        O->>ST: insert_citation(citation_key, document_id, json.dumps(citation))
+    else citation is null
+        O->>O: auto-generate citation with key=str(document_id)
+        O->>ST: insert_citation(str(document_id), document_id, auto_citation_json)
+    end
     O->>CH: chunk_text(text, chunk_size, overlap)
     CH-->>O: ["chunk 1", "chunk 2", "chunk 3"]
     loop for each chunk
@@ -477,13 +484,6 @@ sequenceDiagram
     end
     O->>D: persist()
     O->>SP: persist()
-    alt citation provided
-        O->>O: validate citation_key and source_type present
-        O->>ST: insert_citation(citation_key, document_id, json.dumps(citation))
-    else citation is null
-        O->>O: auto-generate citation with key=str(document_id)
-        O->>ST: insert_citation(str(document_id), document_id, auto_citation_json)
-    end
     O-->>R: (document_id=1, chunk_ids=[1, 2, 3])
     R-->>C: {"status": 200, "data": {"document_id": 1, "chunks_indexed": 3, "chunk_ids": [1, 2, 3]}}
 ```
@@ -676,8 +676,8 @@ sequenceDiagram
     O->>ST: get_citation(citation_key)
     alt citation found
         ST-->>O: citation_json (raw JSON string)
-        O-->>R: citation_json
-        R->>R: json.loads(citation_json) → parsed dict
+        O->>O: json.loads(citation_json) → parsed dict
+        O-->>R: parsed citation dict
         R->>R: CitationResponse(citation_key, source_type, common, source_data)
         R-->>C: {"status": 200, "data": {"citation_key": "k", "source_type": "t", "common": {...}, "source_data": {...}}}
     else not found

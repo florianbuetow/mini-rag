@@ -79,7 +79,7 @@ server.tool(
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
       if (response.status === 404) {
-        return { content: [{ type: "text", text: `No citation found for key: ${citation_key}` }] };
+        return { content: [{ type: "text", text: `No citation found for key: ${citation_key}` }], isError: true };
       }
       const data = await response.json();
       if (!response.ok) {

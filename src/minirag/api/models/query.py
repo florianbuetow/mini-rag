@@ -39,6 +39,48 @@ class QueryResult(BaseModel):
     text: str
     score: float
 
+    @field_validator("chunk_id")
+    @classmethod
+    def validate_chunk_id(cls, value: int) -> int:
+        """Require positive chunk_id."""
+        if value <= 0:
+            raise ValueError("chunk_id must be greater than 0")
+        return value
+
+    @field_validator("document_id")
+    @classmethod
+    def validate_document_id(cls, value: int) -> int:
+        """Require positive document_id."""
+        if value <= 0:
+            raise ValueError("document_id must be greater than 0")
+        return value
+
+    @field_validator("citation_key")
+    @classmethod
+    def validate_citation_key(cls, value: str) -> str:
+        """Require non-empty citation_key."""
+        if value.strip() == "":
+            raise ValueError("citation_key must not be empty")
+        return value
+
+    @field_validator("text")
+    @classmethod
+    def validate_text(cls, value: str) -> str:
+        """Require non-empty text."""
+        if value.strip() == "":
+            raise ValueError("text must not be empty")
+        return value
+
+    @field_validator("score")
+    @classmethod
+    def validate_score(cls, value: float) -> float:
+        """Require score in [0.0, 1.0]."""
+        if value < 0.0:
+            raise ValueError("score must be greater than or equal to 0.0")
+        if value > 1.0:
+            raise ValueError("score must be less than or equal to 1.0")
+        return value
+
 
 class QueryResponse(BaseModel):
     """Response model for search operations."""

@@ -149,7 +149,7 @@ CREATE INDEX idx_citations_document_id ON document_citations(document_id);
 
 - `insert_citation(citation_key: str, document_id: int, citation_json: str) -> None` — stores a citation record.
 - `get_citation_key(document_id: int) -> str | None` — returns the citation_key for a document. Used during search result construction.
-- `get_citation(citation_key: str) -> dict | None` — returns the parsed citation JSON. Used by the citation API endpoint.
+- `get_citation(citation_key: str) -> str | None` — returns the raw citation JSON string. The orchestration layer parses it before returning to route handlers.
 
 ## 4. Search Result Changes
 
@@ -314,7 +314,7 @@ The ingestion script always provides `citation` (either from the `.json` file or
 
 **Changes to the orchestration layer** (`orchestration.py`):
 
-`index_document(text, citation)` gains the citation parameter. After storing the document and chunks:
+`index_document(text, citation)` gains the citation parameter. After storing the document (and before chunking):
 1. Call `storage.insert_citation(citation_key, document_id, citation_json)`.
 2. If a duplicate `citation_key` is detected (UNIQUE constraint violation), fail fast with a descriptive error.
 

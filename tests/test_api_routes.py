@@ -509,3 +509,21 @@ def test_citation_route_invalid_corpus_returns_400() -> None:
     resp = client.get("/v1/corpus/123bad/citation/somekey")
     assert resp.status_code == 400
     assert "invalid corpus name" in resp.json()["error"]
+
+
+def test_citation_route_malformed_data_returns_500() -> None:
+    """GET citation should return 500 when stored citation data is malformed."""
+    orch = FakeOrchestration()
+    orch.citations["bad_data"] = {"citation_key": "bad_data"}  # missing source_type, common, source_data
+
+    app = FastAPI()
+    app.state.app_status = "healthy"
+    app.state.config = FakeConfig()
+    app.state.corpus_manager = FakeCorpusManager(orch)
+    app.add_exception_handler(Exception, unhandled_exception_handler)
+    app.include_router(citation_router)
+
+    client = TestClient(app)
+    resp = client.get(f"/v1/corpus/{CORPUS}/citation/bad_data")
+    assert resp.status_code == 500
+    assert "malformed citation data" in resp.json()["error"]

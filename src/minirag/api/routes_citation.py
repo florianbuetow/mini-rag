@@ -2,10 +2,10 @@
 
 import asyncio
 import logging
-from typing import Any, cast
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
+from pydantic import ValidationError
 
 from minirag.api.models.citation import CitationResponse
 from minirag.api.responses import error_response, success_response
@@ -41,14 +41,9 @@ async def get_citation(request: Request, corpus: str, citation_key: str) -> JSON
         return error_response(status=404, message=f"citation not found: {citation_key}")
 
     try:
-        response_model = CitationResponse(
-            citation_key=str(citation_data["citation_key"]),
-            source_type=str(citation_data["source_type"]),
-            common=cast(dict[str, Any], citation_data["common"]),
-            source_data=cast(dict[str, Any], citation_data["source_data"]),
-        )
-    except (KeyError, TypeError) as exc:
-        logger.error("Malformed citation data for corpus=%s, citation_key=%s: %s", corpus, citation_key, exc)
+        response_model = CitationResponse.model_validate(citation_data)
+    except (KeyError, TypeError, ValidationError) as exc:
+        logger.error("Malformed citation data for corpus=%s, citation_key=%s: %s — data=%s", corpus, citation_key, exc, citation_data)
         return error_response(status=500, message=f"malformed citation data for key: {citation_key}")
 
     return success_response(status=200, data=response_model.model_dump())

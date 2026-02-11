@@ -352,3 +352,92 @@ def test_orchestration_destroy_and_validation() -> None:
 
     with pytest.raises(ValueError):
         orchestration.search_hybrid(query="q", top_k=0)
+
+
+def test_orchestration_index_rejects_empty_citation_key() -> None:
+    """index_document should reject citation with empty citation_key."""
+    orchestration = make_orchestration()
+    citation: dict[str, object] = {
+        "citation_key": "", "source_type": "journal", "common": {}, "source_data": {},
+    }
+    with pytest.raises(ValueError, match="non-empty 'citation_key'"):
+        orchestration.index_document("one two three four five six", citation=citation)
+
+
+def test_orchestration_index_rejects_missing_citation_key() -> None:
+    """index_document should reject citation without citation_key."""
+    orchestration = make_orchestration()
+    citation: dict[str, object] = {"source_type": "journal", "common": {}, "source_data": {}}
+    with pytest.raises(ValueError, match="non-empty 'citation_key'"):
+        orchestration.index_document("one two three four five six", citation=citation)
+
+
+def test_orchestration_index_rejects_empty_source_type() -> None:
+    """index_document should reject citation with empty source_type."""
+    orchestration = make_orchestration()
+    citation: dict[str, object] = {
+        "citation_key": "k", "source_type": "", "common": {}, "source_data": {},
+    }
+    with pytest.raises(ValueError, match="non-empty 'source_type'"):
+        orchestration.index_document("one two three four five six", citation=citation)
+
+
+def test_orchestration_index_rejects_missing_source_type() -> None:
+    """index_document should reject citation without source_type."""
+    orchestration = make_orchestration()
+    citation: dict[str, object] = {"citation_key": "k", "common": {}, "source_data": {}}
+    with pytest.raises(ValueError, match="non-empty 'source_type'"):
+        orchestration.index_document("one two three four five six", citation=citation)
+
+
+class CorruptCitationStorage(FakeStorage):
+    """Fake storage that returns corrupt JSON from get_citation."""
+
+    def get_citation(self, citation_key: str) -> str | None:
+        if citation_key == "corrupt":
+            return "{not valid json"
+        return super().get_citation(citation_key)
+
+
+def test_orchestration_get_citation_corrupt_json_raises() -> None:
+    """get_citation should raise ValueError for corrupt stored JSON."""
+    storage = CorruptCitationStorage()
+    search_config = SearchConfig(
+        hybrid=HybridConfig(alpha=0.5),
+        dense=DenseSearchConfig(),
+        sparse=SparseSearchConfig(),
+        reranking=RerankingConfig(
+            enabled=False,
+            model_name="cross-encoder/ms-marco-MiniLM-L12-v2",
+            candidate_multiplier=3,
+        ),
+    )
+    orchestration = Orchestration(
+        chunking_config=ChunkingConfig(chunk_size=4, overlap=0.5),
+        embeddings=cast(Embeddings, FakeEmbeddings()),
+        storage=cast(Storage, storage),
+        dense=cast(DenseRetrieval, FakeDense()),
+        sparse=cast(SparseRetrieval, FakeSparse()),
+        search_config=search_config,
+        reranker=None,
+    )
+
+    with pytest.raises(ValueError, match="corrupt citation data for key: corrupt"):
+        orchestration.get_citation("corrupt")
+
+
+def test_orchestration_citation_cache_cleared_on_destroy() -> None:
+    """After destroy and re-index, search should return the new citation key, not cached old one."""
+    orchestration = make_orchestration()
+
+    citation1: dict[str, object] = {"citation_key": "old_key", "source_type": "journal", "common": {}, "source_data": {}}
+    orchestration.index_document("one two three four five six", citation=citation1)
+    results1 = orchestration.search_dense(query="one", top_k=5)
+    assert results1[0].citation_key == "old_key"
+
+    orchestration.destroy_index()
+
+    citation2: dict[str, object] = {"citation_key": "new_key", "source_type": "blog", "common": {}, "source_data": {}}
+    orchestration.index_document("one two three four five six", citation=citation2)
+    results2 = orchestration.search_dense(query="one", top_k=5)
+    assert results2[0].citation_key == "new_key"
