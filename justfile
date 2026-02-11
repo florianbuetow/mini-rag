@@ -14,6 +14,22 @@ help:
     @echo "Available commands:"
     @just --list
     @echo ""
+    @printf "%b\n" "\033[0;34mCorpus commands usage:\033[0m"
+    @echo "  just ingest <corpus>              Ingest text files into a corpus"
+    @echo "  just search <corpus>              Interactive search on a corpus"
+    @echo "  just evaluate <corpus>            Evaluate retrieval quality"
+    @echo "  just delete <corpus>              Delete a corpus index"
+    @echo "  just citation <corpus> <key>...   Fetch citation metadata"
+    @echo "  just inspect <corpus> <doc_id>    Inspect document chunks"
+    @echo ""
+    @echo "  If <corpus> is omitted, available corpora will be listed."
+    @echo ""
+    @printf "%b\n" "\033[0;34mExamples:\033[0m"
+    @echo "  just ingest test"
+    @echo "  just search llmevals"
+    @echo "  just citation test my_doc_key"
+    @echo "  just inspect test 1"
+    @echo ""
 
 # Initialize the development environment
 [group('lifecycle')]
@@ -145,11 +161,7 @@ ingest corpus="":
         printf "%b\n" "\033[0;31m✗ Service is not running. Start it first with: just start\033[0m"
         exit 1
     fi
-    CORPUS="{{corpus}}"
-    if [ -z "$CORPUS" ]; then
-        printf "Enter corpus name: "
-        read CORPUS
-    fi
+    CORPUS=$(./scripts/corpus_exists.sh "{{corpus}}")
     uv run scripts/ingest.py --corpus "$CORPUS"
     echo ""
 
@@ -166,15 +178,7 @@ delete corpus="":
         printf "%b\n" "\033[0;31m✗ Service is not running. Start it first with: just start\033[0m"
         exit 1
     fi
-    CORPUS="{{corpus}}"
-    if [ -z "$CORPUS" ]; then
-        printf "Enter corpus name: "
-        read CORPUS
-    fi
-    if ! echo "$CORPUS" | grep -qE '^[a-zA-Z][a-zA-Z0-9_-]*$'; then
-        printf "%b\n" "\033[0;31m✗ Invalid corpus name: ${CORPUS}\033[0m"
-        exit 1
-    fi
+    CORPUS=$(./scripts/corpus_exists.sh "{{corpus}}")
     printf "Are you sure you want to delete corpus '%s'? [y/N] " "$CORPUS"
     read CONFIRM
     if [ "$CONFIRM" != "y" ] && [ "$CONFIRM" != "Y" ]; then
@@ -203,11 +207,7 @@ evaluate corpus="":
         printf "%b\n" "\033[0;31m✗ Service is not running. Start it first with: just start\033[0m"
         exit 1
     fi
-    CORPUS="{{corpus}}"
-    if [ -z "$CORPUS" ]; then
-        printf "Enter corpus name: "
-        read CORPUS
-    fi
+    CORPUS=$(./scripts/corpus_exists.sh "{{corpus}}")
     uv run scripts/evaluate.py --corpus "$CORPUS"
     echo ""
 
@@ -218,12 +218,19 @@ search corpus="":
     set -e
     echo ""
     printf "%b\n" "\033[0;34m=== Interactive Search ===\033[0m"
-    CORPUS="{{corpus}}"
-    if [ -z "$CORPUS" ]; then
-        printf "Enter corpus name: "
-        read CORPUS
-    fi
+    CORPUS=$(./scripts/corpus_exists.sh "{{corpus}}")
     uv run scripts/search.py --corpus "$CORPUS"
+    echo ""
+
+# Fetch citation metadata for one or more citation keys
+[group('corpus')]
+citation corpus +keys:
+    #!/usr/bin/env bash
+    set -e
+    echo ""
+    printf "%b\n" "\033[0;34m=== Citation Lookup ===\033[0m"
+    CORPUS=$(./scripts/corpus_exists.sh "{{corpus}}")
+    uv run scripts/citation.py --corpus "$CORPUS" {{keys}}
     echo ""
 
 # Inspect document chunks across all stores for a corpus
@@ -233,11 +240,7 @@ inspect corpus="" document_id="":
     set -e
     echo ""
     printf "%b\n" "\033[0;34m=== Inspecting Document ===\033[0m"
-    CORPUS="{{corpus}}"
-    if [ -z "$CORPUS" ]; then
-        printf "Enter corpus name: "
-        read CORPUS
-    fi
+    CORPUS=$(./scripts/corpus_exists.sh "{{corpus}}")
     DOC_ID="{{document_id}}"
     if [ -z "$DOC_ID" ]; then
         printf "Enter document ID: "

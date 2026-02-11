@@ -168,7 +168,7 @@ def test_load_citation_rejects_missing_source_type(tmp_path: Path) -> None:
     json_path = tmp_path / "notype.json"
     json_path.write_text(json.dumps({"citation_key": "key1"}), encoding="utf-8")
 
-    with pytest.raises(ValueError, match="missing 'source_type'"):
+    with pytest.raises(ValueError, match="cannot infer source_type"):
         load_citation(txt_path)
 
 

@@ -114,9 +114,13 @@ class Orchestration:
             return citation_key
         return str(document_id)
 
-    def get_citation(self, citation_key: str) -> str | None:
-        """Return raw citation JSON string for a citation_key, or None if not found."""
-        return self._storage.get_citation(citation_key)
+    def get_citation(self, citation_key: str) -> dict[str, object] | None:
+        """Return parsed citation data for a citation_key, or None if not found."""
+        citation_json = self._storage.get_citation(citation_key)
+        if citation_json is None:
+            return None
+        parsed: dict[str, object] = json.loads(citation_json)
+        return parsed
 
     def _resolve_results(self, scored_chunk_ids: list[ScoredChunk], source: str) -> list[SearchResult]:
         """Resolve chunk IDs from retrieval engines into SearchResult payloads."""

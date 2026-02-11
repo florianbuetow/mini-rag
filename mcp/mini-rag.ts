@@ -4,6 +4,7 @@ import { z } from "zod";
 
 const REST_BASE = process.env.REST_BASE ?? "http://127.0.0.1:7001";
 const HEALTH_TIMEOUT_MS = 3000;
+const REQUEST_TIMEOUT_MS = 5000;
 
 const server = new McpServer({
   name: "minirag",
@@ -36,6 +37,7 @@ server.tool(
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query, top_k }),
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
       const data = await response.json();
       return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
@@ -67,7 +69,9 @@ server.tool(
     }
 
     try {
-      const response = await fetch(`${REST_BASE}/v1/corpus/${encodeURIComponent(corpus)}/citation/${encodeURIComponent(citation_key)}`);
+      const response = await fetch(`${REST_BASE}/v1/corpus/${encodeURIComponent(corpus)}/citation/${encodeURIComponent(citation_key)}`, {
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
       if (response.status === 404) {
         return { content: [{ type: "text", text: `No citation found for key: ${citation_key}` }] };
       }

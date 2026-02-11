@@ -77,3 +77,17 @@ class QueryClient(BaseClient):
     def search_hybrid(self, corpus: str, query: str, top_k: int) -> list[SearchResult]:
         """Run hybrid search."""
         return self._search(corpus=corpus, path_suffix="hybrid", query=query, top_k=top_k)
+
+    def get_citation(self, corpus: str, citation_key: str) -> dict[str, object]:
+        """Fetch citation metadata for a given citation_key."""
+        validate_corpus_name(corpus)
+
+        if citation_key.strip() == "":
+            raise ValueError("citation_key must not be empty")
+
+        return self._request(
+            method="GET",
+            path=f"/v1/corpus/{quote(corpus, safe='')}/citation/{quote(citation_key, safe='')}",
+            payload=None,
+            require_healthy=True,
+        )

@@ -1,6 +1,5 @@
 """Unit tests for API route handlers with fake app state backends."""
 
-import json
 from typing import Any
 
 from fastapi import FastAPI
@@ -39,7 +38,7 @@ class FakeOrchestration:
     """Fake orchestration backend for route tests."""
 
     def __init__(self) -> None:
-        self.citations: dict[str, str] = {}
+        self.citations: dict[str, dict[str, object]] = {}
 
     def index_document(self, text: str, citation: dict[str, object] | None = None) -> tuple[int, list[int]]:
         del text, citation
@@ -51,7 +50,7 @@ class FakeOrchestration:
     def close_storage(self) -> None:
         return None
 
-    def get_citation(self, citation_key: str) -> str | None:
+    def get_citation(self, citation_key: str) -> dict[str, object] | None:
         return self.citations.get(citation_key)
 
     def search_dense(self, query: str, top_k: int) -> list[SearchResult]:
@@ -165,7 +164,7 @@ class ErrorOrchestration:
     def close_storage(self) -> None:
         return None
 
-    def get_citation(self, citation_key: str) -> str | None:
+    def get_citation(self, citation_key: str) -> dict[str, object] | None:
         del citation_key
         raise self._error
 
@@ -422,8 +421,13 @@ def test_invalid_corpus_name_returns_400() -> None:
 def test_citation_route_returns_200() -> None:
     """GET citation should return 200 with citation data when found."""
     orch = FakeOrchestration()
-    citation_data = {"citation_key": "smith2026", "source_type": "journal", "common": {"title": "Test"}, "source_data": {}}
-    orch.citations["smith2026"] = json.dumps(citation_data)
+    citation_data: dict[str, object] = {
+        "citation_key": "smith2026",
+        "source_type": "journal",
+        "common": {"title": "Test"},
+        "source_data": {},
+    }
+    orch.citations["smith2026"] = citation_data
 
     app = FastAPI()
     app.state.app_status = "healthy"
@@ -443,13 +447,13 @@ def test_citation_route_returns_200() -> None:
 def test_citation_route_returns_full_citation_data() -> None:
     """GET citation should return all citation fields including common and source_data."""
     orch = FakeOrchestration()
-    citation_data = {
+    citation_data: dict[str, object] = {
         "citation_key": "martinez2026",
         "source_type": "research_story",
         "common": {"title": "The Quantum Discovery", "author": "Dr. Elena Martinez", "date": "2026-02-09", "language": "en"},
         "source_data": {"topic": "quantum_computing", "subtopics": ["quantum_error_correction"], "institution": "Stanford University"},
     }
-    orch.citations["martinez2026"] = json.dumps(citation_data)
+    orch.citations["martinez2026"] = citation_data
 
     app = FastAPI()
     app.state.app_status = "healthy"
