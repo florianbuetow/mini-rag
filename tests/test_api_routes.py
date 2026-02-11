@@ -440,12 +440,63 @@ def test_citation_route_returns_200() -> None:
     assert data["source_type"] == "journal"
 
 
+def test_citation_route_returns_full_citation_data() -> None:
+    """GET citation should return all citation fields including common and source_data."""
+    orch = FakeOrchestration()
+    citation_data = {
+        "citation_key": "martinez2026",
+        "source_type": "research_story",
+        "common": {"title": "The Quantum Discovery", "author": "Dr. Elena Martinez", "date": "2026-02-09", "language": "en"},
+        "source_data": {"topic": "quantum_computing", "subtopics": ["quantum_error_correction"], "institution": "Stanford University"},
+    }
+    orch.citations["martinez2026"] = json.dumps(citation_data)
+
+    app = FastAPI()
+    app.state.app_status = "healthy"
+    app.state.config = FakeConfig()
+    app.state.corpus_manager = FakeCorpusManager(orch)
+    app.add_exception_handler(Exception, unhandled_exception_handler)
+    app.include_router(citation_router)
+
+    client = TestClient(app)
+    resp = client.get(f"/v1/corpus/{CORPUS}/citation/martinez2026")
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["citation_key"] == "martinez2026"
+    assert data["source_type"] == "research_story"
+    assert data["common"]["title"] == "The Quantum Discovery"
+    assert data["common"]["author"] == "Dr. Elena Martinez"
+    assert data["common"]["date"] == "2026-02-09"
+    assert data["common"]["language"] == "en"
+    assert data["source_data"]["topic"] == "quantum_computing"
+    assert data["source_data"]["subtopics"] == ["quantum_error_correction"]
+    assert data["source_data"]["institution"] == "Stanford University"
+
+
 def test_citation_route_returns_404_when_not_found() -> None:
     """GET citation should return 404 when citation_key does not exist."""
     client = make_test_client()
     resp = client.get(f"/v1/corpus/{CORPUS}/citation/nonexistent")
     assert resp.status_code == 404
     assert "citation not found" in resp.json()["error"]
+
+
+def test_citation_route_value_error_returns_400() -> None:
+    """ValueError from get_citation should return 400."""
+    client = _make_error_client(ValueError("bad citation request"))
+
+    resp = client.get(f"/v1/corpus/{CORPUS}/citation/somekey")
+    assert resp.status_code == 400
+    assert "bad citation request" in resp.json()["error"]
+
+
+def test_citation_route_unexpected_error_returns_500() -> None:
+    """Unexpected exception from get_citation should return 500."""
+    client = _make_error_client(OSError("disk failed"))
+
+    resp = client.get(f"/v1/corpus/{CORPUS}/citation/somekey")
+    assert resp.status_code == 500
+    assert resp.json()["error"] == "Internal server error"
 
 
 def test_citation_route_invalid_corpus_returns_400() -> None:
