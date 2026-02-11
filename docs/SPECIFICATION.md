@@ -61,7 +61,7 @@ A single **Orchestration** class (`orchestration.py` at the `minirag/` package r
 
 - `get_citation(citation_key)` — delegates to Storage to retrieve raw citation JSON.
 
-The orchestration layer does not contain search logic or merge logic. It delegates to the appropriate components and pipes data between them. Citation key lookups are cached per-instance using `functools.lru_cache` (maxsize=1024) to avoid repeated database queries during result resolution.
+The orchestration layer does not contain search logic or merge logic. It delegates to the appropriate components and pipes data between them. Citation key lookups are cached per-instance using a thread-safe dict cache that only stores positive results (found citation keys), avoiding caching of fallback values for missing data.
 
 ### 2.5 Other Key Components
 
@@ -733,7 +733,7 @@ The interface guarantees scores in [0, 1] with higher = more relevant.
 
 The hybrid merge function (`search/hybrid.py`) is a pure function that combines dense and sparse result sets:
 
-1. Accept two result sets: `dense_results` and `sparse_results`, each as `list[tuple[chunk_id, score]]`.
+1. Accept two result sets: `dense_results` and `sparse_results`, each as `list[SearchResult]`.
 2. Both sets are already normalized to [0, 1] by their respective retrieval implementations.
 3. Build a combined score for each chunk: `final_score = alpha * dense_score + (1 - alpha) * sparse_score`.
 4. If a chunk appears in only one set, its missing score is 0.0.
@@ -797,12 +797,12 @@ When reranking is enabled, the hybrid search flow becomes:
 4. For each file, the script loads the citation (from `.json` sidecar or auto-generated), then uses the `IndexingClient` to POST the document text and citation to the service.
 5. The service receives the text and citation, and the orchestration layer runs the full indexing pipeline:
    a. Store the full document in Storage → get `document_id`.
-   b. Chunk the text (word-based, configurable size and overlap) → get list of chunks.
-   c. Store each chunk in Storage → get `chunk_id` for each.
-   d. Generate embeddings for all chunks (FastText, unit-normalized).
-   e. Index each chunk in DenseRetrieval (chunk_id + embedding).
-   f. Index each chunk in SparseRetrieval (chunk_id + chunk text).
-   g. Store the citation record in Storage (from request or auto-generated).
+   b. Store the citation record in Storage (from request or auto-generated). Fails fast on duplicate `citation_key`.
+   c. Chunk the text (word-based, configurable size and overlap) → get list of chunks.
+   d. Store each chunk in Storage → get `chunk_id` for each.
+   e. Generate embeddings for all chunks (FastText, unit-normalized).
+   f. Index each chunk in DenseRetrieval (chunk_id + embedding).
+   g. Index each chunk in SparseRetrieval (chunk_id + chunk text).
    h. Return `document_id` and list of `chunk_ids`.
 
 ### 11.2 Citation Sidecar Files

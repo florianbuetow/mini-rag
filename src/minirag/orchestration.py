@@ -2,7 +2,7 @@
 
 import json
 import logging
-from functools import lru_cache
+import threading
 
 from minirag.config import ChunkingConfig, SearchConfig
 from minirag.ingestion.chunker import chunk_text
@@ -38,7 +38,8 @@ class Orchestration:
         self._sparse = sparse
         self._search_config = search_config
         self._reranker = reranker
-        self._get_citation_key_for_document = lru_cache(maxsize=1024)(self._get_citation_key_impl)
+        self._citation_key_cache: dict[int, str] = {}
+        self._citation_key_cache_lock = threading.Lock()
 
     def index_document(self, text: str, citation: dict[str, object] | None) -> tuple[int, list[int]]:
         """Index one document through storage, chunking, embeddings, both indices, and citation storage."""
@@ -94,7 +95,8 @@ class Orchestration:
         self._storage.destroy()
         self._dense.destroy()
         self._sparse.destroy()
-        self._get_citation_key_for_document.cache_clear()
+        with self._citation_key_cache_lock:
+            self._citation_key_cache.clear()
         logger.info("Deleted storage and retrieval indices")
 
     def close_storage(self) -> None:
@@ -102,11 +104,17 @@ class Orchestration:
         self._storage.close()
 
     def _insert_citation_record(self, citation: dict[str, object] | None, document_id: int) -> None:
-        """Insert a citation record for a document, auto-generating if citation is None."""
+        """Insert a citation record for a document, auto-generating if citation is None.
+
+        Caller must validate the citation dict before calling this method.
+        """
         if citation is not None:
-            citation_key = citation.get("citation_key")
-            if not isinstance(citation_key, str):
+            citation_key = citation["citation_key"]
+            if not isinstance(citation_key, str) or citation_key.strip() == "":
                 raise ValueError("citation must contain a non-empty 'citation_key'")
+            source_type = citation.get("source_type")
+            if not isinstance(source_type, str) or source_type.strip() == "":
+                raise ValueError("citation must contain a non-empty 'source_type'")
             citation_json = json.dumps(citation)
             self._storage.insert_citation(citation_key=citation_key, document_id=document_id, citation_json=citation_json)
         else:
@@ -119,12 +127,29 @@ class Orchestration:
             citation_json = json.dumps(auto_citation)
             self._storage.insert_citation(citation_key=str(document_id), document_id=document_id, citation_json=citation_json)
 
-    def _get_citation_key_impl(self, document_id: int) -> str:
-        """Look up citation_key for a document, falling back to str(document_id)."""
+    def _get_citation_key_for_document(self, document_id: int) -> str:
+        """Look up citation_key for a document, with cache for positive results only.
+
+        Falls back to str(document_id) if no citation record exists, but does NOT
+        cache the fallback value so that future lookups can find a citation if one
+        is inserted later.
+        """
+        with self._citation_key_cache_lock:
+            cached = self._citation_key_cache.get(document_id)
+        if cached is not None:
+            return cached
+
         citation_key = self._storage.get_citation_key(document_id)
         if citation_key is not None:
+            with self._citation_key_cache_lock:
+                self._citation_key_cache[document_id] = citation_key
             return citation_key
-        logger.warning("No citation record found for document_id=%s, using document ID as citation_key", document_id)
+
+        logger.error(
+            "No citation record found for document_id=%s; this indicates a data integrity issue. "
+            "Every indexed document should have a citation record. Falling back to str(document_id).",
+            document_id,
+        )
         return str(document_id)
 
     def get_citation(self, citation_key: str) -> dict[str, object] | None:

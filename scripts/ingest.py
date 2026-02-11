@@ -112,6 +112,7 @@ def _normalize_flat_citation(flat: dict[str, object], json_path: Path) -> dict[s
     common: dict[str, object] = {}
     source_data: dict[str, object] = {}
     reserved = {"citation_key", "source_type", "common", "source_data"}
+    unknown_fields: list[str] = []
 
     for key, value in flat.items():
         if key in reserved:
@@ -123,6 +124,10 @@ def _normalize_flat_citation(flat: dict[str, object], json_path: Path) -> dict[s
             source_data[target_key] = value
         else:
             common[key] = value
+            unknown_fields.append(key)
+
+    if unknown_fields:
+        logger.warning("Unrecognized citation fields moved to common for %s: %s", json_path, unknown_fields)
 
     return {
         "citation_key": flat.get("citation_key", ""),

@@ -1,5 +1,6 @@
 """Unit tests for SQLite storage backend."""
 
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -130,6 +131,18 @@ def test_sqlite_storage_get_citation_rejects_empty_key(tmp_path: Path) -> None:
     storage = SQLiteStorage(database_path=tmp_path / "storage" / "empty_key.db")
     with pytest.raises(ValueError, match="citation_key must not be empty"):
         storage.get_citation("")
+
+
+def test_sqlite_storage_duplicate_citation_key_raises(tmp_path: Path) -> None:
+    """Inserting a duplicate citation_key should raise IntegrityError."""
+    storage = SQLiteStorage(database_path=tmp_path / "storage" / "dup_citation.db")
+    doc1 = storage.insert_document("doc one")
+    doc2 = storage.insert_document("doc two")
+
+    storage.insert_citation(citation_key="same_key", document_id=doc1, citation_json='{"k": "v"}')
+
+    with pytest.raises(sqlite3.IntegrityError):
+        storage.insert_citation(citation_key="same_key", document_id=doc2, citation_json='{"k": "v2"}')
 
 
 def test_sqlite_storage_destroy_clears_citations(tmp_path: Path) -> None:
