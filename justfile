@@ -342,7 +342,7 @@ code-stats:
 code-spell:
     @echo ""
     @printf "%b\n" "\033[0;34m=== Checking Spelling ===\033[0m"
-    @uv run codespell src tests tests_integration tests_e2e scripts *.md *.toml
+    @uv run codespell src tests tests_integration tests_e2e tests_mcp scripts *.md *.toml
     @echo ""
     @printf "%b\n" "\033[0;32m✓ Spelling checks passed\033[0m"
     @echo ""
@@ -372,7 +372,7 @@ code-semgrep:
 code-deadcode:
     @echo ""
     @printf "%b\n" "\033[0;34m=== Detecting Dead Code ===\033[0m"
-    @uv run deadcode src tests tests_integration tests_e2e scripts
+    @uv run deadcode src tests tests_integration tests_e2e tests_mcp scripts
     @echo ""
     @printf "%b\n" "\033[0;32m✓ Dead code checks passed\033[0m"
     @echo ""
@@ -403,6 +403,16 @@ test-e2e:
     @uv run pytest tests_e2e/ -v -s --timeout=30 -p no:randomly
     @echo ""
     @printf "%b\n" "\033[0;32m✓ End-to-end tests passed\033[0m"
+    @echo ""
+
+# Run MCP server end-to-end tests (requires Node.js)
+[group('testing')]
+test-mcp:
+    @echo ""
+    @printf "%b\n" "\033[0;34m=== Running MCP Tests ===\033[0m"
+    @uv run pytest tests_mcp/ -v -s --timeout=60 -p no:randomly
+    @echo ""
+    @printf "%b\n" "\033[0;32m✓ MCP tests passed\033[0m"
     @echo ""
 
 # Run unit tests with coverage report and threshold check
@@ -440,6 +450,9 @@ ci:
     just code-deadcode
     just code-audit
     just test
+    just test-integration
+    just test-e2e
+    just test-mcp
     just code-lspchecks
     echo ""
     printf "%b\n" "\033[0;32m✓ All CI checks passed\033[0m"
@@ -487,6 +500,15 @@ ci-quiet:
 
     just test > $TMPFILE 2>&1 || { printf "%b\n" "\033[0;31m✗ Test failed\033[0m"; cat $TMPFILE; exit 1; }
     printf "%b\n" "\033[0;32m✓ Test passed\033[0m"
+
+    just test-integration > $TMPFILE 2>&1 || { printf "%b\n" "\033[0;31m✗ Test-integration failed\033[0m"; cat $TMPFILE; exit 1; }
+    printf "%b\n" "\033[0;32m✓ Test-integration passed\033[0m"
+
+    just test-e2e > $TMPFILE 2>&1 || { printf "%b\n" "\033[0;31m✗ Test-e2e failed\033[0m"; cat $TMPFILE; exit 1; }
+    printf "%b\n" "\033[0;32m✓ Test-e2e passed\033[0m"
+
+    just test-mcp > $TMPFILE 2>&1 || { printf "%b\n" "\033[0;31m✗ Test-mcp failed\033[0m"; cat $TMPFILE; exit 1; }
+    printf "%b\n" "\033[0;32m✓ Test-mcp passed\033[0m"
 
     just code-lspchecks > $TMPFILE 2>&1 || { printf "%b\n" "\033[0;31m✗ Code-lspchecks failed\033[0m"; cat $TMPFILE; exit 1; }
     printf "%b\n" "\033[0;32m✓ Code-lspchecks passed\033[0m"
