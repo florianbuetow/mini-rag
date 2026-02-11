@@ -1,7 +1,6 @@
 """Unit tests for orchestration coordination logic."""
 
-import json
-from typing import Final, cast
+from typing import Any, Final, cast
 
 import pytest
 
@@ -197,7 +196,7 @@ def test_orchestration_index_auto_generates_citation() -> None:
 
 
 def test_orchestration_get_citation_returns_stored_data() -> None:
-    """get_citation should return the stored citation JSON after indexing."""
+    """get_citation should return parsed citation data after indexing."""
     orchestration = make_orchestration()
     citation: dict[str, object] = {
         "citation_key": "martinez2026",
@@ -209,13 +208,14 @@ def test_orchestration_get_citation_returns_stored_data() -> None:
 
     result = orchestration.get_citation("martinez2026")
     assert result is not None
-    parsed = json.loads(result)
-    assert parsed["citation_key"] == "martinez2026"
-    assert parsed["source_type"] == "research_story"
-    assert parsed["common"]["title"] == "The Quantum Discovery"
-    assert parsed["common"]["author"] == "Dr. Elena Martinez"
-    assert parsed["source_data"]["topic"] == "quantum_computing"
-    assert parsed["source_data"]["institution"] == "Stanford University"
+    assert result["citation_key"] == "martinez2026"
+    assert result["source_type"] == "research_story"
+    common = cast(dict[str, Any], result["common"])
+    assert common["title"] == "The Quantum Discovery"
+    assert common["author"] == "Dr. Elena Martinez"
+    source_data = cast(dict[str, Any], result["source_data"])
+    assert source_data["topic"] == "quantum_computing"
+    assert source_data["institution"] == "Stanford University"
 
 
 def test_orchestration_get_citation_returns_none_when_not_found() -> None:
@@ -242,11 +242,11 @@ def test_orchestration_get_citation_auto_generated() -> None:
 
     result = orchestration.get_citation(str(document_id))
     assert result is not None
-    parsed = json.loads(result)
-    assert parsed["citation_key"] == str(document_id)
-    assert parsed["source_type"] == "text_file"
-    assert parsed["common"]["title"] == str(document_id)
-    assert parsed["source_data"] == {}
+    assert result["citation_key"] == str(document_id)
+    assert result["source_type"] == "text_file"
+    common = cast(dict[str, Any], result["common"])
+    assert common["title"] == str(document_id)
+    assert result["source_data"] == {}
 
 
 class FailOnSecondChunkStorage(FakeStorage):
