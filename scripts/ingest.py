@@ -53,28 +53,38 @@ _FIELD_RENAMES: dict[str, str] = {
 }
 
 
+_FIELD_TO_SOURCE_TYPE: dict[str, str] = {
+    "doi": "journal",
+    "journal": "journal",
+    "isbn": "book",
+    "podcast_name": "podcast",
+    "conference_name": "conference",
+    "blog_name": "blog",
+    "report_number": "report",
+}
+
+
+def _infer_source_type_from_url(url: str) -> str | None:
+    """Infer source_type from URL patterns."""
+    if "arxiv.org" in url:
+        return "arxiv"
+    if "youtube.com" in url or "youtu.be" in url:
+        return "youtube"
+    return None
+
+
 def _infer_source_type(data: dict[str, object], json_path: Path) -> str:
     """Infer source_type from flat citation fields. Raises ValueError if undetermined."""
     url = data.get("url")
     if isinstance(url, str):
-        if "arxiv.org" in url:
-            return "arxiv"
-        if "youtube.com" in url or "youtu.be" in url:
-            return "youtube"
-    if "doi" in data and data["doi"] is not None:
-        return "journal"
-    if "journal" in data and data["journal"] is not None:
-        return "journal"
-    if "isbn" in data:
-        return "book"
-    if "podcast_name" in data:
-        return "podcast"
-    if "conference_name" in data:
-        return "conference"
-    if "blog_name" in data:
-        return "blog"
-    if "report_number" in data:
-        return "report"
+        result = _infer_source_type_from_url(url)
+        if result is not None:
+            return result
+
+    for field, source_type in _FIELD_TO_SOURCE_TYPE.items():
+        if field in data and data[field] is not None:
+            return source_type
+
     raise ValueError(f"cannot infer source_type from citation fields in {json_path}")
 
 
