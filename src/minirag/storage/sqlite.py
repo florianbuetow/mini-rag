@@ -139,9 +139,10 @@ class SQLiteStorage(Storage):
         if document_id <= 0:
             raise ValueError("document_id must be greater than 0")
 
-        cursor = self._connection.cursor()
-        cursor.execute("SELECT content FROM documents WHERE document_id = ?", (document_id,))
-        row = cursor.fetchone()
+        with self._lock:
+            cursor = self._connection.cursor()
+            cursor.execute("SELECT content FROM documents WHERE document_id = ?", (document_id,))
+            row = cursor.fetchone()
 
         if row is None:
             raise ValueError(f"document not found: {document_id}")
@@ -157,12 +158,13 @@ class SQLiteStorage(Storage):
         if chunk_id <= 0:
             raise ValueError("chunk_id must be greater than 0")
 
-        cursor = self._connection.cursor()
-        cursor.execute(
-            "SELECT document_id, content FROM chunks WHERE chunk_id = ?",
-            (chunk_id,),
-        )
-        row = cursor.fetchone()
+        with self._lock:
+            cursor = self._connection.cursor()
+            cursor.execute(
+                "SELECT document_id, content FROM chunks WHERE chunk_id = ?",
+                (chunk_id,),
+            )
+            row = cursor.fetchone()
 
         if row is None:
             raise ValueError(f"chunk not found: {chunk_id}")
@@ -183,12 +185,13 @@ class SQLiteStorage(Storage):
         if document_id <= 0:
             raise ValueError("document_id must be greater than 0")
 
-        cursor = self._connection.cursor()
-        cursor.execute(
-            "SELECT chunk_id, content FROM chunks WHERE document_id = ? ORDER BY chunk_id",
-            (document_id,),
-        )
-        rows = cursor.fetchall()
+        with self._lock:
+            cursor = self._connection.cursor()
+            cursor.execute(
+                "SELECT chunk_id, content FROM chunks WHERE document_id = ? ORDER BY chunk_id",
+                (document_id,),
+            )
+            rows = cursor.fetchall()
 
         chunks: list[ChunkRecord] = []
         for row in rows:
@@ -207,12 +210,13 @@ class SQLiteStorage(Storage):
         if document_id <= 0:
             raise ValueError("document_id must be greater than 0")
 
-        cursor = self._connection.cursor()
-        cursor.execute(
-            "SELECT citation_key FROM document_citations WHERE document_id = ?",
-            (document_id,),
-        )
-        row = cursor.fetchone()
+        with self._lock:
+            cursor = self._connection.cursor()
+            cursor.execute(
+                "SELECT citation_key FROM document_citations WHERE document_id = ?",
+                (document_id,),
+            )
+            row = cursor.fetchone()
 
         if row is None:
             return None
@@ -228,12 +232,13 @@ class SQLiteStorage(Storage):
         if citation_key.strip() == "":
             raise ValueError("citation_key must not be empty")
 
-        cursor = self._connection.cursor()
-        cursor.execute(
-            "SELECT citation_json FROM document_citations WHERE citation_key = ?",
-            (citation_key,),
-        )
-        row = cursor.fetchone()
+        with self._lock:
+            cursor = self._connection.cursor()
+            cursor.execute(
+                "SELECT citation_json FROM document_citations WHERE citation_key = ?",
+                (citation_key,),
+            )
+            row = cursor.fetchone()
 
         if row is None:
             return None

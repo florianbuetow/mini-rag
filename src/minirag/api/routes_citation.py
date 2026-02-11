@@ -40,10 +40,15 @@ async def get_citation(request: Request, corpus: str, citation_key: str) -> JSON
     if citation_data is None:
         return error_response(status=404, message=f"citation not found: {citation_key}")
 
-    response_model = CitationResponse(
-        citation_key=str(citation_data["citation_key"]),
-        source_type=str(citation_data["source_type"]),
-        common=cast(dict[str, Any], citation_data["common"]),
-        source_data=cast(dict[str, Any], citation_data["source_data"]),
-    )
+    try:
+        response_model = CitationResponse(
+            citation_key=str(citation_data["citation_key"]),
+            source_type=str(citation_data["source_type"]),
+            common=cast(dict[str, Any], citation_data["common"]),
+            source_data=cast(dict[str, Any], citation_data["source_data"]),
+        )
+    except (KeyError, TypeError) as exc:
+        logger.error("Malformed citation data for corpus=%s, citation_key=%s: %s", corpus, citation_key, exc)
+        return error_response(status=500, message=f"malformed citation data for key: {citation_key}")
+
     return success_response(status=200, data=response_model.model_dump())

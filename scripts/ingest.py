@@ -93,7 +93,13 @@ def _normalize_flat_citation(flat: dict[str, object], json_path: Path) -> dict[s
 
     Flat format: {cite_key, title, author, year, doi, journal, ...}
     Nested format: {citation_key, source_type, common: {...}, source_data: {...}}
+
+    If the input already has both source_type and common keys, it is returned
+    as-is (assumed already nested). The cite_key field is renamed to
+    citation_key if present.
     """
+    flat = dict(flat)
+
     if "cite_key" in flat and "citation_key" not in flat:
         flat["citation_key"] = flat.pop("cite_key")
 

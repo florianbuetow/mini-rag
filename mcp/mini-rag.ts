@@ -28,8 +28,9 @@ server.tool(
       if (healthData.data?.status !== "healthy") {
         return { content: [{ type: "text", text: "Search system is currently offline." }], isError: true };
       }
-    } catch {
-      return { content: [{ type: "text", text: "Search system is currently offline." }], isError: true };
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      return { content: [{ type: "text", text: `Search system is unreachable: ${detail}` }], isError: true };
     }
 
     try {
@@ -40,6 +41,10 @@ server.tool(
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
       const data = await response.json();
+      if (!response.ok) {
+        const errorMsg = typeof data?.error === "string" ? data.error : `HTTP ${response.status}`;
+        return { content: [{ type: "text", text: `Search failed: ${errorMsg}` }], isError: true };
+      }
       return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -64,8 +69,9 @@ server.tool(
       if (healthData.data?.status !== "healthy") {
         return { content: [{ type: "text", text: "Search system is currently offline." }], isError: true };
       }
-    } catch {
-      return { content: [{ type: "text", text: "Search system is currently offline." }], isError: true };
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      return { content: [{ type: "text", text: `Search system is unreachable: ${detail}` }], isError: true };
     }
 
     try {
@@ -76,6 +82,10 @@ server.tool(
         return { content: [{ type: "text", text: `No citation found for key: ${citation_key}` }] };
       }
       const data = await response.json();
+      if (!response.ok) {
+        const errorMsg = typeof data?.error === "string" ? data.error : `HTTP ${response.status}`;
+        return { content: [{ type: "text", text: `Citation lookup failed: ${errorMsg}` }], isError: true };
+      }
       return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
