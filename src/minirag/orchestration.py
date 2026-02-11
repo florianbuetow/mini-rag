@@ -41,11 +41,24 @@ class Orchestration:
         self._get_citation_key_for_document = lru_cache(maxsize=1024)(self._get_citation_key_impl)
 
     def index_document(self, text: str, citation: dict[str, object] | None) -> tuple[int, list[int]]:
-        """Index one document through storage, chunking, embeddings, and both indices."""
+        """Index one document through storage, chunking, embeddings, both indices, and citation storage."""
         if text.strip() == "":
             raise ValueError("document text must not be empty")
 
+        # Validate citation before any storage writes to fail fast on bad input.
+        if citation is not None:
+            citation_key_value = citation.get("citation_key")
+            source_type = citation.get("source_type")
+            if not isinstance(citation_key_value, str) or citation_key_value.strip() == "":
+                raise ValueError("citation must contain a non-empty 'citation_key'")
+            if not isinstance(source_type, str) or source_type.strip() == "":
+                raise ValueError("citation must contain a non-empty 'source_type'")
+
         document_id = self._storage.insert_document(text)
+
+        # Insert citation immediately after document to fail fast on duplicates.
+        self._insert_citation_record(citation=citation, document_id=document_id)
+
         chunks = chunk_text(
             text=text,
             chunk_size=self._chunking_config.chunk_size,
@@ -73,25 +86,6 @@ class Orchestration:
         self._dense.persist()
         self._sparse.persist()
 
-        if citation is not None:
-            citation_key = citation.get("citation_key")
-            source_type = citation.get("source_type")
-            if not isinstance(citation_key, str) or citation_key.strip() == "":
-                raise ValueError("citation must contain a non-empty 'citation_key'")
-            if not isinstance(source_type, str) or source_type.strip() == "":
-                raise ValueError("citation must contain a non-empty 'source_type'")
-            citation_json = json.dumps(citation)
-            self._storage.insert_citation(citation_key=citation_key, document_id=document_id, citation_json=citation_json)
-        else:
-            auto_citation = {
-                "citation_key": str(document_id),
-                "source_type": "text_file",
-                "common": {"title": str(document_id)},
-                "source_data": {},
-            }
-            citation_json = json.dumps(auto_citation)
-            self._storage.insert_citation(citation_key=str(document_id), document_id=document_id, citation_json=citation_json)
-
         logger.info("Indexed document_id=%s with %s chunks", document_id, len(chunk_ids))
         return (document_id, chunk_ids)
 
@@ -107,11 +101,30 @@ class Orchestration:
         """Close the storage connection."""
         self._storage.close()
 
+    def _insert_citation_record(self, citation: dict[str, object] | None, document_id: int) -> None:
+        """Insert a citation record for a document, auto-generating if citation is None."""
+        if citation is not None:
+            citation_key = citation.get("citation_key")
+            if not isinstance(citation_key, str):
+                raise ValueError("citation must contain a non-empty 'citation_key'")
+            citation_json = json.dumps(citation)
+            self._storage.insert_citation(citation_key=citation_key, document_id=document_id, citation_json=citation_json)
+        else:
+            auto_citation = {
+                "citation_key": str(document_id),
+                "source_type": "text_file",
+                "common": {"title": str(document_id)},
+                "source_data": {},
+            }
+            citation_json = json.dumps(auto_citation)
+            self._storage.insert_citation(citation_key=str(document_id), document_id=document_id, citation_json=citation_json)
+
     def _get_citation_key_impl(self, document_id: int) -> str:
         """Look up citation_key for a document, falling back to str(document_id)."""
         citation_key = self._storage.get_citation_key(document_id)
         if citation_key is not None:
             return citation_key
+        logger.warning("No citation record found for document_id=%s, using document ID as citation_key", document_id)
         return str(document_id)
 
     def get_citation(self, citation_key: str) -> dict[str, object] | None:
@@ -119,7 +132,11 @@ class Orchestration:
         citation_json = self._storage.get_citation(citation_key)
         if citation_json is None:
             return None
-        parsed: dict[str, object] = json.loads(citation_json)
+        try:
+            parsed: dict[str, object] = json.loads(citation_json)
+        except json.JSONDecodeError as exc:
+            logger.error("Corrupt citation JSON for citation_key=%s: %s", citation_key, exc)
+            raise ValueError(f"corrupt citation data for key: {citation_key}") from exc
         return parsed
 
     def _resolve_results(self, scored_chunk_ids: list[ScoredChunk], source: str) -> list[SearchResult]:
@@ -130,8 +147,8 @@ class Orchestration:
         for chunk_id, score in scored_chunk_ids:
             try:
                 document_id, chunk_text_value = self._storage.get_chunk(chunk_id=chunk_id)
-            except ValueError:
-                logger.warning("Skipping stale chunk_id=%s: not found in storage", chunk_id)
+            except ValueError as exc:
+                logger.warning("Skipping chunk_id=%s during %s resolution: %s", chunk_id, source, exc)
                 skipped_count += 1
                 continue
             citation_key = self._get_citation_key_for_document(document_id)
