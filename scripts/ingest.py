@@ -32,7 +32,7 @@ def resolve_input_dir(data_dir: Path, corpus: str) -> Path:
     return input_dir
 
 
-_COMMON_FIELDS = {"title", "author", "year", "month", "day", "url", "urldate", "publisher", "note"}
+_COMMON_FIELDS = {"title", "author", "year", "month", "day", "url", "urldate", "note"}
 
 _SOURCE_DATA_FIELDS: dict[str, set[str]] = {
     "journal": {"journal_name", "journal", "volume", "issue", "number", "pages", "doi"},
@@ -64,7 +64,7 @@ _FIELD_TO_SOURCE_TYPE: dict[str, str] = {
 }
 
 
-def _infer_source_type_from_url(url: str) -> str | None:
+def infer_source_type_from_url(url: str) -> str | None:
     """Infer source_type from URL patterns."""
     if "arxiv.org" in url:
         return "arxiv"
@@ -73,11 +73,11 @@ def _infer_source_type_from_url(url: str) -> str | None:
     return None
 
 
-def _infer_source_type(data: dict[str, object], json_path: Path) -> str:
+def infer_source_type(data: dict[str, object], json_path: Path) -> str:
     """Infer source_type from flat citation fields. Raises ValueError if undetermined."""
     url = data.get("url")
     if isinstance(url, str):
-        result = _infer_source_type_from_url(url)
+        result = infer_source_type_from_url(url)
         if result is not None:
             return result
 
@@ -88,7 +88,7 @@ def _infer_source_type(data: dict[str, object], json_path: Path) -> str:
     raise ValueError(f"cannot infer source_type from citation fields in {json_path}")
 
 
-def _normalize_flat_citation(flat: dict[str, object], json_path: Path) -> dict[str, object]:
+def normalize_flat_citation(flat: dict[str, object], json_path: Path) -> dict[str, object]:
     """Convert a flat citation dict into the nested format.
 
     Flat format: {cite_key, title, author, year, doi, journal, ...}
@@ -106,7 +106,7 @@ def _normalize_flat_citation(flat: dict[str, object], json_path: Path) -> dict[s
     if "source_type" in flat and "common" in flat:
         return flat
 
-    source_type = str(flat["source_type"]) if "source_type" in flat else _infer_source_type(flat, json_path)
+    source_type = str(flat["source_type"]) if "source_type" in flat else infer_source_type(flat, json_path)
     allowed_source_fields = _SOURCE_DATA_FIELDS.get(source_type, set())
 
     common: dict[str, object] = {}
@@ -162,7 +162,7 @@ def load_citation(txt_path: Path) -> dict[str, object]:
             raise ValueError(f"citation JSON must be an object in {json_path}")
 
         parsed: dict[str, object] = cast(dict[str, object], raw_parsed)
-        parsed = _normalize_flat_citation(parsed, json_path)
+        parsed = normalize_flat_citation(parsed, json_path)
 
         citation_key = parsed.get("citation_key")
         if not isinstance(citation_key, str) or citation_key.strip() == "":

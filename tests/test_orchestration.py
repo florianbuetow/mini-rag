@@ -358,7 +358,10 @@ def test_orchestration_index_rejects_empty_citation_key() -> None:
     """index_document should reject citation with empty citation_key."""
     orchestration = make_orchestration()
     citation: dict[str, object] = {
-        "citation_key": "", "source_type": "journal", "common": {}, "source_data": {},
+        "citation_key": "",
+        "source_type": "journal",
+        "common": {},
+        "source_data": {},
     }
     with pytest.raises(ValueError, match="non-empty 'citation_key'"):
         orchestration.index_document("one two three four five six", citation=citation)
@@ -376,7 +379,10 @@ def test_orchestration_index_rejects_empty_source_type() -> None:
     """index_document should reject citation with empty source_type."""
     orchestration = make_orchestration()
     citation: dict[str, object] = {
-        "citation_key": "k", "source_type": "", "common": {}, "source_data": {},
+        "citation_key": "k",
+        "source_type": "",
+        "common": {},
+        "source_data": {},
     }
     with pytest.raises(ValueError, match="non-empty 'source_type'"):
         orchestration.index_document("one two three four five six", citation=citation)
@@ -441,3 +447,40 @@ def test_orchestration_citation_cache_cleared_on_destroy() -> None:
     orchestration.index_document("one two three four five six", citation=citation2)
     results2 = orchestration.search_dense(query="one", top_k=5)
     assert results2[0].citation_key == "new_key"
+
+
+class MissingCitationStorage(FakeStorage):
+    """Fake storage that returns None for get_citation_key."""
+
+    def get_citation_key(self, document_id: int) -> str | None:
+        return None
+
+
+def test_orchestration_skips_results_with_missing_citation_record() -> None:
+    """Search should skip results when citation record is missing (data integrity)."""
+    storage = MissingCitationStorage()
+    search_config = SearchConfig(
+        hybrid=HybridConfig(alpha=0.5),
+        dense=DenseSearchConfig(),
+        sparse=SparseSearchConfig(),
+        reranking=RerankingConfig(
+            enabled=False,
+            model_name="cross-encoder/ms-marco-MiniLM-L12-v2",
+            candidate_multiplier=3,
+        ),
+    )
+    orchestration = Orchestration(
+        chunking_config=ChunkingConfig(chunk_size=4, overlap=0.5),
+        embeddings=cast(Embeddings, FakeEmbeddings()),
+        storage=cast(Storage, storage),
+        dense=cast(DenseRetrieval, FakeDense()),
+        sparse=cast(SparseRetrieval, FakeSparse()),
+        search_config=search_config,
+        reranker=None,
+    )
+
+    citation: dict[str, object] = {"citation_key": "key1", "source_type": "journal", "common": {}, "source_data": {}}
+    orchestration.index_document("one two three four five six", citation=citation)
+
+    results = orchestration.search_dense(query="one", top_k=10)
+    assert results == []

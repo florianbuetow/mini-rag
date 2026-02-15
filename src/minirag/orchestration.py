@@ -130,9 +130,7 @@ class Orchestration:
     def _get_citation_key_for_document(self, document_id: int) -> str:
         """Look up citation_key for a document, with cache for positive results only.
 
-        Falls back to str(document_id) if no citation record exists, but does NOT
-        cache the fallback value so that future lookups can find a citation if one
-        is inserted later.
+        Raises RuntimeError if no citation record exists (data integrity violation).
         """
         with self._citation_key_cache_lock:
             cached = self._citation_key_cache.get(document_id)
@@ -145,12 +143,7 @@ class Orchestration:
                 self._citation_key_cache[document_id] = citation_key
             return citation_key
 
-        logger.error(
-            "No citation record found for document_id=%s; this indicates a data integrity issue. "
-            "Every indexed document should have a citation record. Falling back to str(document_id).",
-            document_id,
-        )
-        return str(document_id)
+        raise RuntimeError(f"No citation record for document_id={document_id}; data integrity violation")
 
     def get_citation(self, citation_key: str) -> dict[str, object] | None:
         """Return parsed citation data for a citation_key, or None if not found."""
@@ -176,7 +169,14 @@ class Orchestration:
                 logger.warning("Skipping chunk_id=%s during %s resolution: %s", chunk_id, source, exc)
                 skipped_count += 1
                 continue
-            citation_key = self._get_citation_key_for_document(document_id)
+
+            try:
+                citation_key = self._get_citation_key_for_document(document_id)
+            except RuntimeError as exc:
+                logger.warning("Skipping chunk_id=%s during %s resolution: %s", chunk_id, source, exc)
+                skipped_count += 1
+                continue
+
             resolved_results.append(
                 SearchResult(
                     chunk_id=chunk_id,

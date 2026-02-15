@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from scripts.ingest import _infer_source_type, _normalize_flat_citation, ingest_files, load_citation, resolve_input_dir
+from scripts.ingest import infer_source_type, ingest_files, load_citation, normalize_flat_citation, resolve_input_dir
 
 CORPUS = "testcorpus"
 
@@ -186,110 +186,122 @@ def test_ingest_with_json_citation(tmp_path: Path) -> None:
     assert client.citations[0]["citation_key"] == "custom_key"
 
 
-# --- _normalize_flat_citation tests ---
+# --- normalize_flat_citation tests ---
 
 
-def test_normalize_flat_citation_renames_cite_key() -> None:
+def testnormalize_flat_citation_renames_cite_key() -> None:
     """cite_key should be renamed to citation_key."""
     flat: dict[str, object] = {"cite_key": "k1", "source_type": "blog", "title": "T"}
-    result = _normalize_flat_citation(flat, Path("test.json"))
+    result = normalize_flat_citation(flat, Path("test.json"))
     assert result["citation_key"] == "k1"
     assert "cite_key" not in result
 
 
-def test_normalize_flat_citation_infers_journal_from_doi() -> None:
+def testnormalize_flat_citation_infers_journal_from_doi() -> None:
     """Flat citation with doi should infer source_type=journal."""
     flat: dict[str, object] = {"citation_key": "k1", "title": "T", "doi": "10.1234/test"}
-    result = _normalize_flat_citation(flat, Path("test.json"))
+    result = normalize_flat_citation(flat, Path("test.json"))
     assert result["source_type"] == "journal"
     source_data = result["source_data"]
     assert isinstance(source_data, dict)
     assert source_data["doi"] == "10.1234/test"
 
 
-def test_normalize_flat_citation_infers_book_from_isbn() -> None:
+def testnormalize_flat_citation_infers_book_from_isbn() -> None:
     """Flat citation with isbn should infer source_type=book."""
     flat: dict[str, object] = {"citation_key": "k1", "title": "T", "isbn": "978-0-13-468599-1"}
-    result = _normalize_flat_citation(flat, Path("test.json"))
+    result = normalize_flat_citation(flat, Path("test.json"))
     assert result["source_type"] == "book"
 
 
-def test_normalize_flat_citation_infers_arxiv_from_url() -> None:
+def testnormalize_flat_citation_infers_arxiv_from_url() -> None:
     """Flat citation with arxiv URL should infer source_type=arxiv."""
     flat: dict[str, object] = {"citation_key": "k1", "title": "T", "url": "https://arxiv.org/abs/1234.5678"}
-    result = _normalize_flat_citation(flat, Path("test.json"))
+    result = normalize_flat_citation(flat, Path("test.json"))
     assert result["source_type"] == "arxiv"
 
 
-def test_normalize_flat_citation_infers_youtube_from_url() -> None:
+def testnormalize_flat_citation_infers_youtube_from_url() -> None:
     """Flat citation with youtube URL should infer source_type=youtube."""
     flat: dict[str, object] = {"citation_key": "k1", "title": "T", "url": "https://youtube.com/watch?v=abc"}
-    result = _normalize_flat_citation(flat, Path("test.json"))
+    result = normalize_flat_citation(flat, Path("test.json"))
     assert result["source_type"] == "youtube"
 
 
-def test_normalize_flat_citation_passes_through_nested() -> None:
+def testnormalize_flat_citation_passes_through_nested() -> None:
     """Already-nested citation (with source_type and common) should pass through."""
     nested: dict[str, object] = {"citation_key": "k1", "source_type": "journal", "common": {"title": "T"}, "source_data": {}}
-    result = _normalize_flat_citation(nested, Path("test.json"))
+    result = normalize_flat_citation(nested, Path("test.json"))
     assert result == nested
 
 
-def test_normalize_flat_citation_renames_fields() -> None:
+def testnormalize_flat_citation_renames_fields() -> None:
     """journal should be renamed to journal_name, number to issue."""
     flat: dict[str, object] = {"citation_key": "k1", "source_type": "journal", "journal": "Nature", "number": "42"}
-    result = _normalize_flat_citation(flat, Path("test.json"))
+    result = normalize_flat_citation(flat, Path("test.json"))
     source_data = result["source_data"]
     assert isinstance(source_data, dict)
     assert source_data["journal_name"] == "Nature"
     assert source_data["issue"] == "42"
 
 
-def test_normalize_flat_citation_unknown_fields_go_to_common() -> None:
+def testnormalize_flat_citation_unknown_fields_go_to_common() -> None:
     """Unrecognized fields should be placed into common."""
     flat: dict[str, object] = {"citation_key": "k1", "source_type": "journal", "custom_field": "value"}
-    result = _normalize_flat_citation(flat, Path("test.json"))
+    result = normalize_flat_citation(flat, Path("test.json"))
     common = result["common"]
     assert isinstance(common, dict)
     assert common["custom_field"] == "value"
 
 
-def test_normalize_flat_citation_preserves_provided_source_type() -> None:
+def testnormalize_flat_citation_preserves_provided_source_type() -> None:
     """When source_type is already provided in flat format, it should be preserved."""
     flat: dict[str, object] = {"citation_key": "k1", "source_type": "blog", "title": "My Post", "blog_name": "My Blog"}
-    result = _normalize_flat_citation(flat, Path("test.json"))
+    result = normalize_flat_citation(flat, Path("test.json"))
     assert result["source_type"] == "blog"
     source_data = result["source_data"]
     assert isinstance(source_data, dict)
     assert source_data["blog_name"] == "My Blog"
 
 
-def test_normalize_flat_citation_raises_when_source_type_undetermined() -> None:
+def testnormalize_flat_citation_book_publisher_in_source_data() -> None:
+    """Book publisher should be in source_data, not common."""
+    flat: dict[str, object] = {"citation_key": "k1", "source_type": "book", "title": "T", "publisher": "Pub"}
+    result = normalize_flat_citation(flat, Path("test.json"))
+    source_data = result["source_data"]
+    assert isinstance(source_data, dict)
+    assert source_data["publisher"] == "Pub"
+    common = result["common"]
+    assert isinstance(common, dict)
+    assert "publisher" not in common
+
+
+def testnormalize_flat_citation_raises_when_source_type_undetermined() -> None:
     """Should raise ValueError when source_type cannot be inferred."""
     flat: dict[str, object] = {"citation_key": "k1", "title": "T"}
     with pytest.raises(ValueError, match="cannot infer source_type"):
-        _normalize_flat_citation(flat, Path("test.json"))
+        normalize_flat_citation(flat, Path("test.json"))
 
 
-# --- _infer_source_type tests ---
+# --- infer_source_type tests ---
 
 
-def test_infer_source_type_from_doi() -> None:
+def testinfer_source_type_from_doi() -> None:
     """doi field should infer journal."""
-    assert _infer_source_type({"doi": "10.1234/test"}, Path("t.json")) == "journal"
+    assert infer_source_type({"doi": "10.1234/test"}, Path("t.json")) == "journal"
 
 
-def test_infer_source_type_from_podcast_name() -> None:
+def testinfer_source_type_from_podcast_name() -> None:
     """podcast_name field should infer podcast."""
-    assert _infer_source_type({"podcast_name": "My Pod"}, Path("t.json")) == "podcast"
+    assert infer_source_type({"podcast_name": "My Pod"}, Path("t.json")) == "podcast"
 
 
-def test_infer_source_type_from_arxiv_url() -> None:
+def testinfer_source_type_from_arxiv_url() -> None:
     """arxiv.org URL should infer arxiv."""
-    assert _infer_source_type({"url": "https://arxiv.org/abs/2301.00001"}, Path("t.json")) == "arxiv"
+    assert infer_source_type({"url": "https://arxiv.org/abs/2301.00001"}, Path("t.json")) == "arxiv"
 
 
-def test_infer_source_type_raises_when_undetermined() -> None:
+def testinfer_source_type_raises_when_undetermined() -> None:
     """Should raise ValueError when no inference rule matches."""
     with pytest.raises(ValueError, match="cannot infer source_type"):
-        _infer_source_type({"title": "T"}, Path("t.json"))
+        infer_source_type({"title": "T"}, Path("t.json"))
