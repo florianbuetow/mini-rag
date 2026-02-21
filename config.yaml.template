@@ -1,7 +1,7 @@
 service:
   host: "127.0.0.1"
   port: 7001
-  reload: true
+  reload: false
   log_level: "INFO"
 
 data:
