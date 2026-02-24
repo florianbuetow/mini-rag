@@ -204,6 +204,10 @@ class FakeEmbeddings:
 
 
 class FakeStorage:
+    def insert_document_with_citation(self, content: str, citation: dict[str, object] | None) -> int:
+        del content, citation
+        return 1
+
     def insert_document(self, content: str) -> int:
         del content
         return 1

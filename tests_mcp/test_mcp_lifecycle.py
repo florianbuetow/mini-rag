@@ -75,7 +75,7 @@ class TestMcpLifecycle:
         )
         text = result["content"][0]["text"]
         assert "No citation found" in text
-        assert result.get("isError") is not True
+        assert result.get("isError") is True
 
     def test_05_delete_corpus_via_api(self, mcp_env: McpEnv) -> None:
         resp = httpx.delete(
@@ -102,3 +102,4 @@ class TestMcpLifecycle:
         )
         text = result["content"][0]["text"]
         assert "No citation found" in text
+        assert result.get("isError") is True

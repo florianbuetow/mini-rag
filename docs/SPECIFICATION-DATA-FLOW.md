@@ -513,7 +513,7 @@ sequenceDiagram
     O->>ST: destroy() (deletes all rows including citations)
     O->>D: destroy()
     O->>SP: destroy()
-    O->>O: _get_citation_key_for_document.cache_clear()
+    O->>O: _citation_key_cache.clear()
     CM->>O: close_storage()
     O->>ST: close()
     CM-->>R: ok

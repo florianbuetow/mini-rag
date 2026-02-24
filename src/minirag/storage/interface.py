@@ -46,6 +46,10 @@ class StorageWriter(ABC):
     """Write contract for persisted documents and chunks."""
 
     @abstractmethod
+    def insert_document_with_citation(self, content: str, citation: dict[str, object] | None) -> int:
+        """Store a document and citation atomically and return the document ID."""
+
+    @abstractmethod
     def insert_document(self, content: str) -> int:
         """Store a full document and return its ID."""
 

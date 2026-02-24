@@ -1,5 +1,6 @@
 """Unit tests for orchestration coordination logic."""
 
+import json
 from typing import Any, Final, cast
 
 import pytest
@@ -42,6 +43,26 @@ class FakeStorage:
         document_id = self._next_document_id
         self._next_document_id = self._next_document_id + 1
         self.documents[document_id] = content
+        return document_id
+
+    def insert_document_with_citation(self, content: str, citation: dict[str, object] | None) -> int:
+        document_id = self.insert_document(content)
+        if citation is None:
+            citation_key = str(document_id)
+            auto_citation = {
+                "citation_key": citation_key,
+                "source_type": "text_file",
+                "common": {"title": str(document_id)},
+                "source_data": {},
+            }
+            citation_json = json.dumps(auto_citation)
+        else:
+            citation_key_value = citation.get("citation_key")
+            if not isinstance(citation_key_value, str):
+                raise ValueError("citation_key must be a string")
+            citation_key = citation_key_value
+            citation_json = json.dumps(citation)
+        self.insert_citation(citation_key=citation_key, document_id=document_id, citation_json=citation_json)
         return document_id
 
     def insert_chunk(self, document_id: int, content: str) -> int:
@@ -305,8 +326,8 @@ def test_orchestration_partial_chunk_failure() -> None:
     assert len(storage.chunks) == 1
 
 
-def test_orchestration_skips_stale_chunks() -> None:
-    """Search should skip stale chunks not found in storage."""
+def test_orchestration_raises_on_stale_chunks() -> None:
+    """Search should fail fast when chunks are missing from storage."""
     storage = StaleChunkStorage(stale_chunk_id=2)
     search_config = SearchConfig(
         hybrid=HybridConfig(alpha=0.5),
@@ -330,10 +351,8 @@ def test_orchestration_skips_stale_chunks() -> None:
 
     orchestration.index_document("one two three four five six seven eight", citation=None)
 
-    results = orchestration.search_dense(query="one", top_k=10)
-    chunk_ids_in_results = [r.chunk_id for r in results]
-    assert 2 not in chunk_ids_in_results
-    assert len(results) >= 1
+    with pytest.raises(RuntimeError, match="missing chunk_id"):
+        orchestration.search_dense(query="one", top_k=10)
 
 
 def test_orchestration_destroy_and_validation() -> None:
@@ -456,8 +475,8 @@ class MissingCitationStorage(FakeStorage):
         return None
 
 
-def test_orchestration_skips_results_with_missing_citation_record() -> None:
-    """Search should skip results when citation record is missing (data integrity)."""
+def test_orchestration_raises_on_missing_citation_record() -> None:
+    """Search should fail fast when a citation record is missing."""
     storage = MissingCitationStorage()
     search_config = SearchConfig(
         hybrid=HybridConfig(alpha=0.5),
@@ -482,5 +501,5 @@ def test_orchestration_skips_results_with_missing_citation_record() -> None:
     citation: dict[str, object] = {"citation_key": "key1", "source_type": "journal", "common": {}, "source_data": {}}
     orchestration.index_document("one two three four five six", citation=citation)
 
-    results = orchestration.search_dense(query="one", top_k=10)
-    assert results == []
+    with pytest.raises(RuntimeError, match="missing citation"):
+        orchestration.search_dense(query="one", top_k=10)

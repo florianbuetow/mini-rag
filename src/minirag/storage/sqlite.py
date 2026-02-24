@@ -1,5 +1,6 @@
 """SQLite storage implementation."""
 
+import json
 import logging
 import sqlite3
 import threading
@@ -72,6 +73,52 @@ class SQLiteStorage(Storage):
                 """
             )
             self._connection.commit()
+
+    def insert_document_with_citation(self, content: str, citation: dict[str, object] | None) -> int:
+        """Store a document and its citation in one transaction."""
+        if content.strip() == "":
+            raise ValueError("document content must not be empty")
+
+        with self._lock:
+            cursor = self._connection.cursor()
+            try:
+                cursor.execute("BEGIN")
+                cursor.execute("INSERT INTO documents(content) VALUES (?)", (content,))
+                row_id = cursor.lastrowid
+                if row_id is None:
+                    raise ValueError("failed to retrieve inserted document ID")
+                document_id = int(row_id)
+
+                if citation is None:
+                    auto_citation = {
+                        "citation_key": str(document_id),
+                        "source_type": "text_file",
+                        "common": {"title": str(document_id)},
+                        "source_data": {},
+                    }
+                    citation_key = auto_citation["citation_key"]
+                    citation_json = json.dumps(auto_citation)
+                else:
+                    citation_key_value = citation.get("citation_key")
+                    if not isinstance(citation_key_value, str) or citation_key_value.strip() == "":
+                        raise ValueError("citation must contain a non-empty 'citation_key'")
+                    source_type = citation.get("source_type")
+                    if not isinstance(source_type, str) or source_type.strip() == "":
+                        raise ValueError("citation must contain a non-empty 'source_type'")
+                    citation_key = citation_key_value
+                    citation_json = json.dumps(citation)
+
+                cursor.execute(
+                    "INSERT INTO document_citations(citation_key, document_id, citation_json) VALUES (?, ?, ?)",
+                    (citation_key, document_id, citation_json),
+                )
+                self._connection.commit()
+            except Exception:
+                self._connection.rollback()
+                raise
+
+        logger.debug("Inserted document with ID %s and citation key=%s", document_id, citation_key)
+        return document_id
 
     def insert_document(self, content: str) -> int:
         """Store a document and return its generated ID."""

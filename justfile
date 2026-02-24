@@ -230,7 +230,9 @@ citation corpus +keys:
     echo ""
     printf "%b\n" "\033[0;34m=== Citation Lookup ===\033[0m"
     CORPUS=$(./scripts/corpus_exists.sh "{{corpus}}")
-    uv run scripts/citation.py --corpus "$CORPUS" {{keys}}
+    uv run scripts/citation.py --corpus "$CORPUS" --keys-file - <<'MINIRAG_KEYS'
+    {{keys}}
+    MINIRAG_KEYS
     echo ""
 
 # Inspect document chunks across all stores for a corpus

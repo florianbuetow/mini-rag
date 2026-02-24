@@ -38,7 +38,6 @@
     "day": "integer (optional)",
     "url": "string (optional)",
     "urldate": "string (optional, ISO date of access)",
-    "publisher": "string (optional)",
     "note": "string (optional)"
   },
   "source_data": {
@@ -59,7 +58,7 @@
 | `blog` / `engineering_blog` | blog_name, platform |
 | `podcast` | podcast_name, episode, timestamp, duration |
 | `conference` | conference_name, location, speaker |
-| `arxiv` | arxiv_id, journal_name, volume, pages |
+| `arxiv` | arxiv_id, journal_name, journal, volume, pages, doi |
 | `documentation` | project, version, section |
 | `report` | organization, report_number |
 | `text_file` | *(empty — auto-generated citations only)* |
@@ -359,12 +358,25 @@ When converting `.md` files to `.txt`, also copy any matching `.json` files from
 
 **Problem**: Every search query now needs to resolve `document_id -> citation_key` for each result chunk. Without caching, this adds one SQLite query per unique document_id per search request.
 
-**Solution**: LRU cache on the lookup method in the orchestration layer.
+**Solution**: Explicit LRU cache in the orchestration layer (max 1024 entries).
 
 ```python
-@lru_cache(maxsize=1024)
+_CITATION_KEY_CACHE_MAX = 1024
+self._citation_key_cache: OrderedDict[int, str] = OrderedDict()
+
 def _get_citation_key_for_document(self, document_id: int) -> str:
-    return self._storage.get_citation_key(document_id)
+    cached = self._citation_key_cache.get(document_id)
+    if cached is not None:
+        self._citation_key_cache.move_to_end(document_id)
+        return cached
+    citation_key = self._storage.get_citation_key(document_id)
+    if citation_key is not None:
+        self._citation_key_cache[document_id] = citation_key
+        self._citation_key_cache.move_to_end(document_id)
+        if len(self._citation_key_cache) > _CITATION_KEY_CACHE_MAX:
+            self._citation_key_cache.popitem(last=False)
+        return citation_key
+    raise RuntimeError("missing citation")
 ```
 
 **Why this works well**:
@@ -391,16 +403,21 @@ def _get_citation_key_for_document(self, document_id: int) -> str:
 | `src/minirag/api/routes_query.py` | Update `_build_query_response()` to include new fields |
 | `src/minirag/api/routes_index.py` | Pass citation data through to orchestration |
 | `src/minirag/api/app.py` | Register citation route |
-| `src/minirag/storage/interface.py` | Add `insert_citation()`, `get_citation_key()`, `get_citation()` methods |
-| `src/minirag/storage/sqlite.py` | Implement new methods, create `document_citations` table with index |
+| `src/minirag/storage/interface.py` | Add citation storage methods |
+| `src/minirag/storage/sqlite.py` | Implement citation storage, create `document_citations` table with index |
 | `src/minirag/orchestration.py` | Add citation parameter to `index_document()`, add cached `_get_citation_key_for_document()`, enrich search results |
 | `src/minirag/reranking/cross_encoder.py` | Preserve new `SearchResult` fields through reranking |
 | `src/minirag/clients/indexing.py` | Pass citation data in `index_document()` |
 | `src/minirag/clients/query.py` | Parse `document_id` and `citation_key` from API responses |
+| `src/minirag/corpus.py` | Add `list_corpora()` for available corpora |
+| `src/minirag/api/routes_info.py` | Add `/v1/corpora` endpoint |
 | `scripts/ingest.py` | Load `.json` citation files, auto-generate when missing |
 | `scripts/md2txt.py` | Copy `.json` files alongside converted `.txt` files |
 | `scripts/search.py` | Display new fields in interactive search |
 | `mcp/mini-rag.ts` | Add `get_citation` tool |
+| `config.yaml.template` | Update service/index defaults |
+| `justfile` | Add new corpus helper targets |
+| `pyproject.toml` | Add new dependencies for tooling |
 
 ### Unchanged files
 
@@ -409,11 +426,9 @@ def _get_citation_key_for_document(self, document_id: int) -> str:
 | `src/main.py` | Entry point, just starts uvicorn |
 | `src/minirag/__init__.py` | Package init |
 | `src/minirag/config.py` | No new configuration settings |
-| `src/minirag/corpus.py` | Corpus name validation, unrelated |
 | `src/minirag/backend_factory.py` | Creates backend instances, citations go through storage |
 | `src/minirag/startup_validation.py` | Validates config at startup, no new config |
 | `src/minirag/api/__init__.py` | Package init |
-| `src/minirag/api/routes_info.py` | Health, info, shutdown — unrelated |
 | `src/minirag/api/utils.py` | Response envelope helpers — unchanged |
 | `src/minirag/api/responses.py` | Response utilities — unchanged |
 | `src/minirag/api/models/__init__.py` | Package init |
@@ -435,6 +450,3 @@ def _get_citation_key_for_document(self, document_id: int) -> str:
 | `src/minirag/clients/base.py` | Shared HTTP logic — unrelated |
 | `scripts/evaluate.py` | Evaluation uses ROUGE-L on text, ignores extra fields |
 | `scripts/export_chunks.py` | Chunk export utility — unrelated |
-| `config.yaml.template` | No new config settings |
-| `justfile` | No new targets needed |
-| `pyproject.toml` | No new dependencies |

@@ -3,6 +3,7 @@
 import json
 import logging
 import threading
+from collections import OrderedDict
 
 from minirag.config import ChunkingConfig, SearchConfig
 from minirag.ingestion.chunker import chunk_text
@@ -15,6 +16,8 @@ from minirag.search.types import ScoredChunk, SearchResult
 from minirag.storage.interface import Storage
 
 logger = logging.getLogger(__name__)
+
+_CITATION_KEY_CACHE_MAX = 1024
 
 
 class Orchestration:
@@ -38,7 +41,7 @@ class Orchestration:
         self._sparse = sparse
         self._search_config = search_config
         self._reranker = reranker
-        self._citation_key_cache: dict[int, str] = {}
+        self._citation_key_cache: OrderedDict[int, str] = OrderedDict()
         self._citation_key_cache_lock = threading.Lock()
 
     def index_document(self, text: str, citation: dict[str, object] | None) -> tuple[int, list[int]]:
@@ -55,10 +58,7 @@ class Orchestration:
             if not isinstance(source_type, str) or source_type.strip() == "":
                 raise ValueError("citation must contain a non-empty 'source_type'")
 
-        document_id = self._storage.insert_document(text)
-
-        # Insert citation immediately after document to fail fast on duplicates.
-        self._insert_citation_record(citation=citation, document_id=document_id)
+        document_id = self._storage.insert_document_with_citation(text, citation)
 
         chunks = chunk_text(
             text=text,
@@ -103,30 +103,6 @@ class Orchestration:
         """Close the storage connection."""
         self._storage.close()
 
-    def _insert_citation_record(self, citation: dict[str, object] | None, document_id: int) -> None:
-        """Insert a citation record for a document, auto-generating if citation is None.
-
-        Caller must validate the citation dict before calling this method.
-        """
-        if citation is not None:
-            citation_key = citation["citation_key"]
-            if not isinstance(citation_key, str) or citation_key.strip() == "":
-                raise ValueError("citation must contain a non-empty 'citation_key'")
-            source_type = citation.get("source_type")
-            if not isinstance(source_type, str) or source_type.strip() == "":
-                raise ValueError("citation must contain a non-empty 'source_type'")
-            citation_json = json.dumps(citation)
-            self._storage.insert_citation(citation_key=citation_key, document_id=document_id, citation_json=citation_json)
-        else:
-            auto_citation = {
-                "citation_key": str(document_id),
-                "source_type": "text_file",
-                "common": {"title": str(document_id)},
-                "source_data": {},
-            }
-            citation_json = json.dumps(auto_citation)
-            self._storage.insert_citation(citation_key=str(document_id), document_id=document_id, citation_json=citation_json)
-
     def _get_citation_key_for_document(self, document_id: int) -> str:
         """Look up citation_key for a document, with cache for positive results only.
 
@@ -134,13 +110,17 @@ class Orchestration:
         """
         with self._citation_key_cache_lock:
             cached = self._citation_key_cache.get(document_id)
-        if cached is not None:
-            return cached
+            if cached is not None:
+                self._citation_key_cache.move_to_end(document_id)
+                return cached
 
         citation_key = self._storage.get_citation_key(document_id)
         if citation_key is not None:
             with self._citation_key_cache_lock:
                 self._citation_key_cache[document_id] = citation_key
+                self._citation_key_cache.move_to_end(document_id)
+                if len(self._citation_key_cache) > _CITATION_KEY_CACHE_MAX:
+                    self._citation_key_cache.popitem(last=False)
             return citation_key
 
         raise RuntimeError(f"No citation record for document_id={document_id}; data integrity violation")
@@ -161,21 +141,22 @@ class Orchestration:
         """Resolve chunk IDs from retrieval engines into SearchResult payloads."""
         resolved_results: list[SearchResult] = []
         score_log: dict[str, dict[str, float | int]] = {}
-        skipped_count = 0
         for chunk_id, score in scored_chunk_ids:
             try:
                 document_id, chunk_text_value = self._storage.get_chunk(chunk_id=chunk_id)
             except ValueError as exc:
-                logger.warning("Skipping chunk_id=%s during %s resolution: %s", chunk_id, source, exc)
-                skipped_count += 1
-                continue
+                logger.error("Data integrity violation during %s resolution: missing chunk_id=%s", source, chunk_id)
+                raise RuntimeError(f"data integrity violation: missing chunk_id={chunk_id}") from exc
 
             try:
                 citation_key = self._get_citation_key_for_document(document_id)
             except RuntimeError as exc:
-                logger.warning("Skipping chunk_id=%s during %s resolution: %s", chunk_id, source, exc)
-                skipped_count += 1
-                continue
+                logger.error(
+                    "Data integrity violation during %s resolution: missing citation for document_id=%s",
+                    source,
+                    document_id,
+                )
+                raise RuntimeError(f"data integrity violation: missing citation for document_id={document_id}") from exc
 
             resolved_results.append(
                 SearchResult(
@@ -187,8 +168,6 @@ class Orchestration:
                 )
             )
             score_log[str(chunk_id)] = {"score": round(score, 4), "doc_id": document_id}
-        if skipped_count > 0:
-            logger.warning("Skipped %d stale chunk(s) during result resolution", skipped_count)
         logger.debug("%s: %s", source, json.dumps(score_log))
         return resolved_results
 
