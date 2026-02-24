@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 
 from minirag.api.models.info import HealthResponse, InfoResponse, ShutdownResponse
 from minirag.api.responses import success_response
-from minirag.api.utils import ensure_healthy, get_config
+from minirag.api.utils import ensure_healthy, get_config, get_corpus_manager
 
 router = APIRouter(prefix="/v1")
 
@@ -57,3 +57,15 @@ async def shutdown(request: Request, background_tasks: BackgroundTasks) -> JSONR
 
     response = ShutdownResponse(message="shutdown initiated")
     return success_response(status=200, data=response.model_dump())
+
+
+@router.get("/corpora")
+async def list_corpora(request: Request) -> JSONResponse:
+    """Return the list of available corpora."""
+    guard_response = ensure_healthy(request)
+    if guard_response is not None:
+        return guard_response
+
+    corpus_manager = get_corpus_manager(request)
+    corpora = corpus_manager.list_corpora()
+    return success_response(status=200, data={"corpora": corpora})

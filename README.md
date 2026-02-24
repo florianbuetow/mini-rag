@@ -115,6 +115,7 @@ All endpoints accept/return JSON. Data operations are scoped to a corpus via `/v
 |--------|----------|-------------|
 | GET | `/v1/health` | Health check |
 | GET | `/v1/info` | Full service configuration |
+| GET | `/v1/corpora` | List available corpora |
 | POST | `/v1/shutdown` | Graceful shutdown |
 | POST | `/v1/corpus/{corpus}/index` | Index a single document |
 | DELETE | `/v1/corpus/{corpus}/index` | Delete the corpus index |
