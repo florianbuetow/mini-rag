@@ -72,7 +72,7 @@ class BaseClient:
 
         try:
             raw_envelope: object = response.json()
-        except Exception as exc:
+        except (ValueError, UnicodeDecodeError) as exc:
             raise RuntimeError(f"invalid JSON response from {path}: {response.text}") from exc
 
         envelope = self._as_object_map(raw_envelope, f"response envelope from {path}")
@@ -100,7 +100,7 @@ class BaseClient:
 
         try:
             raw_envelope: object = response.json()
-        except Exception as exc:
+        except (ValueError, UnicodeDecodeError) as exc:
             raise RuntimeError("health endpoint returned invalid JSON") from exc
 
         envelope = self._as_object_map(raw_envelope, "health response envelope")

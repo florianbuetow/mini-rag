@@ -9,12 +9,12 @@ from minirag.search.types import SearchResult
 def test_merge_hybrid_results_combines_scores() -> None:
     """Hybrid merge should combine dense and sparse scores by alpha."""
     dense = [
-        SearchResult(chunk_id=1, text="a", score=1.0),
-        SearchResult(chunk_id=2, text="b", score=0.5),
+        SearchResult(chunk_id=1, document_id=1, citation_key="k1", text="a", score=1.0),
+        SearchResult(chunk_id=2, document_id=1, citation_key="k1", text="b", score=0.5),
     ]
     sparse = [
-        SearchResult(chunk_id=1, text="a", score=0.2),
-        SearchResult(chunk_id=3, text="c", score=1.0),
+        SearchResult(chunk_id=1, document_id=1, citation_key="k1", text="a", score=0.2),
+        SearchResult(chunk_id=3, document_id=2, citation_key="k2", text="c", score=1.0),
     ]
 
     merged = merge_hybrid_results(dense_results=dense, sparse_results=sparse, alpha=0.5, top_k=3)
@@ -23,6 +23,10 @@ def test_merge_hybrid_results_combines_scores() -> None:
     assert abs(merged[0].score - 0.6) < 1e-9
     assert abs(merged[1].score - 0.5) < 1e-9
     assert abs(merged[2].score - 0.25) < 1e-9
+    assert merged[0].document_id == 1
+    assert merged[0].citation_key == "k1"
+    assert merged[1].document_id == 2
+    assert merged[1].citation_key == "k2"
 
 
 @pytest.mark.parametrize(

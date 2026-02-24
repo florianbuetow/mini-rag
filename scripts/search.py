@@ -20,6 +20,7 @@ def print_help() -> None:
     print("  <query>             search using current mode")
     print("  /mode <mode>        switch mode (dense, sparse, hybrid)")
     print("  /topk <n>           set number of results")
+    print("  /citation <key>     fetch citation metadata by key")
     print("  /help               show this help")
     print("  /quit               exit")
     print()
@@ -62,6 +63,20 @@ def run_search(client: QueryClient, corpus: str, mode: str, query: str, top_k: i
     print(json.dumps(output, indent=2, ensure_ascii=False))
 
 
+def handle_citation(query: str, client: QueryClient, corpus: str) -> None:
+    """Parse /citation command and fetch citation metadata."""
+    parts = query.split(maxsplit=1)
+    if len(parts) < 2 or parts[1].strip() == "":
+        print("Usage: /citation <citation_key>")
+        return
+    citation_key = parts[1].strip()
+    try:
+        data = client.get_citation(corpus=corpus, citation_key=citation_key)
+        print(json.dumps(data, indent=2, ensure_ascii=False))
+    except Exception as err:
+        print(f"Error: {err}", file=sys.stderr)
+
+
 def handle_command(query: str, client: QueryClient, corpus: str, mode: str, top_k: int) -> tuple[str, int]:
     """Dispatch a single input line. Returns updated (mode, top_k)."""
     if query == "/help":
@@ -74,6 +89,8 @@ def handle_command(query: str, client: QueryClient, corpus: str, mode: str, top_
         new_topk = handle_topk(query)
         if new_topk is not None:
             top_k = new_topk
+    elif query.startswith("/citation"):
+        handle_citation(query, client, corpus)
     elif query.startswith("/"):
         print(f"Unknown command: {query}")
         print_help()

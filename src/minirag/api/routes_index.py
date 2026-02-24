@@ -47,8 +47,13 @@ async def index_document(request: Request, corpus: str) -> JSONResponse:
     except ValueError as exc:
         return error_response(status=400, message=str(exc))
 
+    citation_payload = parsed_payload.citation.model_dump() if parsed_payload.citation is not None else None
     try:
-        document_id, chunk_ids = await asyncio.to_thread(orchestration.index_document, parsed_payload.document)
+        document_id, chunk_ids = await asyncio.to_thread(
+            orchestration.index_document,
+            parsed_payload.document,
+            citation_payload,
+        )
     except ValueError as exc:
         return error_response(status=400, message=str(exc))
     except RuntimeError as exc:

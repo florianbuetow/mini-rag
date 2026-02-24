@@ -26,9 +26,7 @@ By default the server connects to the mini-rag service at `http://127.0.0.1:7001
 REST_BASE=http://localhost:9000 npm start
 ```
 
-## Tool
-
-The server exposes a single tool:
+## Tools
 
 ### `search`
 
@@ -41,6 +39,19 @@ Search a mini-rag corpus using hybrid search (dense + sparse).
 | `top_k`   | integer | no       | 10      | Number of results to return    |
 
 Before each search, the server checks the mini-rag health endpoint with a 3-second timeout. If the service is unreachable or unhealthy, the tool returns: "Search system is currently offline."
+
+### `get_citation`
+
+Get citation/source metadata for a document by its citation key.
+
+| Parameter      | Type   | Required | Description                        |
+|----------------|--------|----------|------------------------------------|
+| `corpus`       | string | yes      | Name of the corpus                 |
+| `citation_key` | string | yes      | Citation key from search results   |
+
+### `list_corpora`
+
+List all available corpora that can be searched. Takes no parameters.
 
 ## MCP Client Configuration
 

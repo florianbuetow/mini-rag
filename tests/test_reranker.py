@@ -109,9 +109,9 @@ def test_reranker_logs_warning_when_cache_kwargs_are_unsupported(
 def test_reranker_reranks_and_normalizes_scores(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     reranker, _, fake_module = _make_cross_encoder_reranker(monkeypatch=monkeypatch, tmp_path=tmp_path, scores=[0.0, 2.0, -2.0])
     results = [
-        SearchResult(chunk_id=1, text="alpha", score=0.4),
-        SearchResult(chunk_id=2, text="beta", score=0.4),
-        SearchResult(chunk_id=3, text="gamma", score=0.4),
+        SearchResult(chunk_id=1, document_id=1, citation_key="k", text="alpha", score=0.4),
+        SearchResult(chunk_id=2, document_id=1, citation_key="k", text="beta", score=0.4),
+        SearchResult(chunk_id=3, document_id=1, citation_key="k", text="gamma", score=0.4),
     ]
 
     reranked = reranker.rerank(query="query", results=results, top_k=2)
@@ -133,13 +133,13 @@ def test_reranker_empty_results_returns_empty(tmp_path: Path, monkeypatch: pytes
 def test_reranker_rejects_empty_query(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     reranker, _, _ = _make_cross_encoder_reranker(monkeypatch=monkeypatch, tmp_path=tmp_path, scores=[0.1])
     with pytest.raises(ValueError, match="query must not be empty"):
-        reranker.rerank(query="   ", results=[SearchResult(chunk_id=1, text="a", score=0.1)], top_k=1)
+        reranker.rerank(query="   ", results=[SearchResult(chunk_id=1, document_id=1, citation_key="k", text="a", score=0.1)], top_k=1)
 
 
 def test_reranker_rejects_invalid_top_k(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     reranker, _, _ = _make_cross_encoder_reranker(monkeypatch=monkeypatch, tmp_path=tmp_path, scores=[0.1])
     with pytest.raises(ValueError, match="top_k must be greater than 0"):
-        reranker.rerank(query="query", results=[SearchResult(chunk_id=1, text="a", score=0.1)], top_k=0)
+        reranker.rerank(query="query", results=[SearchResult(chunk_id=1, document_id=1, citation_key="k", text="a", score=0.1)], top_k=0)
 
 
 def test_reranker_rejects_empty_model_name(tmp_path: Path) -> None:
@@ -163,9 +163,9 @@ def test_reranker_rejects_invalid_candidate_multiplier(tmp_path: Path) -> None:
 def test_reranker_batch_scoring(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     reranker, fake_model, _ = _make_cross_encoder_reranker(monkeypatch=monkeypatch, tmp_path=tmp_path, scores=[0.1, 0.2, 0.3])
     results = [
-        SearchResult(chunk_id=1, text="one", score=0.4),
-        SearchResult(chunk_id=2, text="two", score=0.3),
-        SearchResult(chunk_id=3, text="three", score=0.2),
+        SearchResult(chunk_id=1, document_id=1, citation_key="k", text="one", score=0.4),
+        SearchResult(chunk_id=2, document_id=1, citation_key="k", text="two", score=0.3),
+        SearchResult(chunk_id=3, document_id=1, citation_key="k", text="three", score=0.2),
     ]
 
     reranker.rerank(query="query", results=results, top_k=3)
@@ -204,6 +204,10 @@ class FakeEmbeddings:
 
 
 class FakeStorage:
+    def insert_document_with_citation(self, content: str, citation: dict[str, object] | None) -> int:
+        del content, citation
+        return 1
+
     def insert_document(self, content: str) -> int:
         del content
         return 1
@@ -212,11 +216,21 @@ class FakeStorage:
         del document_id, content
         return 1
 
+    def insert_citation(self, citation_key: str, document_id: int, citation_json: str) -> None:
+        del citation_key, document_id, citation_json
+
     def get_document(self, document_id: int) -> str:
         return f"doc {document_id}"
 
     def get_chunk(self, chunk_id: int) -> ChunkWithDocument:
         return ChunkWithDocument(document_id=chunk_id, content=f"text {chunk_id}")
+
+    def get_citation_key(self, document_id: int) -> str | None:
+        return str(document_id)
+
+    def get_citation(self, citation_key: str) -> str | None:
+        del citation_key
+        return None
 
     def list_chunks(self, document_id: int) -> list[ChunkRecord]:
         del document_id
@@ -291,6 +305,8 @@ class FakeReranker:
         reranked = [
             SearchResult(
                 chunk_id=result.chunk_id,
+                document_id=result.document_id,
+                citation_key=result.citation_key,
                 text=result.text,
                 score=1.0 - 0.01 * idx,
             )

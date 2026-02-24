@@ -21,3 +21,9 @@ class ValidationError(ValueError): ...
 
 def field_validator(__field: str, *fields: str, mode: str = ...) -> Callable[[_F], _F]: ...
 
+def Field(
+    default: Any = ...,
+    *,
+    default_factory: Callable[[], Any] | None = ...,
+    **kwargs: Any,
+) -> Any: ...

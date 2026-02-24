@@ -2,6 +2,8 @@
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
+from minirag.api.models.citation import CitationInput
+
 
 class IndexRequest(BaseModel):
     """Request model for indexing a single document."""
@@ -9,6 +11,7 @@ class IndexRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     document: str
+    citation: CitationInput | None = None
 
     @field_validator("document")
     @classmethod

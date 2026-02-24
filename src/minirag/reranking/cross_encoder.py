@@ -116,6 +116,8 @@ class CrossEncoderReranker:
         rescored_results = [
             SearchResult(
                 chunk_id=result.chunk_id,
+                document_id=result.document_id,
+                citation_key=result.citation_key,
                 text=result.text,
                 score=self._sigmoid(score),
             )

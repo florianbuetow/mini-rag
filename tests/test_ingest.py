@@ -1,10 +1,11 @@
 """Unit tests for the ingestion script."""
 
+import json
 from pathlib import Path
 
 import pytest
 
-from scripts.ingest import ingest_files, resolve_input_dir
+from scripts.ingest import infer_source_type, ingest_files, load_citation, normalize_flat_citation, resolve_input_dir
 
 CORPUS = "testcorpus"
 
@@ -15,17 +16,19 @@ class FakeIndexingClient:
     def __init__(self, fail_on: set[str] | None = None) -> None:
         self.destroyed = False
         self.indexed: list[str] = []
+        self.citations: list[dict[str, object] | None] = []
         self._fail_on = fail_on or set()
 
     def destroy_index(self, corpus: str) -> None:
         del corpus
         self.destroyed = True
 
-    def index_document(self, corpus: str, text: str) -> tuple[int, list[int]]:
+    def index_document(self, corpus: str, text: str, citation: dict[str, object] | None = None) -> tuple[int, list[int]]:
         del corpus
         if text.strip() in self._fail_on:
             raise RuntimeError(f"simulated failure for: {text.strip()}")
         self.indexed.append(text)
+        self.citations.append(citation)
         doc_id = len(self.indexed)
         return (doc_id, [doc_id * 10 + 1])
 
@@ -73,6 +76,12 @@ def test_ingest_successful(tmp_path: Path) -> None:
 
     assert client.destroyed
     assert len(client.indexed) == 2
+    assert len(client.citations) == 2
+    # Auto-generated citations should have stem as citation_key
+    for citation in client.citations:
+        assert citation is not None
+        assert "citation_key" in citation
+        assert citation["source_type"] == "text_file"
 
 
 def test_ingest_fails_fast_on_first_error(tmp_path: Path) -> None:
@@ -102,3 +111,195 @@ def test_ingest_skips_empty_files(tmp_path: Path) -> None:
 
     assert client.destroyed
     assert len(client.indexed) == 2
+
+
+def test_load_citation_from_json_file(tmp_path: Path) -> None:
+    """load_citation should load citation from matching .json file."""
+    txt_path = tmp_path / "doc.txt"
+    txt_path.write_text("content", encoding="utf-8")
+    json_path = tmp_path / "doc.json"
+    citation_data: dict[str, object] = {"citation_key": "doc_key", "source_type": "journal", "common": {}, "source_data": {}}
+    json_path.write_text(json.dumps(citation_data), encoding="utf-8")
+
+    result = load_citation(txt_path)
+    assert result["citation_key"] == "doc_key"
+    assert result["source_type"] == "journal"
+
+
+def test_load_citation_auto_generates_when_no_json(tmp_path: Path) -> None:
+    """load_citation should auto-generate citation when no .json file exists."""
+    txt_path = tmp_path / "my_document.txt"
+    txt_path.write_text("content", encoding="utf-8")
+
+    result = load_citation(txt_path)
+    assert result["citation_key"] == "my_document"
+    assert result["source_type"] == "text_file"
+    common = result["common"]
+    assert isinstance(common, dict)
+    assert common["title"] == "my_document.txt"
+
+
+def test_load_citation_rejects_malformed_json(tmp_path: Path) -> None:
+    """load_citation should fail fast on malformed JSON."""
+    txt_path = tmp_path / "bad.txt"
+    txt_path.write_text("content", encoding="utf-8")
+    json_path = tmp_path / "bad.json"
+    json_path.write_text("{not valid json", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="malformed citation JSON"):
+        load_citation(txt_path)
+
+
+def test_load_citation_rejects_missing_citation_key(tmp_path: Path) -> None:
+    """load_citation should fail when citation_key is missing."""
+    txt_path = tmp_path / "nokey.txt"
+    txt_path.write_text("content", encoding="utf-8")
+    json_path = tmp_path / "nokey.json"
+    json_path.write_text(json.dumps({"source_type": "journal"}), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="missing 'citation_key'"):
+        load_citation(txt_path)
+
+
+def test_load_citation_rejects_missing_source_type(tmp_path: Path) -> None:
+    """load_citation should fail when source_type is missing."""
+    txt_path = tmp_path / "notype.txt"
+    txt_path.write_text("content", encoding="utf-8")
+    json_path = tmp_path / "notype.json"
+    json_path.write_text(json.dumps({"citation_key": "key1"}), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="cannot infer source_type"):
+        load_citation(txt_path)
+
+
+def test_ingest_with_json_citation(tmp_path: Path) -> None:
+    """Ingestion should pass citation from .json file to client."""
+    (tmp_path / "a.txt").write_text("content", encoding="utf-8")
+    citation_data: dict[str, object] = {"citation_key": "custom_key", "source_type": "blog", "common": {}, "source_data": {}}
+    (tmp_path / "a.json").write_text(json.dumps(citation_data), encoding="utf-8")
+
+    client = FakeIndexingClient()
+    ingest_files(client=client, corpus=CORPUS, input_dir=tmp_path, data_dir=tmp_path)  # type: ignore[arg-type]
+
+    assert len(client.citations) == 1
+    assert client.citations[0] is not None
+    assert client.citations[0]["citation_key"] == "custom_key"
+
+
+# --- normalize_flat_citation tests ---
+
+
+def test_normalize_flat_citation_renames_cite_key() -> None:
+    """cite_key should be renamed to citation_key."""
+    flat: dict[str, object] = {"cite_key": "k1", "source_type": "blog", "title": "T"}
+    result = normalize_flat_citation(flat, Path("test.json"))
+    assert result["citation_key"] == "k1"
+    assert "cite_key" not in result
+
+
+def test_normalize_flat_citation_infers_journal_from_doi() -> None:
+    """Flat citation with doi should infer source_type=journal."""
+    flat: dict[str, object] = {"citation_key": "k1", "title": "T", "doi": "10.1234/test"}
+    result = normalize_flat_citation(flat, Path("test.json"))
+    assert result["source_type"] == "journal"
+    source_data = result["source_data"]
+    assert isinstance(source_data, dict)
+    assert source_data["doi"] == "10.1234/test"
+
+
+def test_normalize_flat_citation_infers_book_from_isbn() -> None:
+    """Flat citation with isbn should infer source_type=book."""
+    flat: dict[str, object] = {"citation_key": "k1", "title": "T", "isbn": "978-0-13-468599-1"}
+    result = normalize_flat_citation(flat, Path("test.json"))
+    assert result["source_type"] == "book"
+
+
+def test_normalize_flat_citation_infers_arxiv_from_url() -> None:
+    """Flat citation with arxiv URL should infer source_type=arxiv."""
+    flat: dict[str, object] = {"citation_key": "k1", "title": "T", "url": "https://arxiv.org/abs/1234.5678"}
+    result = normalize_flat_citation(flat, Path("test.json"))
+    assert result["source_type"] == "arxiv"
+
+
+def test_normalize_flat_citation_infers_youtube_from_url() -> None:
+    """Flat citation with youtube URL should infer source_type=youtube."""
+    flat: dict[str, object] = {"citation_key": "k1", "title": "T", "url": "https://youtube.com/watch?v=abc"}
+    result = normalize_flat_citation(flat, Path("test.json"))
+    assert result["source_type"] == "youtube"
+
+
+def test_normalize_flat_citation_passes_through_nested() -> None:
+    """Already-nested citation (with source_type and common) should pass through."""
+    nested: dict[str, object] = {"citation_key": "k1", "source_type": "journal", "common": {"title": "T"}, "source_data": {}}
+    result = normalize_flat_citation(nested, Path("test.json"))
+    assert result == nested
+
+
+def test_normalize_flat_citation_renames_fields() -> None:
+    """journal should be renamed to journal_name, number to issue."""
+    flat: dict[str, object] = {"citation_key": "k1", "source_type": "journal", "journal": "Nature", "number": "42"}
+    result = normalize_flat_citation(flat, Path("test.json"))
+    source_data = result["source_data"]
+    assert isinstance(source_data, dict)
+    assert source_data["journal_name"] == "Nature"
+    assert source_data["issue"] == "42"
+
+
+def test_normalize_flat_citation_unknown_fields_raise() -> None:
+    """Unrecognized fields should raise ValueError."""
+    flat: dict[str, object] = {"citation_key": "k1", "source_type": "journal", "custom_field": "value"}
+    with pytest.raises(ValueError, match="unrecognized citation fields"):
+        normalize_flat_citation(flat, Path("test.json"))
+
+
+def test_normalize_flat_citation_preserves_provided_source_type() -> None:
+    """When source_type is already provided in flat format, it should be preserved."""
+    flat: dict[str, object] = {"citation_key": "k1", "source_type": "blog", "title": "My Post", "blog_name": "My Blog"}
+    result = normalize_flat_citation(flat, Path("test.json"))
+    assert result["source_type"] == "blog"
+    source_data = result["source_data"]
+    assert isinstance(source_data, dict)
+    assert source_data["blog_name"] == "My Blog"
+
+
+def test_normalize_flat_citation_book_publisher_in_source_data() -> None:
+    """Book publisher should be in source_data, not common."""
+    flat: dict[str, object] = {"citation_key": "k1", "source_type": "book", "title": "T", "publisher": "Pub"}
+    result = normalize_flat_citation(flat, Path("test.json"))
+    source_data = result["source_data"]
+    assert isinstance(source_data, dict)
+    assert source_data["publisher"] == "Pub"
+    common = result["common"]
+    assert isinstance(common, dict)
+    assert "publisher" not in common
+
+
+def test_normalize_flat_citation_raises_when_source_type_undetermined() -> None:
+    """Should raise ValueError when source_type cannot be inferred."""
+    flat: dict[str, object] = {"citation_key": "k1", "title": "T"}
+    with pytest.raises(ValueError, match="cannot infer source_type"):
+        normalize_flat_citation(flat, Path("test.json"))
+
+
+# --- infer_source_type tests ---
+
+
+def test_infer_source_type_from_doi() -> None:
+    """doi field should infer journal."""
+    assert infer_source_type({"doi": "10.1234/test"}, Path("t.json")) == "journal"
+
+
+def test_infer_source_type_from_podcast_name() -> None:
+    """podcast_name field should infer podcast."""
+    assert infer_source_type({"podcast_name": "My Pod"}, Path("t.json")) == "podcast"
+
+
+def test_infer_source_type_from_arxiv_url() -> None:
+    """arxiv.org URL should infer arxiv."""
+    assert infer_source_type({"url": "https://arxiv.org/abs/2301.00001"}, Path("t.json")) == "arxiv"
+
+
+def test_infer_source_type_raises_when_undetermined() -> None:
+    """Should raise ValueError when no inference rule matches."""
+    with pytest.raises(ValueError, match="cannot infer source_type"):
+        infer_source_type({"title": "T"}, Path("t.json"))

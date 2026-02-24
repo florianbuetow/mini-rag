@@ -42,7 +42,6 @@ dependencies = [
 
     # Git Hooks
     "pre-commit>=3.6.0",
-    "rouge-score>=0.1.2",
 ]
 
 [build-system]
@@ -95,6 +94,7 @@ convention = "google"
 "tests/**/*.py" = ["D", "ANN"]
 "tests_integration/**/*.py" = ["D", "ANN"]
 "tests_e2e/**/*.py" = ["D", "ANN"]
+"tests_mcp/**/*.py" = ["D", "ANN"]
 "scripts/**/*.py" = ["D", "ANN"]
 
 [tool.ruff.format]

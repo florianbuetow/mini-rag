@@ -4,6 +4,30 @@ import { z } from "zod";
 
 const REST_BASE = process.env.REST_BASE ?? "http://127.0.0.1:7001";
 const HEALTH_TIMEOUT_MS = 3000;
+const REQUEST_TIMEOUT_MS = 5000;
+const MAX_ERROR_BODY_CHARS = 400;
+
+function parseJsonBody(text: string): unknown {
+  if (text.trim() === "") {
+    return null;
+  }
+  return JSON.parse(text);
+}
+
+function extractErrorMessage(text: string, status: number): string {
+  if (text.trim() === "") {
+    return `HTTP ${status}`;
+  }
+  try {
+    const parsed = JSON.parse(text) as { error?: unknown };
+    if (typeof parsed?.error === "string") {
+      return parsed.error;
+    }
+  } catch {
+    return text.slice(0, MAX_ERROR_BODY_CHARS);
+  }
+  return `HTTP ${status}`;
+}
 
 const server = new McpServer({
   name: "minirag",
@@ -19,16 +43,22 @@ server.tool(
     top_k: z.number().int().positive().default(10).describe("Number of results to return"),
   },
   async ({ corpus, query, top_k }) => {
+    console.error(`[minirag] search: corpus=${corpus} query="${query}" top_k=${top_k}`);
     try {
       const healthResponse = await fetch(`${REST_BASE}/v1/health`, {
         signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS),
       });
-      const healthData = (await healthResponse.json()) as { data?: { status?: string } };
-      if (healthData.data?.status !== "healthy") {
+      if (!healthResponse.ok) {
+        return { content: [{ type: "text", text: `Search system health check failed: HTTP ${healthResponse.status}` }], isError: true };
+      }
+      const healthBodyText = await healthResponse.text();
+      const healthData = parseJsonBody(healthBodyText) as { data?: { status?: string } } | null;
+      if (healthData?.data?.status !== "healthy") {
         return { content: [{ type: "text", text: "Search system is currently offline." }], isError: true };
       }
-    } catch {
-      return { content: [{ type: "text", text: "Search system is currently offline." }], isError: true };
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      return { content: [{ type: "text", text: `Search system is unreachable: ${detail}` }], isError: true };
     }
 
     try {
@@ -36,9 +66,123 @@ server.tool(
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query, top_k }),
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
-      const data = await response.json();
-      return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+      const bodyText = await response.text();
+      if (!response.ok) {
+        const errorMsg = extractErrorMessage(bodyText, response.status);
+        return { content: [{ type: "text", text: `Search failed: ${errorMsg}` }], isError: true };
+      }
+      try {
+        const data = parseJsonBody(bodyText);
+        return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        return { content: [{ type: "text", text: `Search failed to parse JSON response: ${detail}` }], isError: true };
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { content: [{ type: "text", text: `Error: ${message}` }], isError: true };
+    }
+  },
+);
+
+server.tool(
+  "get_citation",
+  "Get citation/source metadata for a document by its citation key",
+  {
+    corpus: z.string().regex(/^[a-zA-Z][a-zA-Z0-9_-]*$/, "must start with a letter, then alphanumeric, underscore, or dash").describe("Name of the corpus"),
+    citation_key: z.string().describe("Citation key from search results"),
+  },
+  async ({ corpus, citation_key }) => {
+    console.error(`[minirag] get_citation: corpus=${corpus} citation_key="${citation_key}"`);
+    try {
+      const healthResponse = await fetch(`${REST_BASE}/v1/health`, {
+        signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS),
+      });
+      if (!healthResponse.ok) {
+        return { content: [{ type: "text", text: `Search system health check failed: HTTP ${healthResponse.status}` }], isError: true };
+      }
+      const healthBodyText = await healthResponse.text();
+      const healthData = parseJsonBody(healthBodyText) as { data?: { status?: string } } | null;
+      if (healthData?.data?.status !== "healthy") {
+        return { content: [{ type: "text", text: "Search system is currently offline." }], isError: true };
+      }
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      return { content: [{ type: "text", text: `Search system is unreachable: ${detail}` }], isError: true };
+    }
+
+    try {
+      const response = await fetch(`${REST_BASE}/v1/corpus/${encodeURIComponent(corpus)}/citation/${encodeURIComponent(citation_key)}`, {
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+      const bodyText = await response.text();
+      if (response.status === 404) {
+        return { content: [{ type: "text", text: `No citation found for key: ${citation_key}` }], isError: true };
+      }
+      if (!response.ok) {
+        const errorMsg = extractErrorMessage(bodyText, response.status);
+        return { content: [{ type: "text", text: `Citation lookup failed: ${errorMsg}` }], isError: true };
+      }
+      try {
+        const data = parseJsonBody(bodyText);
+        return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        return { content: [{ type: "text", text: `Citation lookup failed to parse JSON response: ${detail}` }], isError: true };
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { content: [{ type: "text", text: `Error: ${message}` }], isError: true };
+    }
+  },
+);
+
+server.tool(
+  "list_corpora",
+  "List all available corpora that can be searched",
+  {},
+  async () => {
+    console.error("[minirag] list_corpora");
+    try {
+      const healthResponse = await fetch(`${REST_BASE}/v1/health`, {
+        signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS),
+      });
+      if (!healthResponse.ok) {
+        return { content: [{ type: "text", text: `Search system health check failed: HTTP ${healthResponse.status}` }], isError: true };
+      }
+      const healthBodyText = await healthResponse.text();
+      const healthData = parseJsonBody(healthBodyText) as { data?: { status?: string } } | null;
+      if (healthData?.data?.status !== "healthy") {
+        return { content: [{ type: "text", text: "Search system is currently offline." }], isError: true };
+      }
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      return { content: [{ type: "text", text: `Search system is unreachable: ${detail}` }], isError: true };
+    }
+
+    try {
+      const response = await fetch(`${REST_BASE}/v1/corpora`, {
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+      const bodyText = await response.text();
+      if (!response.ok) {
+        const errorMsg = extractErrorMessage(bodyText, response.status);
+        return { content: [{ type: "text", text: `Failed to list corpora: ${errorMsg}` }], isError: true };
+      }
+      let data: { data?: { corpora?: string[] } } | null = null;
+      try {
+        data = parseJsonBody(bodyText) as { data?: { corpora?: string[] } } | null;
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        return { content: [{ type: "text", text: `Failed to parse corpora response: ${detail}` }], isError: true };
+      }
+      const corpora = data?.data?.corpora ?? [];
+      if (corpora.length === 0) {
+        return { content: [{ type: "text", text: "No corpora available. Ingest documents first using `just ingest <corpus>`." }] };
+      }
+      return { content: [{ type: "text", text: `Available corpora:\n${corpora.map((c: string) => `  - ${c}`).join("\n")}` }] };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return { content: [{ type: "text", text: `Error: ${message}` }], isError: true };

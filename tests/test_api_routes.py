@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 import minirag.api.routes_info as routes_info
 from minirag.api.app import unhandled_exception_handler
+from minirag.api.routes_citation import router as citation_router
 from minirag.api.routes_index import router as index_router
 from minirag.api.routes_info import router as info_router
 from minirag.api.routes_query import router as query_router
@@ -36,8 +37,11 @@ class FakeConfig:
 class FakeOrchestration:
     """Fake orchestration backend for route tests."""
 
-    def index_document(self, text: str) -> tuple[int, list[int]]:
-        del text
+    def __init__(self) -> None:
+        self.citations: dict[str, dict[str, object]] = {}
+
+    def index_document(self, text: str, citation: dict[str, object] | None = None) -> tuple[int, list[int]]:
+        del text, citation
         return (1, [1, 2])
 
     def destroy_index(self) -> None:
@@ -46,17 +50,20 @@ class FakeOrchestration:
     def close_storage(self) -> None:
         return None
 
+    def get_citation(self, citation_key: str) -> dict[str, object] | None:
+        return self.citations.get(citation_key)
+
     def search_dense(self, query: str, top_k: int) -> list[SearchResult]:
         del query, top_k
-        return [SearchResult(chunk_id=1, text="dense", score=0.9)]
+        return [SearchResult(chunk_id=1, document_id=1, citation_key="key1", text="dense", score=0.9)]
 
     def search_sparse(self, query: str, top_k: int) -> list[SearchResult]:
         del query, top_k
-        return [SearchResult(chunk_id=2, text="sparse", score=0.8)]
+        return [SearchResult(chunk_id=2, document_id=1, citation_key="key1", text="sparse", score=0.8)]
 
     def search_hybrid(self, query: str, top_k: int) -> list[SearchResult]:
         del query, top_k
-        return [SearchResult(chunk_id=3, text="hybrid", score=0.85)]
+        return [SearchResult(chunk_id=3, document_id=1, citation_key="key1", text="hybrid", score=0.85)]
 
 
 class FakeCorpusManager:
@@ -64,6 +71,7 @@ class FakeCorpusManager:
 
     def __init__(self, orchestration: object) -> None:
         self._orchestration = orchestration
+        self._corpora = ["test"]
 
     def get(self, corpus: str) -> object:
         validate_corpus_name(corpus)
@@ -74,6 +82,9 @@ class FakeCorpusManager:
         orch = self._orchestration
         if hasattr(orch, "destroy_index"):
             orch.destroy_index()  # type: ignore[union-attr]
+
+    def list_corpora(self) -> list[str]:
+        return list(self._corpora)
 
 
 def make_test_client() -> TestClient:
@@ -87,6 +98,7 @@ def make_test_client() -> TestClient:
     app.include_router(info_router)
     app.include_router(index_router)
     app.include_router(query_router)
+    app.include_router(citation_router)
 
     return TestClient(app)
 
@@ -102,6 +114,10 @@ def test_info_and_health_routes() -> None:
     assert info_response.status_code == 200
     assert "config" in info_response.json()["data"]
 
+    corpora_response = client.get("/v1/corpora")
+    assert corpora_response.status_code == 200
+    assert corpora_response.json()["data"]["corpora"] == ["test"]
+
 
 def test_index_and_query_routes() -> None:
     """Index and query routes should parse payloads and return results."""
@@ -113,6 +129,9 @@ def test_index_and_query_routes() -> None:
 
     dense_response = client.post(f"/v1/corpus/{CORPUS}/query/dense", json={"query": "hello", "top_k": 3})
     assert dense_response.status_code == 200
+    dense_data = dense_response.json()["data"]
+    assert dense_data["results"][0]["document_id"] == 1
+    assert dense_data["results"][0]["citation_key"] == "key1"
 
     sparse_response = client.post(f"/v1/corpus/{CORPUS}/query/sparse", json={"query": "hello", "top_k": 3})
     assert sparse_response.status_code == 200
@@ -143,8 +162,8 @@ class ErrorOrchestration:
     def __init__(self, error: Exception) -> None:
         self._error = error
 
-    def index_document(self, text: str) -> tuple[int, list[int]]:
-        del text
+    def index_document(self, text: str, citation: dict[str, object] | None = None) -> tuple[int, list[int]]:
+        del text, citation
         raise self._error
 
     def destroy_index(self) -> None:
@@ -152,6 +171,10 @@ class ErrorOrchestration:
 
     def close_storage(self) -> None:
         return None
+
+    def get_citation(self, citation_key: str) -> dict[str, object] | None:
+        del citation_key
+        raise self._error
 
     def search_dense(self, query: str, top_k: int) -> list[SearchResult]:
         del query, top_k
@@ -181,6 +204,9 @@ class ErrorCorpusManager:
         validate_corpus_name(corpus)
         raise self._error
 
+    def list_corpora(self) -> list[str]:
+        raise self._error
+
 
 def _make_error_client(error: Exception) -> TestClient:
     app = FastAPI()
@@ -191,6 +217,7 @@ def _make_error_client(error: Exception) -> TestClient:
     app.include_router(info_router)
     app.include_router(index_router)
     app.include_router(query_router)
+    app.include_router(citation_router)
     return TestClient(app)
 
 
@@ -400,3 +427,114 @@ def test_invalid_corpus_name_returns_400() -> None:
     resp = client.delete("/v1/corpus/123bad/index")
     assert resp.status_code == 400
     assert "invalid corpus name" in resp.json()["error"]
+
+
+def test_citation_route_returns_200() -> None:
+    """GET citation should return 200 with citation data when found."""
+    orch = FakeOrchestration()
+    citation_data: dict[str, object] = {
+        "citation_key": "smith2026",
+        "source_type": "journal",
+        "common": {"title": "Test"},
+        "source_data": {},
+    }
+    orch.citations["smith2026"] = citation_data
+
+    app = FastAPI()
+    app.state.app_status = "healthy"
+    app.state.config = FakeConfig()
+    app.state.corpus_manager = FakeCorpusManager(orch)
+    app.add_exception_handler(Exception, unhandled_exception_handler)
+    app.include_router(citation_router)
+
+    client = TestClient(app)
+    resp = client.get(f"/v1/corpus/{CORPUS}/citation/smith2026")
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["citation_key"] == "smith2026"
+    assert data["source_type"] == "journal"
+
+
+def test_citation_route_returns_full_citation_data() -> None:
+    """GET citation should return all citation fields including common and source_data."""
+    orch = FakeOrchestration()
+    citation_data: dict[str, object] = {
+        "citation_key": "martinez2026",
+        "source_type": "research_story",
+        "common": {"title": "The Quantum Discovery", "author": "Dr. Elena Martinez", "date": "2026-02-09", "language": "en"},
+        "source_data": {"topic": "quantum_computing", "subtopics": ["quantum_error_correction"], "institution": "Stanford University"},
+    }
+    orch.citations["martinez2026"] = citation_data
+
+    app = FastAPI()
+    app.state.app_status = "healthy"
+    app.state.config = FakeConfig()
+    app.state.corpus_manager = FakeCorpusManager(orch)
+    app.add_exception_handler(Exception, unhandled_exception_handler)
+    app.include_router(citation_router)
+
+    client = TestClient(app)
+    resp = client.get(f"/v1/corpus/{CORPUS}/citation/martinez2026")
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["citation_key"] == "martinez2026"
+    assert data["source_type"] == "research_story"
+    assert data["common"]["title"] == "The Quantum Discovery"
+    assert data["common"]["author"] == "Dr. Elena Martinez"
+    assert data["common"]["date"] == "2026-02-09"
+    assert data["common"]["language"] == "en"
+    assert data["source_data"]["topic"] == "quantum_computing"
+    assert data["source_data"]["subtopics"] == ["quantum_error_correction"]
+    assert data["source_data"]["institution"] == "Stanford University"
+
+
+def test_citation_route_returns_404_when_not_found() -> None:
+    """GET citation should return 404 when citation_key does not exist."""
+    client = make_test_client()
+    resp = client.get(f"/v1/corpus/{CORPUS}/citation/nonexistent")
+    assert resp.status_code == 404
+    assert "citation not found" in resp.json()["error"]
+
+
+def test_citation_route_value_error_returns_400() -> None:
+    """ValueError from get_citation should return 400."""
+    client = _make_error_client(ValueError("bad citation request"))
+
+    resp = client.get(f"/v1/corpus/{CORPUS}/citation/somekey")
+    assert resp.status_code == 400
+    assert "bad citation request" in resp.json()["error"]
+
+
+def test_citation_route_unexpected_error_returns_500() -> None:
+    """Unexpected exception from get_citation should return 500."""
+    client = _make_error_client(OSError("disk failed"))
+
+    resp = client.get(f"/v1/corpus/{CORPUS}/citation/somekey")
+    assert resp.status_code == 500
+    assert resp.json()["error"] == "Internal server error"
+
+
+def test_citation_route_invalid_corpus_returns_400() -> None:
+    """GET citation with invalid corpus name should return 400."""
+    client = make_test_client()
+    resp = client.get("/v1/corpus/123bad/citation/somekey")
+    assert resp.status_code == 400
+    assert "invalid corpus name" in resp.json()["error"]
+
+
+def test_citation_route_malformed_data_returns_500() -> None:
+    """GET citation should return 500 when stored citation data is malformed."""
+    orch = FakeOrchestration()
+    orch.citations["bad_data"] = {"citation_key": "bad_data"}  # missing source_type, common, source_data
+
+    app = FastAPI()
+    app.state.app_status = "healthy"
+    app.state.config = FakeConfig()
+    app.state.corpus_manager = FakeCorpusManager(orch)
+    app.add_exception_handler(Exception, unhandled_exception_handler)
+    app.include_router(citation_router)
+
+    client = TestClient(app)
+    resp = client.get(f"/v1/corpus/{CORPUS}/citation/bad_data")
+    assert resp.status_code == 500
+    assert "malformed citation data" in resp.json()["error"]

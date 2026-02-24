@@ -44,7 +44,16 @@ async def _parse_query_request(request: Request) -> QueryRequest | JSONResponse:
 
 def _build_query_response(results: list[SearchResult]) -> QueryResponse:
     """Convert domain search results into API model response."""
-    response_results = [QueryResult(chunk_id=result.chunk_id, text=result.text, score=result.score) for result in results]
+    response_results = [
+        QueryResult(
+            chunk_id=result.chunk_id,
+            document_id=result.document_id,
+            citation_key=result.citation_key,
+            text=result.text,
+            score=result.score,
+        )
+        for result in results
+    ]
     return QueryResponse(results=response_results)
 
 
@@ -64,7 +73,7 @@ async def _run_query(
         return parsed_payload
 
     query_display = parsed_payload.query[:120] + "..." if len(parsed_payload.query) > 120 else parsed_payload.query
-    logger.debug('corpus=%s query="%s" top_k=%d', corpus, query_display, parsed_payload.top_k)
+    logger.info('%s corpus=%s query="%s" top_k=%d', search_name, corpus, query_display, parsed_payload.top_k)
 
     corpus_manager = get_corpus_manager(request)
     try:

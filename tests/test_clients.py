@@ -90,13 +90,13 @@ def test_indexing_and_query_clients_parse_payloads(monkeypatch: pytest.MonkeyPat
         if method == "DELETE" and path == "/v1/corpus/books/index":
             return {"message": "index destroyed"}
         if method == "POST" and path.startswith("/v1/corpus/"):
-            return {"results": [{"chunk_id": 1, "text": "x", "score": 0.9}]}
-        return {"results": [{"chunk_id": 1, "text": "x", "score": 0.9}]}
+            return {"results": [{"chunk_id": 1, "document_id": 1, "citation_key": "k1", "text": "x", "score": 0.9}]}
+        return {"results": [{"chunk_id": 1, "document_id": 1, "citation_key": "k1", "text": "x", "score": 0.9}]}
 
     monkeypatch.setattr(BaseClient, "_request", fake_request)
 
     indexing = IndexingClient(host="127.0.0.1", port=7001, http_client=None)
-    doc_id, chunk_ids = indexing.index_document("books", "hello")
+    doc_id, chunk_ids = indexing.index_document("books", "hello", citation=None)
     assert doc_id == 1
     assert chunk_ids == [1, 2, 3]
     indexing.destroy_index("books")
@@ -197,7 +197,7 @@ def test_indexing_client_rejects_empty_corpus() -> None:
     indexing = IndexingClient(host="127.0.0.1", port=7001, http_client=None)
 
     with pytest.raises(ValueError, match="invalid corpus name"):
-        indexing.index_document("", "hello")
+        indexing.index_document("", "hello", citation=None)
 
     with pytest.raises(ValueError, match="invalid corpus name"):
         indexing.destroy_index("")
@@ -236,10 +236,10 @@ def test_indexing_client_rejects_empty_text() -> None:
     indexing = IndexingClient(host="127.0.0.1", port=7001, http_client=None)
 
     with pytest.raises(ValueError, match="text must not be empty"):
-        indexing.index_document("books", "")
+        indexing.index_document("books", "", citation=None)
 
     with pytest.raises(ValueError, match="text must not be empty"):
-        indexing.index_document("books", "   ")
+        indexing.index_document("books", "   ", citation=None)
 
 
 def test_query_client_rejects_empty_query() -> None:
@@ -251,6 +251,34 @@ def test_query_client_rejects_empty_query() -> None:
 
     with pytest.raises(ValueError, match="query must not be empty"):
         query.search_dense("books", query="   ", top_k=3)
+
+
+def test_query_client_get_citation_encodes_and_uses_get(monkeypatch: pytest.MonkeyPatch) -> None:
+    """QueryClient should use GET and URL-encode citation_key."""
+    captured: dict[str, str] = {}
+
+    def fake_request(self: BaseClient, method: str, path: str, payload: object, require_healthy: bool) -> dict[str, object]:
+        del self, payload, require_healthy
+        captured["method"] = method
+        captured["path"] = path
+        return {"citation_key": "k1", "source_type": "journal", "common": {}, "source_data": {}}
+
+    monkeypatch.setattr(BaseClient, "_request", fake_request)
+
+    query = QueryClient(host="127.0.0.1", port=7001, http_client=None)
+    result = query.get_citation(corpus="books", citation_key="key with space")
+
+    assert captured["method"] == "GET"
+    assert captured["path"] == "/v1/corpus/books/citation/key%20with%20space"
+    assert result["citation_key"] == "k1"
+
+
+def test_query_client_get_citation_rejects_empty_key() -> None:
+    """QueryClient should reject empty citation_key."""
+    query = QueryClient(host="127.0.0.1", port=7001, http_client=None)
+
+    with pytest.raises(ValueError, match="citation_key must not be empty"):
+        query.get_citation(corpus="books", citation_key=" ")
 
 
 def test_query_client_rejects_non_positive_top_k() -> None:

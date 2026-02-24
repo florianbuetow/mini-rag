@@ -130,6 +130,13 @@ class CorpusManager:
             names = ", ".join(n for n, _ in errors)
             raise RuntimeError(f"failed to close storage for corpora: {names}")
 
+    def list_corpora(self) -> list[str]:
+        """Return sorted list of corpus names that have storage on disk."""
+        storage_dir = self._data_dir / "storage"
+        if not storage_dir.is_dir():
+            return []
+        return sorted(entry.name for entry in storage_dir.iterdir() if entry.is_dir() and _CORPUS_NAME_PATTERN.match(entry.name))
+
     def _create_orchestration(self, corpus: str) -> Orchestration:
         """Build backends for a corpus using the configured factory."""
         return self._backend_factory(
