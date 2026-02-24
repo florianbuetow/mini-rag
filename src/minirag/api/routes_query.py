@@ -73,7 +73,7 @@ async def _run_query(
         return parsed_payload
 
     query_display = parsed_payload.query[:120] + "..." if len(parsed_payload.query) > 120 else parsed_payload.query
-    logger.debug('corpus=%s query="%s" top_k=%d', corpus, query_display, parsed_payload.top_k)
+    logger.info('%s corpus=%s query="%s" top_k=%d', search_name, corpus, query_display, parsed_payload.top_k)
 
     corpus_manager = get_corpus_manager(request)
     try:
