@@ -14,15 +14,36 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Fetch citation metadata from a mini-rag corpus")
     parser.add_argument("--corpus", required=True, help="Name of the corpus")
     parser.add_argument("--config", default=None, help="Path to config file (default: config.yaml in project root)")
-    parser.add_argument("citation_keys", nargs="+", help="One or more citation keys to look up")
+    parser.add_argument("--keys-file", default=None, help="Path to file containing citation keys (use '-' for stdin)")
+    parser.add_argument("citation_keys", nargs="*", help="One or more citation keys to look up")
     return parser.parse_args()
+
+
+def _load_citation_keys(args: argparse.Namespace) -> list[str]:
+    if args.keys_file is None and not args.citation_keys:
+        raise ValueError("no citation keys provided")
+    if args.keys_file is not None and args.citation_keys:
+        raise ValueError("provide citation keys via positional args or --keys-file, not both")
+
+    if args.keys_file is None:
+        return [key for key in args.citation_keys if key.strip() != ""]
+
+    raw = sys.stdin.read() if args.keys_file == "-" else Path(args.keys_file).read_text(encoding="utf-8")
+    keys = [key for key in raw.split() if key.strip() != ""]
+    if not keys:
+        raise ValueError("no citation keys provided")
+    return keys
 
 
 def main() -> None:
     """Fetch and print citation data for each key."""
     args = parse_args()
     corpus: str = args.corpus
-    citation_keys: list[str] = args.citation_keys
+    try:
+        citation_keys = _load_citation_keys(args)
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
 
     project_root = Path(__file__).resolve().parent.parent
     config_path = Path(args.config).resolve() if args.config else project_root / "config.yaml"

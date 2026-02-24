@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Resolve and validate a corpus name.
 #
-# Usage: resolve_corpus.sh [corpus_name]
+# Usage: corpus_exists.sh [corpus_name]
 #
 # If corpus_name is provided, validates it exists and prints it.
 # If omitted, lists available corpora, prompts for input, then validates.

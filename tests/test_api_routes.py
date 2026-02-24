@@ -71,6 +71,7 @@ class FakeCorpusManager:
 
     def __init__(self, orchestration: object) -> None:
         self._orchestration = orchestration
+        self._corpora = ["test"]
 
     def get(self, corpus: str) -> object:
         validate_corpus_name(corpus)
@@ -81,6 +82,9 @@ class FakeCorpusManager:
         orch = self._orchestration
         if hasattr(orch, "destroy_index"):
             orch.destroy_index()  # type: ignore[union-attr]
+
+    def list_corpora(self) -> list[str]:
+        return list(self._corpora)
 
 
 def make_test_client() -> TestClient:
@@ -109,6 +113,10 @@ def test_info_and_health_routes() -> None:
     info_response = client.get("/v1/info")
     assert info_response.status_code == 200
     assert "config" in info_response.json()["data"]
+
+    corpora_response = client.get("/v1/corpora")
+    assert corpora_response.status_code == 200
+    assert corpora_response.json()["data"]["corpora"] == ["test"]
 
 
 def test_index_and_query_routes() -> None:
@@ -194,6 +202,9 @@ class ErrorCorpusManager:
 
     def destroy(self, corpus: str) -> None:
         validate_corpus_name(corpus)
+        raise self._error
+
+    def list_corpora(self) -> list[str]:
         raise self._error
 
 

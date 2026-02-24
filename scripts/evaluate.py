@@ -3,11 +3,10 @@
 import argparse
 import json
 import logging
+import re
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
-
-from rouge_score import rouge_scorer
 
 from minirag.clients.query import QueryClient
 from minirag.config import Config
@@ -61,12 +60,44 @@ def load_qa_pairs(evals_path: Path) -> list[dict[str, str]]:
     return qa_pairs
 
 
+def _tokenize(text: str, *, lowercase: bool) -> list[str]:
+    normalized = text.lower() if lowercase else text
+    return [token for token in re.split(r"\s+", normalized.strip()) if token]
+
+
+def _lcs_length(tokens_a: list[str], tokens_b: list[str]) -> int:
+    if not tokens_a or not tokens_b:
+        return 0
+
+    prev = [0] * (len(tokens_b) + 1)
+    curr = [0] * (len(tokens_b) + 1)
+
+    for token_a in tokens_a:
+        for j, token_b in enumerate(tokens_b, start=1):
+            if token_a == token_b:
+                curr[j] = prev[j - 1] + 1
+            else:
+                curr[j] = curr[j - 1] if curr[j - 1] >= prev[j] else prev[j]
+        prev, curr = curr, prev
+        curr[:] = [0] * len(curr)
+
+    return prev[-1]
+
+
+def _rouge_l_recall(target: str, prediction: str, *, lowercase: bool) -> float:
+    target_tokens = _tokenize(target, lowercase=lowercase)
+    prediction_tokens = _tokenize(prediction, lowercase=lowercase)
+    if not target_tokens:
+        return 0.0
+    lcs = _lcs_length(target_tokens, prediction_tokens)
+    return lcs / float(len(target_tokens))
+
+
 def evaluate_mode(
     client: QueryClient,
     corpus: str,
     mode: str,
     qa_pairs: list[dict[str, str]],
-    scorer: rouge_scorer.RougeScorer,
     top_k: int,
 ) -> dict[str, object]:
     """Evaluate retrieval quality for a single search mode."""
@@ -100,11 +131,7 @@ def evaluate_mode(
 
         retrieved_text = " ".join(r.text for r in results)
 
-        if retrieved_text.strip() == "":
-            rouge_l_recall = 0.0
-        else:
-            scores = scorer.score(target=answer, prediction=retrieved_text)
-            rouge_l_recall = scores["rougeL"].recall
+        rouge_l_recall = 0.0 if retrieved_text.strip() == "" else _rouge_l_recall(answer, retrieved_text, lowercase=True)
 
         total_recall += rouge_l_recall
         per_query.append(
@@ -185,8 +212,6 @@ def main() -> None:
     service_config = config.get_service_config()
     client = QueryClient(host=service_config.host, port=service_config.port, http_client=None)
 
-    scorer = rouge_scorer.RougeScorer(["rougeL"], use_stemmer=True)
-
     mode_results: dict[str, dict[str, object]] = {}
     for mode in SEARCH_MODES:
         logger.info("Evaluating mode=%s for corpus=%s", mode, corpus)
@@ -195,7 +220,6 @@ def main() -> None:
             corpus=corpus,
             mode=mode,
             qa_pairs=qa_pairs,
-            scorer=scorer,
             top_k=TOP_K,
         )
 

@@ -196,3 +196,15 @@ class TestCorpusManager:
         messages = [str(err) for err in exc_info.value.exceptions]
         assert any("destroy failed" in message for message in messages)
         assert any("close failed" in message for message in messages)
+
+    def test_list_corpora_returns_sorted_valid_names(self, manager: CorpusManager, tmp_path: Path) -> None:
+        """list_corpora should return sorted valid corpus names on disk."""
+        storage_dir = tmp_path / "storage"
+        storage_dir.mkdir()
+        (storage_dir / "beta").mkdir()
+        (storage_dir / "alpha").mkdir()
+        (storage_dir / "123bad").mkdir()
+        (storage_dir / "has space").mkdir()
+        (storage_dir / "not_a_dir.txt").write_text("x", encoding="utf-8")
+
+        assert manager.list_corpora() == ["alpha", "beta"]

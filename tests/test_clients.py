@@ -253,6 +253,34 @@ def test_query_client_rejects_empty_query() -> None:
         query.search_dense("books", query="   ", top_k=3)
 
 
+def test_query_client_get_citation_encodes_and_uses_get(monkeypatch: pytest.MonkeyPatch) -> None:
+    """QueryClient should use GET and URL-encode citation_key."""
+    captured: dict[str, str] = {}
+
+    def fake_request(self: BaseClient, method: str, path: str, payload: object, require_healthy: bool) -> dict[str, object]:
+        del self, payload, require_healthy
+        captured["method"] = method
+        captured["path"] = path
+        return {"citation_key": "k1", "source_type": "journal", "common": {}, "source_data": {}}
+
+    monkeypatch.setattr(BaseClient, "_request", fake_request)
+
+    query = QueryClient(host="127.0.0.1", port=7001, http_client=None)
+    result = query.get_citation(corpus="books", citation_key="key with space")
+
+    assert captured["method"] == "GET"
+    assert captured["path"] == "/v1/corpus/books/citation/key%20with%20space"
+    assert result["citation_key"] == "k1"
+
+
+def test_query_client_get_citation_rejects_empty_key() -> None:
+    """QueryClient should reject empty citation_key."""
+    query = QueryClient(host="127.0.0.1", port=7001, http_client=None)
+
+    with pytest.raises(ValueError, match="citation_key must not be empty"):
+        query.get_citation(corpus="books", citation_key=" ")
+
+
 def test_query_client_rejects_non_positive_top_k() -> None:
     """QueryClient should reject non-positive top_k values."""
     query = QueryClient(host="127.0.0.1", port=7001, http_client=None)

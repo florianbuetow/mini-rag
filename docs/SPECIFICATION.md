@@ -61,7 +61,7 @@ A single **Orchestration** class (`orchestration.py` at the `minirag/` package r
 
 - `get_citation(citation_key)` — delegates to Storage to retrieve raw citation JSON.
 
-The orchestration layer does not contain search logic or merge logic. It delegates to the appropriate components and pipes data between them. Citation key lookups are cached per-instance using a thread-safe dict cache that only stores positive results (found citation keys), avoiding caching of fallback values for missing data.
+The orchestration layer does not contain search logic or merge logic. It delegates to the appropriate components and pipes data between them. Citation key lookups are cached per-instance using a thread-safe LRU cache (max 1024 entries) that only stores positive results (found citation keys), avoiding caching of fallback values for missing data.
 
 ### 2.5 Other Key Components
 
@@ -181,7 +181,7 @@ src/
         └── query.py                   # QueryClient (dense, sparse, hybrid search)
 
 scripts/
-├── ingest.py                          # Reads data/input/txt/, uses IndexingClient
+├── ingest.py                          # Reads data/input/{corpus}/txt/, uses IndexingClient
 ├── md2txt.py                          # Converts markdown to text, copies JSON sidecars
 ├── search.py                          # CLI search tool
 └── evaluate.py                        # ROUGE-L evaluation against Q&A pairs
@@ -211,7 +211,7 @@ config.yaml                            # Local config (gitignored, created by ju
 service:
   host: "127.0.0.1"
   port: 7001
-  reload: true
+  reload: false
   log_level: "INFO"
 
 data:
@@ -219,7 +219,7 @@ data:
 
 index:
   chunking:
-    chunk_size: 300
+    chunk_size: 500
     overlap: 0.3
 
   embeddings:
@@ -274,13 +274,13 @@ The configuration is parsed into the following nested Pydantic models:
 
 The `data_dir` in the `DataConfig` serves as the base path. Other components derive their paths from it:
 
-- Input text files: `{data_dir}/input/txt/`
+- Input text files: `{data_dir}/input/{corpus}/txt/`
 - FastText model: `{data_dir}/models/{model_name}`
-- SQLite database: `{data_dir}/storage/{db_filename}`
-- FAISS index: `{data_dir}/index/faiss/`
-- Tantivy index: `{data_dir}/index/tantivy/`
+- SQLite database: `{data_dir}/storage/{corpus}/{db_filename}`
+- FAISS index: `{data_dir}/index/{corpus}/faiss/`
+- Tantivy index: `{data_dir}/index/{corpus}/tantivy/`
 
-Components only know their own subdirectory conventions (e.g., the ingestion module knows about `input/txt/`, the embeddings module knows about `models/`). The base `data_dir` comes from the config.
+Components only know their own subdirectory conventions (e.g., the ingestion module knows about `input/{corpus}/txt/`, the embeddings module knows about `models/`). The base `data_dir` comes from the config.
 
 ### 4.5 Data Directory Layout
 
@@ -398,6 +398,23 @@ Returns the complete service configuration. This endpoint is always available, r
   "status": 200,
   "data": {
     "config": { ... full nested config object ... }
+  }
+}
+```
+
+#### GET /v1/corpora
+
+Returns the list of available corpora discovered on disk.
+
+**Request:** No body.
+
+**Response:**
+
+```json
+{
+  "status": 200,
+  "data": {
+    "corpora": ["books", "notes"]
   }
 }
 ```
@@ -598,6 +615,7 @@ The service maintains a formal app state stored on `app.state.app_status`. The p
 - POST /v1/corpus/{corpus}/query/sparse
 - POST /v1/corpus/{corpus}/query/hybrid
 - GET /v1/corpus/{corpus}/citation/{citation_key}
+- GET /v1/corpora
 - POST /v1/shutdown
 
 **Unguarded endpoints** — these are always available regardless of app state:
@@ -615,6 +633,7 @@ The Storage interface (`storage/interface.py`) is split into three ABCs — `Sto
 
 **Writer methods:**
 
+- `insert_document_with_citation(content: str, citation: dict | None) -> int` — stores a document and citation atomically and returns the document ID.
 - `insert_document(content: str) -> int` — stores the full document text and returns an auto-assigned document ID.
 - `insert_chunk(document_id: int, content: str) -> int` — stores a chunk with a foreign key reference to its document and returns an auto-assigned chunk ID.
 - `insert_citation(citation_key: str, document_id: int, citation_json: str) -> None` — stores a citation record keyed by citation_key. Fails fast on duplicate keys.
@@ -829,7 +848,7 @@ If no `.json` sidecar exists, the ingestion script auto-generates a minimal cita
 
 Word-based chunking is implemented in `ingestion/chunker.py`:
 
-- **Chunk size:** 300 words (configurable via `index.chunking.chunk_size`).
+- **Chunk size:** 500 words (configurable via `index.chunking.chunk_size`).
 - **Overlap:** 30% (configurable via `index.chunking.overlap`).
 - Words are counted by whitespace splitting.
 - Empty or whitespace-only input text is rejected with a `ValueError`.
@@ -845,7 +864,7 @@ Word-based chunking is implemented in `ingestion/chunker.py`:
 
 ### 11.5 Indexing Error Behavior
 
-The ingestion script (`scripts/ingest.py`) follows a fail-fast approach. If any file fails to index, the error propagates immediately and the script aborts. Partial state from the failed file may remain — use `DELETE /v1/index` to clean up before re-indexing.
+The ingestion script (`scripts/ingest.py`) follows a fail-fast approach. If any file fails to index, the error propagates immediately and the script aborts. Partial state from the failed file may remain — use `DELETE /v1/corpus/{corpus}/index` to clean up before re-indexing.
 
 ## 12. Clients
 
@@ -871,6 +890,7 @@ The ingestion script (`scripts/ingest.py`) follows a fail-fast approach. If any 
 - `search_dense(corpus, query, top_k)` — sends POST to `/v1/corpus/{corpus}/query/dense`.
 - `search_sparse(corpus, query, top_k)` — sends POST to `/v1/corpus/{corpus}/query/sparse`.
 - `search_hybrid(corpus, query, top_k)` — sends POST to `/v1/corpus/{corpus}/query/hybrid`.
+- `get_citation(corpus, citation_key)` — sends GET to `/v1/corpus/{corpus}/citation/{citation_key}`.
 
 All three methods return `list[SearchResult]` with `chunk_id`, `document_id`, `citation_key`, `text`, and `score` fields.
 
@@ -908,7 +928,13 @@ Retrieval interfaces return `list[ScoredChunk]` (chunk_id, score). The orchestra
 | `just start` | Start the FastAPI service in the foreground (Ctrl+C to stop). Uvicorn binds to the configured host and port with reload behavior controlled by config |
 | `just stop` | Shut down the running service by calling the `/v1/shutdown` endpoint |
 | `just status` | Check if the service is running by hitting `/v1/health`. If running, display the full configuration from `/v1/info`. If not, display "service is not running" |
-| `just ingest` | Destroy the existing index, then ingest all `.txt` files from `{data_dir}/input/txt/` via the `IndexingClient`. Shows progress per file. Fails hard on any error |
+| `just ingest` | Destroy the existing index, then ingest all `.txt` files from `{data_dir}/input/{corpus}/txt/` via the `IndexingClient`. Shows progress per file. Fails hard on any error |
+| `just md2txt` | Convert `{data_dir}/input/{corpus}/md/` files to `.txt` and copy `.json` sidecars to `{data_dir}/input/{corpus}/txt/` |
+| `just delete` | Destroy the corpus index by calling `DELETE /v1/corpus/{corpus}/index` |
+| `just search` | Interactive search loop for a corpus |
+| `just evaluate` | Evaluate retrieval quality for a corpus |
+| `just citation` | Fetch citation metadata for one or more citation keys in a corpus |
+| `just inspect` | Inspect chunks for a document ID in a corpus |
 | `just destroy` | Remove the virtual environment |
 | `just help` | Show all available commands |
 
@@ -922,7 +948,7 @@ The existing `just run` target is replaced by `just start` for the service. Exis
 - **No error masking** — no degraded states, no silent fallbacks, no default values.
 - **Exceptions bubble up** — business logic raises exceptions with descriptive messages. Route handlers catch them and wrap them in the error response envelope.
 - **Internal error messages are exposed as-is** — no sanitization or rewriting for the client. This is a minimalist system.
-- **No automatic rollback** — if an indexing step fails partway through, partial state may remain. Use `DELETE /v1/index` to clean up.
+- **No automatic rollback** — if an indexing step fails partway through, partial state may remain. Use `DELETE /v1/corpus/{corpus}/index` to clean up.
 
 ### 15.2 Startup Failures
 
@@ -982,8 +1008,9 @@ The `mcp/` directory contains a Model Context Protocol server (`mini-rag.ts`) th
 
 **Tools:**
 
-- `search` — performs search (dense, sparse, or hybrid) against a corpus and returns results with citation keys.
+- `search` — performs hybrid search (dense + sparse) against a corpus and returns results with citation keys.
 - `get_citation` — retrieves full citation metadata by corpus and citation key.
+- `list_corpora` — lists available corpora on disk.
 
 The MCP server communicates with the mini-rag service over HTTP (same host/port as configured in `config.yaml`). It includes health checking before each operation and returns structured JSON results.
 
@@ -992,7 +1019,7 @@ The MCP server communicates with the mini-rag service over HTTP (same host/port 
 The following items are out of scope for the first iteration but planned for future work:
 
 1. **LLM generation layer** — Send retrieved chunks along with the user's query to an LLM to produce synthesized answers (completing the "G" in RAG).
-2. **Markdown file support** — Support `.md` files in addition to `.txt` for ingestion (from `{data_dir}/input/md/`).
+2. **Markdown file support** — Support `.md` files in addition to `.txt` for ingestion (from `{data_dir}/input/{corpus}/md/`).
 3. **Increase test coverage to 90%** — Tighten test coverage requirements once the design stabilizes.
 4. **Index lifecycle management** — Detect configuration changes that invalidate the existing index (e.g., embedding model, chunk size) and trigger or recommend a rebuild.
 5. **CORS middleware** — Add configurable Cross-Origin Resource Sharing middleware for browser-based clients.
