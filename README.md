@@ -250,6 +250,16 @@ After running `just evaluate <corpus>`, the report at `reports/<corpus>/evaluati
 - `just ci` — Run all checks (verbose)
 - `just ci-quiet` — Run all checks (silent, fail-fast)
 
+## AI-Assisted Development
+
+This project includes a [CLAUDE.md](CLAUDE.md) file with development rules for AI coding assistants. To prime an agent to work on this codebase, run:
+
+```
+/onboard
+```
+
+This loads all project context (specs, config, recent changes) and reports readiness in a single step.
+
 ## Resources
 
 - [FastText Common Crawl vectors](https://fasttext.cc/docs/en/crawl-vectors.html) — Pre-trained word embeddings
