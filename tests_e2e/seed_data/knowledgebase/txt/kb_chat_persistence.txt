@@ -1,0 +1,9 @@
+Chat Storage
+
+Persistent chat storage enables users to resume conversations across sessions and review previous interactions. In a RAG-enabled chat system, each conversation must retain enough metadata to reproduce the context in which it occurred, including the model configuration and the knowledge base that was active.
+
+Chats are stored with id, name, model, corpus, messages, created_at, and updated_at fields. The id field is a unique identifier for the conversation, typically a UUID. The name field holds a user-facing label that can be auto-generated from the first message or manually set. The model field records which language model was used, ensuring that conversation history is interpreted in the context of the correct model's behavior. The corpus field indicates which knowledge base was queried during retrieval.
+
+The messages field contains the ordered list of turns in the conversation. Each message includes a role (user or assistant), the content text, and optionally metadata such as retrieved sources or citation keys. Timestamps on individual messages can complement the conversation-level created_at and updated_at fields, which track when the chat was first created and when it was last modified.
+
+Reliable persistence requires atomic writes so that a crash during message storage does not corrupt the conversation. Applications typically write to a local database or a structured file format such as JSON. On startup, the system loads existing chats and presents them in the interface so users can pick up where they left off.

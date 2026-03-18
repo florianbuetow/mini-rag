@@ -1,0 +1,9 @@
+Error Analysis
+
+Error analysis is the practice of systematically categorizing and investigating evaluation failures to understand their root causes. Rather than treating all failures as equivalent, structured error analysis reveals which components of the RAG pipeline are responsible for each type of failure and guides targeted improvements.
+
+The recommended approach is to bucket failures by retrieval miss, grounding miss, citation miss, or reasoning miss. A retrieval miss occurs when the retrieval step fails to return the documents that contain the answer, meaning the generation model never had access to the right information. A grounding miss occurs when the correct documents were retrieved but the model failed to base its answer on them, instead generating unsupported content. A citation miss occurs when the answer is factually grounded but the citations are incorrect, missing, or point to the wrong sources. A reasoning miss occurs when the model had the right context and cited it properly but drew an incorrect conclusion from the evidence.
+
+Each failure category implies a different remediation strategy. Retrieval misses call for improvements to the index, query processing, or retrieval model. Grounding misses suggest that the prompt or generation constraints need strengthening. Citation misses may require better citation formatting instructions or post-processing validation. Reasoning misses are the hardest to address and may require a more capable generation model or chain-of-thought prompting.
+
+Tracking the distribution of failure types over time is valuable because it reveals whether improvements to one component are shifting failures to another. A healthy evaluation practice regularly updates its error taxonomy as new failure modes emerge.

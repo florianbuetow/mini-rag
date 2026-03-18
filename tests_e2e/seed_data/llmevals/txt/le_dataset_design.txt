@@ -1,0 +1,9 @@
+Evaluation Dataset Design
+
+The quality of an evaluation pipeline depends heavily on the design of its test dataset. A poorly constructed dataset can produce misleading metrics that mask real problems or flag false issues. Thoughtful dataset design is therefore a prerequisite for trustworthy evaluation results.
+
+Evaluation sets should cover easy, medium, hard, and adversarial examples to provide a complete picture of system performance. Easy examples test basic functionality and should be answered correctly by any reasonable system. Medium examples introduce ambiguity or require synthesizing information from multiple chunks. Hard examples involve complex reasoning, rare topics, or queries where the relevant information is deeply buried in the corpus. Adversarial examples deliberately probe failure modes, such as queries designed to trigger hallucination, questions about topics just outside the corpus coverage, or inputs with misleading context.
+
+Balancing the dataset across difficulty levels prevents the overall score from being dominated by easy cases that inflate apparent performance. A system that scores 95 percent on an evaluation set composed entirely of straightforward questions may perform much worse in production where users ask genuinely challenging queries. Including adversarial examples is especially important for safety-critical applications.
+
+Each example in the dataset should include the query, the expected answer or set of acceptable answers, the relevant source documents, and metadata such as difficulty level and topic category. This metadata enables stratified analysis so that teams can identify specific areas of weakness rather than relying on a single aggregate score.

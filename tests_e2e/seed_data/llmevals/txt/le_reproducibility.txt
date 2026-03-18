@@ -1,0 +1,9 @@
+Reproducibility
+
+Reproducibility is a foundational requirement for any evaluation pipeline. If evaluation results cannot be reproduced, it becomes impossible to determine whether a change in performance is due to a genuine improvement or simply noise from uncontrolled variables.
+
+To achieve reproducibility, fix seedable variables when possible and record model, corpus, and prompt versions alongside every evaluation run. Seedable variables include random number generator seeds used in sampling, the order of evaluation examples, and any stochastic components in the retrieval or generation pipeline. Setting these seeds ensures that the same inputs produce the same outputs when the experiment is repeated.
+
+Beyond random seeds, reproducibility requires versioning all components of the system. The model version or checkpoint identifier, the exact corpus state including which documents were indexed and when, the prompt template with its full text, and the evaluation code itself must all be recorded. Without this information, it is impossible to determine what changed between two evaluation runs that produced different results.
+
+A practical approach is to generate a metadata record for each evaluation run that captures all relevant configuration. This record should include the run timestamp, the git commit hash of the evaluation code, the model identifier, the corpus identifier or hash, the prompt version, all random seeds, and the evaluation framework version. Storing this metadata alongside the results makes it straightforward to reproduce any historical run and to diagnose discrepancies when results change unexpectedly.

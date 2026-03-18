@@ -1,0 +1,9 @@
+SSE Behavior
+
+Server-Sent Events (SSE) provide a mechanism for streaming responses from the server to the client over a single HTTP connection. In a RAG chat system, SSE is used to deliver the assistant's response incrementally so that users see text appearing in real time rather than waiting for the entire generation to complete.
+
+Assistant text should stream incrementally, with each SSE event carrying one or more new tokens as they are produced by the language model. This incremental delivery improves perceived latency because the user begins reading the response almost immediately, even if the full generation takes several seconds. The client appends each incoming chunk to the displayed text, building up the complete answer progressively.
+
+A critical requirement for SSE streaming is to disable duplicate sends. If the same token or chunk is sent more than once, the client may display repeated text, creating a confusing and broken user experience. Implementations must track which tokens have already been dispatched and ensure that each chunk is emitted exactly once. This is especially important when retry logic or connection recovery mechanisms are in play, as reconnection can trigger replaying of events if not handled carefully.
+
+The SSE protocol uses a simple text-based format with event type, data, and id fields. Setting a unique id on each event allows the client to resume from the correct position after a disconnection by sending the Last-Event-ID header. Proper use of event ids combined with server-side deduplication ensures reliable, gap-free streaming even over unreliable networks.

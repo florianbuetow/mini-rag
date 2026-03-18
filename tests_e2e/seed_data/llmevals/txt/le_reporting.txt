@@ -1,0 +1,9 @@
+Reporting
+
+Evaluation reporting transforms raw metrics into structured records that support analysis, debugging, and decision-making. A well-designed report provides enough detail to understand what happened in each evaluation scenario without requiring the reader to re-run the evaluation.
+
+Reports should show scenario id, prompt, corpus, citations, latency, and pass/fail result for each evaluated example. The scenario id links the report entry to the corresponding item in the evaluation dataset. The prompt field records the exact input sent to the system, including any system instructions and retrieved context. The corpus field identifies which knowledge base was used during retrieval. The citations field lists the citation keys that appeared in the generated response, enabling citation accuracy analysis. Latency measurements broken down by component allow performance analysis. The pass/fail result summarizes whether the example met all defined thresholds.
+
+Beyond individual scenario results, reports should include aggregate statistics: overall pass rate, mean and percentile latency, average scores for each metric, and breakdowns by difficulty level or topic category. These summaries help stakeholders quickly assess system health without reading every individual result.
+
+Reports should be stored in a machine-readable format such as JSON or CSV alongside a human-readable summary. Storing historical reports enables trend analysis across evaluation runs, making it easy to spot regressions or confirm improvements. Each report should reference the evaluation run metadata including model version, corpus version, prompt version, and timestamp so that results can be traced back to the exact system configuration that produced them.

@@ -1,0 +1,9 @@
+Judge Models
+
+Using a language model as a judge to evaluate the outputs of another language model is an increasingly common evaluation strategy. Instead of relying solely on automated metrics like ROUGE or exact match, a judge model reads the generated output alongside the reference answer and retrieved context, then provides a quality assessment.
+
+Judge-model evaluations are useful but can be biased and should be calibrated before relying on them for high-stakes decisions. Common biases include position bias, where the judge favors the first or last option presented; verbosity bias, where longer answers receive higher scores regardless of accuracy; and self-enhancement bias, where a model rates its own outputs more favorably than those of other models.
+
+Calibration involves running the judge on a set of examples with known quality labels and measuring how well the judge's scores correlate with human judgments. If the correlation is weak or the judge exhibits systematic bias, adjustments can be made through prompt engineering, score normalization, or restricting the judge to pairwise comparisons rather than absolute scoring. Periodically re-calibrating as the system evolves is essential because changes to the generation model or the corpus can shift the distribution of outputs.
+
+Despite their limitations, judge models offer significant advantages over purely automatic metrics. They can assess nuanced qualities like helpfulness, coherence, and citation accuracy that simple string-matching metrics cannot capture. The key is to treat judge scores as one signal among several rather than as a definitive quality measure, and to validate them against human evaluation on a representative sample.

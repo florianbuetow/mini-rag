@@ -1,0 +1,9 @@
+RAG Basics
+
+Retrieval augmented generation combines retrieval with generation to produce answers that are grounded in external knowledge. Instead of relying solely on a language model's parametric memory, RAG systems first search a knowledge base for relevant passages and then feed those passages to the model as context for generating an answer.
+
+The core workflow follows a two-step pattern: retrieve first, then ground the answer in source text. During the retrieval phase, the user's query is used to search an index of documents or chunks. The top-ranked results are collected and passed to the generation phase, where the language model synthesizes an answer that draws directly on the retrieved evidence. This grounding step is what distinguishes RAG from pure generation and helps reduce hallucination.
+
+RAG architectures vary in complexity. A simple setup might use a single vector store with cosine similarity search, while more advanced systems layer in sparse retrieval, hybrid scoring, reranking, and query rewriting. Regardless of the specific implementation, the fundamental principle remains the same: external evidence improves answer quality and traceability.
+
+One of the key benefits of RAG is that it allows the knowledge base to be updated independently of the model. New documents can be indexed without retraining, which makes RAG especially practical for domains where information changes frequently. Citations back to source documents also give users a way to verify the model's claims, increasing trust and transparency.

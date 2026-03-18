@@ -1,303 +1,397 @@
-"""Fixtures for mini-rag end-to-end lifecycle tests.
+"""Shared fixtures for Chat UI end-to-end tests.
 
-Lifecycle:
-    1. Read project config.yaml to locate the real data directory.
-    2. Create a temporary data directory with symlinks to model and test corpus.
-    3. Write an e2e-specific config file pointing to the temp data dir.
-    4. Start the service as a subprocess via ``start_server.py``.
-    5. Poll the health endpoint until the service is ready.
-    6. Yield environment info to the test session.
-    7. Shut down the service and remove the temporary directory.
+Production-server fixtures require:
+- mini-rag service running on port 9191
+- LM Studio running on port 1234 (for model-related tests)
+
+Deterministic fixtures (for @pytest.mark.deterministic tests) run a local
+FastAPI test server on a free port with fake models/corpora/streaming.
 """
 
-import os
 import shutil
-import subprocess
 import tempfile
+import threading
 import time
-from contextlib import suppress
-from dataclasses import dataclass
+from collections.abc import Generator, Iterator
 from pathlib import Path
 
 import httpx
 import pytest
-import yaml
+import uvicorn
+from fastapi import APIRouter, FastAPI, Request
+from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
-from minirag.config import Config
+from minirag.api.responses import error_response, success_response
+from minirag.api.routes_chats import router as chats_router
+from minirag.api.utils import ensure_healthy
 
-E2E_HOST = "127.0.0.1"
-E2E_PORT_NO_RERANKING = 7098
-E2E_PORT_WITH_RERANKING = 7099
-E2E_CORPUS = "test"
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-_SERVER_STARTUP_TIMEOUT_S = 30
-_SERVER_STARTUP_TIMEOUT_WITH_RERANKING_S = 30
+# Skip collecting broken test modules with missing imports
+collect_ignore = ["test_lifecycle.py"]
+
+PROJECT_ROOT: Path = Path(__file__).parent.parent
+BASE_URL: str = "http://localhost:9191"
+LM_STUDIO_URL: str = "http://127.0.0.1:1234"
+
+# ---------------------------------------------------------------------------
+# Deterministic fake data
+# ---------------------------------------------------------------------------
+FAKE_MODELS: list[dict[str, str]] = [
+    {"id": "gemma-3-1b", "object": "model"},
+    {"id": "qwen-2.5-7b", "object": "model"},
+    {"id": "llama-3.1-70b", "object": "model"},
+]
+
+FAKE_CORPORA: list[str] = ["alpha", "beta", "gamma"]
+
+FAKE_STREAM_CHUNKS: list[str] = ["Hello", " from", " the", " deterministic", " agent."]
+
+# Markdown response split into newline-safe chunks (SSE strips \n from data lines).
+# Each \n must be sent as its own chunk so the frontend accumulates the full text.
+FAKE_MARKDOWN_TEXT: str = (
+    "# Research Summary\n\n"
+    "The study found **significant results** in *quantum computing*.\n\n"
+    "## Key Findings\n\n"
+    "1. First finding with `inline code`\n"
+    "2. Second finding\n\n"
+    '```python\ndef hello():\n    print("world")\n```\n\n'
+    "[feynman2026quantum] described the theoretical framework. "
+    "See also [cousteau2026coral] for related work.\n\n"
+    "| Column A | Column B |\n|----------|----------|\n| Value 1  | Value 2  |\n\n"
+    "For more info visit [Example](https://example.com).\n"
+)
 
 
-@dataclass(frozen=True)
-class E2EEnv:
-    """Environment info yielded to lifecycle tests."""
-
-    base_url: str
-    config_path: Path
-    data_dir: Path
-    project_root: Path
-    host: str
-    port: int
-    corpus: str
-    reranking_enabled: bool
-    timings_report_path: Path
+# ---------------------------------------------------------------------------
+# Mark helper
+# ---------------------------------------------------------------------------
+def _is_deterministic(request: pytest.FixtureRequest) -> bool:
+    """Check if the current test is marked as deterministic."""
+    return any(m.name == "deterministic" for m in request.node.iter_markers())
 
 
-def _ensure_service_stopped(base_url: str, timeout_s: int) -> None:
-    """Ensure no existing service is running on the target base URL."""
-    try:
-        health_response = httpx.get(f"{base_url}/v1/health", timeout=2.0)
-        service_running = health_response.status_code == 200
-    except (httpx.ConnectError, httpx.ReadTimeout, httpx.TimeoutException):
+# ---------------------------------------------------------------------------
+# Production-server fixtures
+# ---------------------------------------------------------------------------
+@pytest.fixture(scope="session")
+def base_url() -> str:
+    """Base URL for the mini-rag service."""
+    return BASE_URL
+
+
+@pytest.fixture()
+def api_client() -> Iterator[httpx.Client]:
+    """httpx client for API-level setup/teardown (production server)."""
+    with httpx.Client(base_url=BASE_URL, timeout=10.0) as client:
+        yield client
+
+
+@pytest.fixture(autouse=True)
+def clean_chats(request: pytest.FixtureRequest) -> Iterator[None]:
+    """Delete all chats before and after each test.
+
+    Skipped for deterministic tests (they have their own cleanup).
+    """
+    if _is_deterministic(request):
+        yield
         return
+    with httpx.Client(base_url=BASE_URL, timeout=10.0) as client:
+        _delete_all_production(client)
+        yield
+        _delete_all_production(client)
 
-    if not service_running:
+
+@pytest.fixture(autouse=True)
+def navigate_to_app(request: pytest.FixtureRequest, page, clean_chats: None) -> None:
+    """Navigate to the app before each test (after cleaning chats).
+
+    Skipped for deterministic tests (they use det_navigate).
+    """
+    if _is_deterministic(request):
         return
+    page.goto(BASE_URL)
+    page.wait_for_load_state("networkidle")
 
+
+def _delete_all_production(client: httpx.Client) -> None:
+    """Delete all chats via the production API."""
     try:
-        httpx.post(f"{base_url}/v1/shutdown", timeout=5.0)
-    except (httpx.ConnectError, httpx.ReadTimeout, httpx.TimeoutException):
-        return
-
-    deadline = time.monotonic() + timeout_s
-    while time.monotonic() < deadline:
-        try:
-            response = httpx.get(f"{base_url}/v1/health", timeout=2.0)
-            if response.status_code != 200:
-                return
-        except (httpx.ConnectError, httpx.ReadTimeout, httpx.TimeoutException):
-            return
-        time.sleep(1.0)
-
-    raise RuntimeError(f"Existing service at {base_url} did not shut down within {timeout_s}s")
+        resp = client.get("/v1/chats")
+        if resp.status_code == 200:
+            for chat in resp.json().get("data", {}).get("chats", []):
+                client.delete(f"/v1/chats/{chat['id']}")
+    except httpx.ConnectError:
+        pytest.skip("mini-rag service not running on port 9191")
 
 
-def _wait_for_health_or_exit(base_url: str, timeout_s: int, proc: subprocess.Popen[bytes]) -> None:
-    """Wait for healthy service or fail fast when the process exits."""
-    deadline = time.monotonic() + timeout_s
-    while time.monotonic() < deadline:
-        if proc.poll() is not None:
-            stdout, stderr = proc.communicate(timeout=5)
-            raise RuntimeError(
-                f"Server process exited before healthy (exit={proc.returncode}).\nstdout: {stdout.decode()}\nstderr: {stderr.decode()}"
-            )
+# ---------------------------------------------------------------------------
+# Deterministic test server internals
+# ---------------------------------------------------------------------------
+def _build_fake_info_router() -> APIRouter:
+    """Build a router with fake /v1/models, /v1/corpora, /v1/health."""
+    router = APIRouter(prefix="/v1")
 
-        try:
-            response = httpx.get(f"{base_url}/v1/health", timeout=2.0)
-            if response.status_code == 200:
-                return
-        except (httpx.ConnectError, httpx.ReadTimeout, httpx.TimeoutException):
-            pass
-        time.sleep(1.0)
+    @router.get("/health")
+    async def health(request: Request) -> JSONResponse:
+        return success_response(status=200, data={"status": request.app.state.app_status})
 
-    raise RuntimeError(f"Service at {base_url} did not become healthy within {timeout_s}s")
+    @router.get("/models")
+    async def models(request: Request) -> JSONResponse:
+        guard = ensure_healthy(request)
+        if guard is not None:
+            return guard
+        return JSONResponse(content={"data": FAKE_MODELS})
 
+    @router.get("/corpora")
+    async def corpora(request: Request) -> JSONResponse:
+        guard = ensure_healthy(request)
+        if guard is not None:
+            return guard
+        return success_response(status=200, data={"corpora": FAKE_CORPORA})
 
-def _resolve_test_input_source(source_data_dir: Path) -> Path:
-    """Resolve test corpus source directory from data dir or repo fallback."""
-    test_input_src = source_data_dir / "input" / E2E_CORPUS
-    if test_input_src.exists():
-        return test_input_src
-
-    fallback_input_src = PROJECT_ROOT / "data" / "input" / E2E_CORPUS
-    if fallback_input_src.exists():
-        return fallback_input_src
-
-    raise FileNotFoundError(f"test corpus not found: {test_input_src} and {fallback_input_src}")
+    return router
 
 
-def _prepare_corpus_input_tree(*, data_dir: Path, test_input_src: Path) -> None:
-    """Create writable corpus directory and symlink read-only source subdirs."""
-    corpus_dir = data_dir / "input" / E2E_CORPUS
-    corpus_dir.mkdir(parents=True)
-
-    for subdir_name in ("md", "evals", "metadata"):
-        src_subdir = test_input_src / subdir_name
-        if src_subdir.exists():
-            os.symlink(src_subdir, corpus_dir / subdir_name)
-
-    (corpus_dir / "txt").mkdir()
+def _build_normal_stream() -> Generator[str, None, None]:
+    """Build a normal SSE stream from FAKE_STREAM_CHUNKS."""
+    for chunk in FAKE_STREAM_CHUNKS:
+        yield f"data: {chunk}\n\n"
+    yield "data: [DONE]\n\n"
 
 
-def _build_e2e_config_dict(
-    *,
-    project_config: Config,
-    data_dir: Path,
-    e2e_port: int,
-    model_name: str,
-    reranking_enabled: bool,
-) -> dict[str, object]:
-    """Build e2e configuration payload for one reranking mode."""
-    return {
-        "service": {
-            "host": E2E_HOST,
-            "port": e2e_port,
-            "reload": False,
-            "log_level": "WARNING",
-        },
-        "data": {
-            "data_dir": str(data_dir),
-        },
-        "index": {
-            "chunking": {
-                "chunk_size": project_config.index.chunking.chunk_size,
-                "overlap": project_config.index.chunking.overlap,
-            },
-            "embeddings": {
-                "model_name": model_name,
-                "dimension": project_config.index.embeddings.dimension,
-            },
-            "storage": {
-                "db_filename": "minirag_e2e.db",
-            },
-            "faiss": {
-                "index_type": project_config.index.faiss.index_type,
-                "nprobe": project_config.index.faiss.nprobe,
-            },
-            "tantivy": {
-                "language": project_config.index.tantivy.language,
-                "stemming": project_config.index.tantivy.stemming,
-            },
-        },
-        "search": {
-            "hybrid": {"alpha": project_config.search.hybrid.alpha},
-            "dense": {},
-            "sparse": {},
-            "reranking": {
-                "enabled": reranking_enabled,
-                "model_name": project_config.search.reranking.model_name,
-                "candidate_multiplier": project_config.search.reranking.candidate_multiplier,
-            },
-        },
-    }
+def _build_markdown_stream() -> Generator[str, None, None]:
+    """Build an SSE stream with markdown content.
+
+    SSE "data: X\\n\\n" strips \\n from X. Each text line is sent as its own
+    data event and each newline as an empty "data: \\n\\n" event.
+    The frontend treats empty data as a newline character.
+    """
+    for line in FAKE_MARKDOWN_TEXT.split("\n"):
+        if line:
+            yield f"data: {line}\n\n"
+        yield "data: \n\n"
+    yield "data: [DONE]\n\n"
 
 
-def _build_server_env() -> dict[str, str]:
-    """Build environment for e2e server subprocess."""
-    return {
-        **os.environ,
-        "PYTHONPATH": str(PROJECT_ROOT / "src"),
-        # Improve stability on macOS when FAISS/FastText and torch-based reranking run together.
-        "OMP_NUM_THREADS": "1",
-        "MKL_NUM_THREADS": "1",
-        "TOKENIZERS_PARALLELISM": "false",
-    }
+def _build_error_stream() -> Generator[str, None, None]:
+    """Build an SSE stream that simulates a streaming error."""
+    yield "data: Partial\n\n"
+    yield "data: error: simulated streaming error\n\n"
+    yield "data: [DONE]\n\n"
 
 
-@pytest.fixture(scope="class", params=[False, True], ids=["reranking_off", "reranking_on"])
-def e2e_env(request: pytest.FixtureRequest):
-    """Start a real server subprocess and yield E2EEnv."""
-    reranking_enabled = bool(request.param)
-    e2e_port = E2E_PORT_WITH_RERANKING if reranking_enabled else E2E_PORT_NO_RERANKING
-    startup_timeout_s = _SERVER_STARTUP_TIMEOUT_WITH_RERANKING_S if reranking_enabled else _SERVER_STARTUP_TIMEOUT_S
+def _build_fake_completions_router() -> APIRouter:
+    """Build a router with fake streaming /v1/chat/completions."""
+    router = APIRouter(prefix="/v1")
 
-    project_config_path = PROJECT_ROOT / "config.yaml"
-    if not project_config_path.exists():
-        pytest.skip(f"Project config not found at {project_config_path}")
-    project_config = Config.from_yaml(project_config_path)
-    source_data_dir = project_config.resolve_data_dir(PROJECT_ROOT)
+    @router.post("/chat/completions")
+    async def completions(request: Request) -> JSONResponse:
+        guard = ensure_healthy(request)
+        if guard is not None:
+            return guard
 
-    mode_label = "reranking-on" if reranking_enabled else "reranking-off"
-    tmp = tempfile.mkdtemp(prefix=f"minirag-e2e-lifecycle-{mode_label}-")
-    data_dir = Path(tmp)
-    (data_dir / "models").mkdir()
-    (data_dir / "storage").mkdir()
-    (data_dir / "index").mkdir(parents=True)
+        body = await request.json()
 
-    model_name = project_config.index.embeddings.model_name
-    model_src = source_data_dir / "models" / model_name
-    if not model_src.exists():
-        shutil.rmtree(tmp, ignore_errors=True)
-        pytest.skip(f"FastText model not found at {model_src} – run 'just init'")
-    os.symlink(model_src, data_dir / "models" / model_name)
+        corpus = body.get("corpus", "")
+        if corpus not in FAKE_CORPORA:
+            return error_response(status=422, message=f"corpus not found: {corpus}")
 
-    try:
-        test_input_src = _resolve_test_input_source(source_data_dir)
-    except FileNotFoundError as exc:
-        shutil.rmtree(tmp, ignore_errors=True)
-        pytest.skip(str(exc))
+        messages = body.get("messages", [])
+        if not messages:
+            return error_response(status=422, message="messages must not be empty")
 
-    _prepare_corpus_input_tree(data_dir=data_dir, test_input_src=test_input_src)
+        last_msg = messages[-1].get("content", "")
+        if "TRIGGER_STREAM_ERROR" in last_msg:
+            chunks = _build_error_stream()
+        elif "TRIGGER_MARKDOWN" in last_msg:
+            chunks = _build_markdown_stream()
+        else:
+            chunks = _build_normal_stream()
 
-    config_dict = _build_e2e_config_dict(
-        project_config=project_config,
-        data_dir=data_dir,
-        e2e_port=e2e_port,
-        model_name=model_name,
-        reranking_enabled=reranking_enabled,
-    )
+        from starlette.responses import StreamingResponse
 
-    config_path = data_dir / "config_e2e.yaml"
-    with config_path.open("w", encoding="utf-8") as fh:
-        yaml.dump(config_dict, fh, default_flow_style=False)
+        return StreamingResponse(
+            content=chunks,
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
+        )
 
-    reports_dir = PROJECT_ROOT / "reports" / "e2e"
-    reports_dir.mkdir(parents=True, exist_ok=True)
-    timings_report_path = reports_dir / f"query_timings_{mode_label}.jsonl"
-    if timings_report_path.exists():
-        timings_report_path.unlink()
+    return router
 
-    base_url = f"http://{E2E_HOST}:{e2e_port}"
-    _ensure_service_stopped(base_url=base_url, timeout_s=30)
 
-    # Start server subprocess
-    launcher = PROJECT_ROOT / "tests_e2e" / "start_server.py"
-    env = _build_server_env()
-    proc = subprocess.Popen(
-        ["uv", "run", str(launcher), str(config_path)],
-        cwd=str(PROJECT_ROOT),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        env=env,
-    )
+class _FakeCorpusManager:
+    def list_corpora(self) -> list[str]:
+        return list(FAKE_CORPORA)
 
-    try:
-        _wait_for_health_or_exit(base_url=base_url, timeout_s=startup_timeout_s, proc=proc)
-    except RuntimeError as exc:
-        if proc.poll() is None:
-            proc.kill()
-            proc.communicate(timeout=5)
-        shutil.rmtree(tmp, ignore_errors=True)
-        raise RuntimeError(f"Server failed to start: {exc}") from exc
+    def corpus_exists(self, name: str) -> bool:
+        return name in FAKE_CORPORA
 
-    print()
-    print("=" * 90)
-    print(f"E2E MODE: {mode_label} (reranking_enabled={reranking_enabled})")
-    print("=" * 90)
-    print()
 
-    yield E2EEnv(
-        base_url=base_url,
-        config_path=config_path,
-        data_dir=data_dir,
-        project_root=PROJECT_ROOT,
-        host=E2E_HOST,
-        port=e2e_port,
-        corpus=E2E_CORPUS,
-        reranking_enabled=reranking_enabled,
-        timings_report_path=timings_report_path,
-    )
+class _FakeConfig:
+    def model_dump(self) -> dict[str, object]:
+        return {"service": {"host": "127.0.0.1", "port": 0}}
 
-    # Graceful shutdown
-    try:
-        if proc.poll() is None:
-            with suppress(httpx.ConnectError, httpx.ReadTimeout, httpx.TimeoutException):
-                httpx.post(f"{base_url}/v1/shutdown", timeout=5.0)
+    def get_service_config(self) -> object:
+        class _SC:
+            reload = False
 
+        return _SC()
+
+
+def _create_test_app(chats_dir: Path) -> FastAPI:
+    """Create a FastAPI app for deterministic E2E tests."""
+    app = FastAPI()
+    app.state.app_status = "healthy"
+    app.state.config = _FakeConfig()
+    app.state.corpus_manager = _FakeCorpusManager()
+    app.state.data_dir = chats_dir.parent
+
+    app.include_router(_build_fake_info_router())
+    app.include_router(_build_fake_completions_router())
+    app.include_router(chats_router)
+
+    web_dir = PROJECT_ROOT / "web"
+    if web_dir.exists():
+        app.mount("/", StaticFiles(directory=str(web_dir), html=True), name="static")
+
+    return app
+
+
+class _TestServer:
+    """Runs a uvicorn server in a background thread."""
+
+    def __init__(self, app: FastAPI, port: int) -> None:
+        self.app = app
+        self.port = port
+        self._server: uvicorn.Server | None = None
+        self._thread: threading.Thread | None = None
+
+    def start(self) -> None:
+        config = uvicorn.Config(
+            app=self.app,
+            host="127.0.0.1",
+            port=self.port,
+            log_level="error",
+        )
+        self._server = uvicorn.Server(config)
+        self._thread = threading.Thread(target=self._server.run, daemon=True)
+        self._thread.start()
+
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
             try:
-                proc.wait(timeout=15)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.wait(timeout=5)
-    finally:
-        if proc.poll() is None:
-            proc.kill()
-            proc.wait(timeout=5)
+                resp = httpx.get(f"http://127.0.0.1:{self.port}/v1/health", timeout=1.0)
+                if resp.status_code == 200:
+                    return
+            except httpx.ConnectError:
+                pass
+            time.sleep(0.2)
+        raise RuntimeError(f"Test server did not start on port {self.port}")
 
-        shutil.rmtree(tmp, ignore_errors=True)
+    def stop(self) -> None:
+        if self._server:
+            self._server.should_exit = True
+        if self._thread:
+            self._thread.join(timeout=5)
+
+
+def _find_free_port() -> int:
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("", 0))
+        return s.getsockname()[1]
+
+
+# ---------------------------------------------------------------------------
+# Deterministic test fixtures
+# ---------------------------------------------------------------------------
+@pytest.fixture(scope="session")
+def deterministic_server() -> Iterator[tuple[str, Path]]:
+    """Start a deterministic test server for the session.
+
+    Yields (base_url, chats_dir).
+    """
+    tmp_dir = Path(tempfile.mkdtemp(prefix="minirag_det_"))
+    chats_dir = tmp_dir / "chats"
+    chats_dir.mkdir(parents=True)
+
+    port = _find_free_port()
+    app = _create_test_app(chats_dir)
+    server = _TestServer(app, port)
+    server.start()
+
+    yield f"http://127.0.0.1:{port}", chats_dir
+
+    server.stop()
+    shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+@pytest.fixture()
+def det_base_url(deterministic_server: tuple[str, Path]) -> str:
+    """Base URL of the deterministic test server."""
+    return deterministic_server[0]
+
+
+@pytest.fixture()
+def det_chats_dir(deterministic_server: tuple[str, Path]) -> Path:
+    """Path to the chats directory of the deterministic test server."""
+    return deterministic_server[1]
+
+
+@pytest.fixture()
+def det_api_client(det_base_url: str) -> Iterator[httpx.Client]:
+    """httpx client pointed at the deterministic test server."""
+    with httpx.Client(base_url=det_base_url, timeout=10.0) as client:
+        yield client
+
+
+@pytest.fixture(autouse=True)
+def det_clean_chats(
+    request: pytest.FixtureRequest,
+    deterministic_server: tuple[str, Path],
+) -> Iterator[None]:
+    """Delete all chats before and after each deterministic test.
+
+    No-op for non-deterministic tests.
+    """
+    if not _is_deterministic(request):
+        yield
+        return
+    base_url, chats_dir = deterministic_server
+    with httpx.Client(base_url=base_url, timeout=10.0) as client:
+        _delete_all_deterministic(client)
+        for f in chats_dir.glob("*.json"):
+            f.unlink()
+        yield
+        _delete_all_deterministic(client)
+        for f in chats_dir.glob("*.json"):
+            f.unlink()
+
+
+@pytest.fixture(autouse=True)
+def det_navigate(
+    request: pytest.FixtureRequest,
+    page,
+    det_base_url: str,
+    det_clean_chats: None,
+) -> None:
+    """Navigate to the deterministic test app before each test.
+
+    No-op for non-deterministic tests.
+    """
+    if not _is_deterministic(request):
+        return
+    page.goto(det_base_url)
+    page.wait_for_load_state("networkidle")
+
+
+def _delete_all_deterministic(client: httpx.Client) -> None:
+    """Delete all chats on the deterministic test server."""
+    try:
+        resp = client.get("/v1/chats")
+        if resp.status_code == 200:
+            for chat in resp.json().get("data", {}).get("chats", []):
+                client.delete(f"/v1/chats/{chat['id']}")
+    except httpx.ConnectError:
+        pass

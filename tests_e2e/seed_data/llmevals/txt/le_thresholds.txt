@@ -1,0 +1,9 @@
+Pass-Fail Thresholds
+
+Defining clear pass-fail criteria is essential for turning evaluation metrics into actionable decisions. Without explicit thresholds, evaluation results remain informational but cannot drive automated quality gates or release decisions.
+
+Thresholds should be explicit and metric-specific rather than subjective. Each metric used in the evaluation pipeline should have a defined numerical boundary that separates acceptable performance from unacceptable performance. For example, a system might require ROUGE-L recall above 0.45, groundedness above 0.85, precision@5 above 0.6, and hallucination rate below 0.05. These concrete thresholds remove ambiguity and make it possible to automate pass-fail decisions in continuous integration pipelines.
+
+Setting thresholds requires balancing aspiration with pragmatism. Thresholds set too high will block every release and discourage iteration. Thresholds set too low will let quality regressions pass undetected. The most reliable approach is to baseline the current system's performance on a representative evaluation set and then set initial thresholds slightly below the baseline to catch regressions while allowing normal variance. As the system improves, thresholds can be raised incrementally.
+
+Different metrics may warrant different threshold strategies. Some metrics like hallucination rate should have hard ceilings that trigger an immediate failure. Others like ROUGE-L may use softer thresholds that trigger a warning rather than a block. The evaluation configuration should clearly document the threshold for each metric, the action taken when it is breached, and the rationale for the chosen value.

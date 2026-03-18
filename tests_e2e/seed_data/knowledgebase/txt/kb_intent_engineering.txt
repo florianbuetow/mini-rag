@@ -1,0 +1,9 @@
+Intent Engineering
+
+Intent engineering is the practice of specifying user goals, constraints, tools, and evaluation criteria so that an AI system can carry out a task reliably. Unlike prompt wording alone, intent engineering addresses the full context surrounding a request: what the user actually wants to achieve, which tools the model may invoke, what guardrails must be enforced, and how success will be measured.
+
+A well-formed intent specification typically includes a goal statement, a set of constraints that bound acceptable behavior, a list of available tools or data sources, and one or more evaluation criteria that define what a correct outcome looks like. By making these elements explicit, developers reduce ambiguity and give the model enough structure to act autonomously within safe boundaries.
+
+Intent engineering is broader than prompt wording alone because it encompasses task decomposition, orchestration logic, fallback strategies, and validation steps. Two prompts with identical wording can produce very different outcomes if their surrounding intent context differs. For example, a customer-support intent might specify that the model must retrieve policy documents before answering and must cite the relevant section, while a brainstorming intent might allow free generation with no retrieval step at all.
+
+Practitioners often iterate on intent specifications in the same way software engineers iterate on requirements. Early drafts capture the broad goal, subsequent revisions tighten constraints and add edge-case handling, and evaluation criteria are refined as real failure modes surface during testing.

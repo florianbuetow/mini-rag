@@ -1,0 +1,9 @@
+Chunking
+
+Chunking is the process of splitting documents into smaller segments before indexing them for retrieval. The way documents are chunked has a direct impact on the quality of search results and the usefulness of retrieved context for generation.
+
+Chunk size and overlap affect recall, precision, and duplication in important ways. Larger chunks preserve more context and can capture complete ideas, but they may dilute the relevance signal if only a small portion of the chunk matches the query. Smaller chunks are more precise and targeted, but they risk splitting important information across boundaries, reducing recall. Overlap between adjacent chunks helps mitigate boundary effects by ensuring that content near a split point appears in at least two chunks, though it introduces duplication in the index.
+
+Common chunking strategies include fixed-size token windows, sentence-boundary splitting, paragraph-based splitting, and recursive splitting that respects document structure such as headings and sections. The best strategy depends on the nature of the source documents. Well-structured documents with clear headings benefit from structure-aware splitting, while unformatted text may require simpler fixed-size approaches.
+
+When tuning chunking parameters, it is useful to evaluate end-to-end retrieval quality rather than optimizing chunk size in isolation. A chunk size that looks optimal for retrieval metrics may not produce the best generation quality if the chunks are too short to give the language model enough context. Iterative experimentation with representative queries is the most reliable way to find a good configuration.

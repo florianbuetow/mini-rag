@@ -1,0 +1,9 @@
+No-Results Behavior
+
+Handling queries that match no relevant documents is an important aspect of RAG system design. When the retrieval step returns no useful results, the system must communicate this clearly rather than generating a plausible-sounding but unsupported answer.
+
+If nothing relevant is found, the assistant should say so instead of hallucinating. A straightforward response such as "I could not find relevant information in the knowledge base to answer this question" is far more trustworthy than a fabricated answer that appears authoritative but has no grounding in the indexed documents. Users depend on the system to be honest about the limits of its knowledge, and admitting uncertainty preserves that trust.
+
+Several conditions can trigger a no-results scenario. The query may concern a topic that is simply not covered by the corpus. The query may use terminology that differs significantly from the language in the indexed documents, causing both dense and sparse retrievers to miss. Or the retrieval threshold may be set high enough that low-confidence matches are filtered out, leaving no candidates for the generation step.
+
+Systems should distinguish between "no documents retrieved" and "documents retrieved but not relevant." In the first case, the retrieval index returned an empty result set. In the second case, candidates were returned but their relevance scores fell below the confidence threshold. Both cases should result in the same user-facing behavior: an honest statement that the system cannot answer the question from the available evidence, optionally with a suggestion to rephrase the query or check a different corpus.

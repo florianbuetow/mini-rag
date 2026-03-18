@@ -1,0 +1,9 @@
+Pairwise Evaluation
+
+Pairwise evaluation is a comparison-based approach to assessing model outputs. Rather than scoring a single output in isolation, pairwise comparison is useful for ranking two model outputs against each other by presenting both to an evaluator and asking which one is better along specified quality dimensions.
+
+This method has several advantages over absolute scoring. Humans and judge models alike find it easier to make relative judgments than to assign consistent absolute scores. When asked "Is response A or response B more relevant and well-grounded?", evaluators tend to produce more reliable and reproducible judgments than when asked "Rate this response on a scale of 1 to 5." This reliability makes pairwise evaluation especially valuable during model selection, prompt tuning, and A/B testing.
+
+A standard pairwise evaluation protocol presents the evaluator with the query, the retrieved context, and two candidate responses labeled A and B. The evaluator selects a winner or declares a tie. To control for position bias, each pair should be evaluated twice with the order of A and B swapped. If the evaluator's preference flips when the order changes, the result is recorded as a tie rather than a win for either side.
+
+Aggregating pairwise results across many examples produces a win rate for each model or configuration. Elo rating systems, borrowed from chess, can convert pairwise outcomes into a single ranking score when comparing more than two systems. The combination of pairwise evaluation with Elo aggregation provides a robust and interpretable way to rank multiple model variants on a shared evaluation set.

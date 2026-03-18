@@ -1,0 +1,9 @@
+Retrieval Metrics: Precision@k and Recall@k
+
+Precision@k and recall@k are fundamental retrieval metrics used to evaluate how well a search system returns relevant results within a limited result set.
+
+Precision@k measures relevance within the top-k results. It is calculated as the number of relevant documents in the top-k divided by k. For example, if a system returns 10 results and 7 of them are relevant, precision@10 is 0.7. This metric reflects the user experience directly: a high precision@k means that most of what the user sees is useful, with minimal noise from irrelevant results.
+
+Recall@k measures coverage of relevant items in the top-k results. It is calculated as the number of relevant documents in the top-k divided by the total number of relevant documents in the collection. If there are 20 relevant documents in the corpus and the top-10 results contain 8 of them, recall@10 is 0.4. This metric captures whether the retrieval system is surfacing enough of the available relevant material.
+
+There is an inherent tension between precision and recall. A system that returns very few results may achieve high precision but low recall, while a system that returns many results may achieve high recall at the expense of precision. The choice of k should reflect the downstream use case. In a RAG pipeline, k is often set to a small number because the language model has a limited context window, making precision@k especially important. Evaluation should report both metrics across several values of k to give a complete picture of retrieval quality.

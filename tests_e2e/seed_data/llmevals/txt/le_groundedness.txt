@@ -1,0 +1,9 @@
+Groundedness
+
+Groundedness is an evaluation dimension that assesses whether the claims made in a generated response are actually supported by the evidence provided to the model. In a RAG system, the evidence consists of the retrieved documents or chunks that were included in the model's context at generation time.
+
+Groundedness checks whether generated claims are supported by retrieved evidence. Each factual assertion in the model's response is examined to determine if it can be traced back to a specific passage in the retrieved context. A claim that is fully supported by one or more retrieved passages is considered grounded. A claim that cannot be linked to any retrieved passage is considered ungrounded, regardless of whether it happens to be factually correct.
+
+The distinction between factual accuracy and groundedness is important. A statement can be factually true but ungrounded if it does not appear in the retrieved evidence. RAG evaluation cares about groundedness because the system's contract with the user is that answers are based on the provided knowledge base. Introducing correct but unsourced information undermines traceability and trust.
+
+Automated groundedness evaluation typically works by decomposing the generated response into individual claims, then checking each claim against the retrieved passages using natural language inference or entailment models. The groundedness score is the fraction of claims that are supported. Systems with low groundedness scores may need better retrieval, more explicit grounding instructions in the prompt, or stricter generation constraints to keep the model from going beyond the available evidence.

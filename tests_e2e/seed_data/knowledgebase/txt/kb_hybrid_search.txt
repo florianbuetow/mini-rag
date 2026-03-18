@@ -1,0 +1,9 @@
+Hybrid Retrieval
+
+Hybrid search combines dense and sparse retrieval to leverage the strengths of both approaches. Dense retrieval uses learned vector embeddings to capture semantic similarity, making it effective when queries and documents use different vocabulary but share the same meaning. Sparse retrieval, typically based on BM25 or TF-IDF, excels at exact keyword matching and handles rare terms or proper nouns that dense models sometimes miss.
+
+By combining the two signals, a hybrid search system can return results that are both semantically relevant and lexically precise. A common fusion strategy is reciprocal rank fusion, which merges the ranked lists from each retriever into a single ranking without requiring score calibration. Other approaches use learned weighting to balance the contributions of dense and sparse scores.
+
+Reranking can improve relevance further by applying a more powerful cross-encoder model to the merged candidate set. Because cross-encoders jointly attend to both the query and the document, they can make finer-grained relevance judgments than the initial retrievers. The trade-off is increased latency, so reranking is typically applied only to the top candidates rather than the entire corpus.
+
+In practice, hybrid search with reranking consistently outperforms either dense or sparse retrieval alone on a wide range of benchmarks. Tuning the number of candidates passed to the reranker and the relative weight of dense versus sparse scores are the most impactful configuration decisions for hybrid retrieval systems.

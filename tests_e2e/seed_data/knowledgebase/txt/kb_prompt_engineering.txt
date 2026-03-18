@@ -1,0 +1,9 @@
+Prompt Engineering
+
+Prompt engineering focuses on phrasing prompts to elicit accurate, relevant, and well-structured responses from a language model. Techniques include few-shot examples, chain-of-thought reasoning, role assignment, and careful instruction formatting. The goal is to communicate a task clearly enough that the model produces the desired output without additional scaffolding.
+
+Common prompt engineering strategies involve adding explicit output formats, using delimiters to separate sections of input, and providing worked examples that demonstrate the expected reasoning path. These techniques can dramatically improve output quality for straightforward tasks and remain an essential skill for anyone working with language models.
+
+However, prompt engineering alone does not cover the full picture. Intent engineering includes task framing, tools, guardrails, and validation on top of the prompt itself. Where prompt engineering asks "how should I phrase this request?", intent engineering asks "what is the complete specification for this task, including which data sources to consult, what constraints to enforce, and how to verify the result?" A well-engineered prompt inside a poorly defined intent can still fail because the model lacks the right context or tools to succeed.
+
+In practice, prompt engineering and intent engineering are complementary. A strong prompt is necessary but not sufficient; it must be embedded within a broader intent specification that accounts for retrieval, tool use, safety guardrails, and automated evaluation. Teams that invest in both disciplines tend to build more reliable and maintainable AI-powered workflows.

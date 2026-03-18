@@ -1,0 +1,9 @@
+Latency Budgets
+
+Latency is a critical dimension of RAG system evaluation that is often overlooked in favor of quality metrics alone. Users are sensitive to response time, and a system that produces excellent answers slowly may be less useful in practice than one that produces good answers quickly.
+
+Evaluation should track latency separately for retrieval, generation, and full turn time. Retrieval latency measures the time from receiving the query to returning the ranked set of relevant documents. Generation latency measures the time from receiving the retrieved context to producing the complete response. Full turn time encompasses everything from the moment the user sends the query to the moment the final response is delivered, including any preprocessing, retrieval, reranking, and generation steps.
+
+Breaking latency down by component makes it possible to identify and address bottlenecks. If retrieval is slow, the solution might involve optimizing the index, reducing the candidate set, or caching frequent queries. If generation is the bottleneck, the solution might involve using a smaller model, reducing the context length, or implementing speculative decoding. Without component-level measurement, teams cannot make informed optimization decisions.
+
+Latency budgets should be defined based on the user experience requirements of the application. A real-time chat interface might require full turn times under two seconds, while a batch analysis pipeline might tolerate much longer response times. Evaluation reports should flag any examples that exceed the latency budget and include percentile statistics such as p50, p95, and p99 to characterize the distribution of response times.

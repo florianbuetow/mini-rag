@@ -1,0 +1,9 @@
+Citation Behavior
+
+Citations are a critical component of retrieval-augmented generation systems because they allow users to trace generated claims back to their source material. Grounded answers should cite source documents with bracketed citation keys, such as [kb_citations], so that every factual claim can be verified against the original text.
+
+A well-designed citation system assigns a unique key to each source document or chunk. When the language model generates an answer, it is instructed to include the relevant citation key immediately after any claim that draws on retrieved evidence. This creates a clear audit trail and makes it easy for users to look up the supporting passage.
+
+Citation accuracy is an important quality metric. A citation is considered correct if the referenced source actually supports the claim being made. Common failure modes include citing the wrong source, citing a source that is only tangentially related, or omitting a citation for a claim that clearly came from the retrieved context. Evaluation pipelines should check for these issues by comparing generated citations against the ground truth provenance of each claim.
+
+In multi-source answers, multiple citation keys may appear in a single sentence or paragraph. The model should cite all relevant sources rather than picking just one. Consistent citation formatting also matters: using a uniform bracketed style throughout the response makes it easier for downstream systems to parse and validate citations programmatically.

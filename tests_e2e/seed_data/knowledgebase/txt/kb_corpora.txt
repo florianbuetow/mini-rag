@@ -1,0 +1,9 @@
+Corpora List
+
+A corpus in a RAG system is a named collection of indexed documents that serves as the knowledge base for retrieval. Systems that support multiple corpora allow users to direct queries at different knowledge domains without rebuilding the entire index.
+
+Corpora are listed alphabetically so that users can quickly locate the collection they need. An alphabetical listing provides a predictable ordering that remains stable as new corpora are added, which is especially helpful in interfaces where users select a corpus from a dropdown or command-line argument. Each entry in the list typically shows the corpus name and basic metadata such as the number of indexed documents or the last-updated timestamp.
+
+Users can switch between corpora between turns, meaning that within a single conversation a user might query one corpus for background information and then switch to a different corpus for domain-specific details. The system records which corpus was active for each retrieval step so that citations remain traceable to the correct knowledge base even when multiple corpora are used in the same chat.
+
+Managing corpora involves creating new collections, ingesting documents into them, and occasionally deleting or rebuilding a corpus when the underlying documents change significantly. A clean API surface for corpus management makes it straightforward to automate these operations as part of a data pipeline, keeping the knowledge base current without manual intervention.

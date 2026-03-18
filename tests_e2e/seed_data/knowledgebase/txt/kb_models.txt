@@ -1,0 +1,9 @@
+Model Guidance
+
+Choosing the right language model for local RAG testing involves balancing capability, resource consumption, and compatibility with the tool-use patterns required by the system. Not every model is suitable for every task, and local testing has specific constraints that differ from cloud-hosted deployments.
+
+For local tool-using tests, prefer smaller gemma or qwen instruct/chat models. These model families offer instruction-tuned variants in sizes that run comfortably on consumer hardware while still supporting the structured output and tool-calling patterns that RAG pipelines rely on. Models in the 2B to 7B parameter range strike a practical balance between quality and speed for development and testing workflows.
+
+Instruct and chat variants are specifically fine-tuned to follow instructions and engage in multi-turn dialogue, which makes them more reliable for RAG tasks than base models. Base models may generate plausible-looking text but are less likely to respect formatting constraints, citation requirements, or tool-invocation protocols. Always select the instruct or chat variant when one is available.
+
+When evaluating a model for local use, check that it supports the context length required by your chunking strategy and that its tokenizer is compatible with your retrieval pipeline. Running a small set of representative queries through the full RAG pipeline is the most practical way to confirm that a model meets the quality bar before committing to a larger test suite.

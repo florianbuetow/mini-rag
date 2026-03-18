@@ -1,0 +1,9 @@
+Exports
+
+Export functionality allows users to save their conversations in portable formats for archival, sharing, or further analysis. Two primary export formats serve different purposes, and a well-designed system should support both.
+
+Markdown export is human-readable and preserves the conversational structure in a format that can be opened in any text editor or rendered in documentation tools. A Markdown export typically includes a header with the chat name, model, and corpus, followed by the sequence of messages formatted with role labels and content. Citations and source references are preserved as inline links or footnotes so that the exported document remains self-contained and useful.
+
+JSON export should contain the full chat object, including all metadata fields such as id, name, model, corpus, messages, created_at, and updated_at. This format is intended for programmatic consumption: other tools can parse the JSON to analyze conversation patterns, replay interactions, or migrate data between systems. The JSON structure should match the internal storage schema exactly so that round-tripping between export and import produces an identical conversation.
+
+Supporting both formats gives users flexibility. A researcher might use JSON export to feed conversations into an evaluation pipeline, while a team lead might use Markdown export to share a conversation summary in a project wiki. The export endpoint should accept a format parameter and return the appropriate content type so that clients can request either format with a single API call.

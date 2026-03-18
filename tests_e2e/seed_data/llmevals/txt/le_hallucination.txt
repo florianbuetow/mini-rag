@@ -1,0 +1,9 @@
+Hallucination Checks
+
+Hallucination detection is a critical component of evaluating RAG systems. A hallucination occurs when the language model generates information that is not supported by the retrieved context or, worse, contradicts it. Effective evaluation must identify these failures reliably so they can be measured and reduced.
+
+Unsupported claims, wrong citations, and fabricated facts are evaluation failures that each represent a different type of hallucination. An unsupported claim is a statement that has no basis in the retrieved documents. A wrong citation attributes a claim to a source that does not actually contain that information. A fabricated fact is entirely invented content that appears nowhere in the knowledge base and may not even be true. All three types degrade user trust and must be flagged during evaluation.
+
+Detecting hallucinations can be approached through several methods. Reference-based checking compares generated claims against the retrieved passages using entailment classifiers or semantic similarity. Citation verification confirms that each cited source actually supports the associated claim. Fact checking against external knowledge bases can catch fabricated facts, though this goes beyond what a standard RAG evaluation typically covers.
+
+The rate of hallucination is a key quality metric for any RAG system. Teams should track hallucination rates across different query types and corpus domains, since some topics may be more prone to hallucination than others. When hallucination rates are unacceptably high, the most effective remediation strategies include improving retrieval quality, strengthening grounding instructions in the system prompt, and adding post-generation verification steps.

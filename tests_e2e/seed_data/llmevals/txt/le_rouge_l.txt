@@ -1,0 +1,9 @@
+ROUGE-L
+
+ROUGE-L is a widely used metric for evaluating the quality of generated text by comparing it against one or more reference texts. The metric is based on the longest common subsequence (LCS) between the candidate and the reference, which captures the longest sequence of tokens that appear in both texts in the same order, though not necessarily contiguously.
+
+ROUGE-L recall measures longest common subsequence overlap against a reference. Specifically, recall is computed as the length of the LCS divided by the length of the reference text. This tells us what fraction of the reference content is captured by the generated output. A high ROUGE-L recall means that most of the reference material appears in the candidate, which is desirable when completeness matters.
+
+ROUGE-L precision, by contrast, divides the LCS length by the length of the candidate text, measuring how much of the generated output is supported by the reference. The F1 score combines precision and recall into a single number using their harmonic mean. Depending on the evaluation goal, practitioners may weight recall more heavily when coverage is paramount or weight precision more heavily when conciseness is valued.
+
+One advantage of ROUGE-L over simpler n-gram overlap metrics is that it naturally handles word reordering and insertion. Because the LCS does not require contiguous matches, it rewards outputs that preserve the overall flow of the reference even if some words are added or rearranged. However, ROUGE-L remains a surface-level metric and does not capture semantic equivalence, so it is best used alongside embedding-based or model-based evaluation methods.
