@@ -184,7 +184,7 @@ def test_orchestration_index_and_search() -> None:
 
     dense_results = orchestration.search_dense(query="one", top_k=5)
     sparse_results = orchestration.search_sparse(query="one", top_k=5)
-    hybrid_results = orchestration.search_hybrid(query="one", top_k=5)
+    hybrid_results = orchestration.search_hybrid(query="one", top_k=5, alpha=None, use_reranking=None)
 
     assert len(dense_results) >= 1
     assert len(sparse_results) >= 1
@@ -370,7 +370,7 @@ def test_orchestration_destroy_and_validation() -> None:
         orchestration.search_sparse(query="", top_k=1)
 
     with pytest.raises(ValueError):
-        orchestration.search_hybrid(query="q", top_k=0)
+        orchestration.search_hybrid(query="q", top_k=0, alpha=None, use_reranking=None)
 
 
 def test_orchestration_index_rejects_empty_citation_key() -> None:

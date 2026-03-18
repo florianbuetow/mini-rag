@@ -61,8 +61,8 @@ class FakeOrchestration:
         del query, top_k
         return [SearchResult(chunk_id=2, document_id=1, citation_key="key1", text="sparse", score=0.8)]
 
-    def search_hybrid(self, query: str, top_k: int) -> list[SearchResult]:
-        del query, top_k
+    def search_hybrid(self, query: str, top_k: int, alpha: float | None, use_reranking: bool | None) -> list[SearchResult]:
+        del query, top_k, alpha, use_reranking
         return [SearchResult(chunk_id=3, document_id=1, citation_key="key1", text="hybrid", score=0.85)]
 
 
@@ -184,8 +184,8 @@ class ErrorOrchestration:
         del query, top_k
         raise self._error
 
-    def search_hybrid(self, query: str, top_k: int) -> list[SearchResult]:
-        del query, top_k
+    def search_hybrid(self, query: str, top_k: int, alpha: float | None, use_reranking: bool | None) -> list[SearchResult]:
+        del query, top_k, alpha, use_reranking
         raise self._error
 
 

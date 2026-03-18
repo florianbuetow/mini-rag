@@ -121,22 +121,34 @@ def test_load_citation_from_json_file(tmp_path: Path) -> None:
     citation_data: dict[str, object] = {"citation_key": "doc_key", "source_type": "journal", "common": {}, "source_data": {}}
     json_path.write_text(json.dumps(citation_data), encoding="utf-8")
 
-    result = load_citation(txt_path)
+    result = load_citation(txt_path, tmp_path)
     assert result["citation_key"] == "doc_key"
     assert result["source_type"] == "journal"
 
 
 def test_load_citation_auto_generates_when_no_json(tmp_path: Path) -> None:
-    """load_citation should auto-generate citation when no .json file exists."""
+    """load_citation should auto-generate citation using relative path as key."""
     txt_path = tmp_path / "my_document.txt"
     txt_path.write_text("content", encoding="utf-8")
 
-    result = load_citation(txt_path)
+    result = load_citation(txt_path, tmp_path)
     assert result["citation_key"] == "my_document"
     assert result["source_type"] == "text_file"
     common = result["common"]
     assert isinstance(common, dict)
     assert common["title"] == "my_document.txt"
+
+
+def test_load_citation_auto_generates_with_subdirectory(tmp_path: Path) -> None:
+    """load_citation should use relative path for files in subdirectories."""
+    sub = tmp_path / "subdir"
+    sub.mkdir()
+    txt_path = sub / "my_document.txt"
+    txt_path.write_text("content", encoding="utf-8")
+
+    result = load_citation(txt_path, tmp_path)
+    assert result["citation_key"] == "subdir/my_document"
+    assert result["source_type"] == "text_file"
 
 
 def test_load_citation_rejects_malformed_json(tmp_path: Path) -> None:
@@ -147,7 +159,7 @@ def test_load_citation_rejects_malformed_json(tmp_path: Path) -> None:
     json_path.write_text("{not valid json", encoding="utf-8")
 
     with pytest.raises(ValueError, match="malformed citation JSON"):
-        load_citation(txt_path)
+        load_citation(txt_path, tmp_path)
 
 
 def test_load_citation_rejects_missing_citation_key(tmp_path: Path) -> None:
@@ -158,7 +170,7 @@ def test_load_citation_rejects_missing_citation_key(tmp_path: Path) -> None:
     json_path.write_text(json.dumps({"source_type": "journal"}), encoding="utf-8")
 
     with pytest.raises(ValueError, match="missing 'citation_key'"):
-        load_citation(txt_path)
+        load_citation(txt_path, tmp_path)
 
 
 def test_load_citation_rejects_missing_source_type(tmp_path: Path) -> None:
@@ -169,7 +181,7 @@ def test_load_citation_rejects_missing_source_type(tmp_path: Path) -> None:
     json_path.write_text(json.dumps({"citation_key": "key1"}), encoding="utf-8")
 
     with pytest.raises(ValueError, match="cannot infer source_type"):
-        load_citation(txt_path)
+        load_citation(txt_path, tmp_path)
 
 
 def test_ingest_with_json_citation(tmp_path: Path) -> None:

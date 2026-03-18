@@ -342,7 +342,7 @@ def test_orchestration_hybrid_with_reranker() -> None:
         reranker=reranker,
     )
 
-    results = orchestration.search_hybrid(query="query", top_k=2)
+    results = orchestration.search_hybrid(query="query", top_k=2, alpha=None, use_reranking=None)
 
     assert dense.last_top_k == 6
     assert sparse.last_top_k == 6
@@ -366,7 +366,7 @@ def test_orchestration_hybrid_without_reranker() -> None:
         reranker=None,
     )
 
-    results = orchestration.search_hybrid(query="query", top_k=2)
+    results = orchestration.search_hybrid(query="query", top_k=2, alpha=None, use_reranking=None)
 
     assert dense.last_top_k == 2
     assert sparse.last_top_k == 2
