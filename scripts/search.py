@@ -10,7 +10,7 @@ from minirag.clients.query import QueryClient
 from minirag.config import Config
 
 SEARCH_MODES = {"dense", "sparse", "hybrid"}
-TOP_K = 5
+TOP_K = 15
 
 
 def print_help() -> None:

@@ -39,6 +39,7 @@ async def _parse_query_request(request: Request) -> QueryRequest | JSONResponse:
     try:
         return QueryRequest.model_validate(body_object)
     except ValidationError as exc:
+        logger.debug("Validation error on query request: %s", exc)
         return error_response(status=422, message=str(exc))
 
 
@@ -123,6 +124,15 @@ async def query_sparse(request: Request, corpus: str) -> JSONResponse:
     )
 
 
+def _hybrid_search_fn(orchestration: Orchestration) -> QuerySearchFn:
+    """Wrap search_hybrid into a QuerySearchFn by binding alpha and use_reranking to None."""
+
+    def _search(*, query: str, top_k: int) -> list[SearchResult]:
+        return orchestration.search_hybrid(query=query, top_k=top_k, alpha=None, use_reranking=None)
+
+    return _search
+
+
 @router.post("/hybrid")
 async def query_hybrid(request: Request, corpus: str) -> JSONResponse:
     """Run hybrid search query."""
@@ -130,5 +140,5 @@ async def query_hybrid(request: Request, corpus: str) -> JSONResponse:
         request=request,
         corpus=corpus,
         search_name="hybrid",
-        search_fn_getter=lambda orchestration: orchestration.search_hybrid,
+        search_fn_getter=_hybrid_search_fn,
     )

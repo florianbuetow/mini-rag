@@ -14,7 +14,7 @@ from minirag.config import Config
 logger = logging.getLogger(__name__)
 
 SEARCH_MODES = ["sparse", "dense", "hybrid"]
-TOP_K = 5
+TOP_K = 15
 
 
 def configure_logging() -> None:

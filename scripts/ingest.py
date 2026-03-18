@@ -137,19 +137,25 @@ def normalize_flat_citation(flat: dict[str, object], json_path: Path) -> dict[st
     }
 
 
-def load_citation(txt_path: Path) -> dict[str, object]:
+def load_citation(txt_path: Path, input_dir: Path) -> dict[str, object]:
     """Load citation JSON for a text file, or auto-generate one.
 
     Looks for a .json file with the same stem in the same directory.
     If found, validates citation_key and source_type are present.
-    If not found, auto-generates a minimal citation.
+    If not found, auto-generates a minimal citation using the relative
+    path from ``input_dir`` (without extension) as the citation key.
+    This ensures uniqueness even when multiple files share the same stem
+    across different subdirectories.
 
     Flat-format JSON files (with cite_key instead of citation_key, and no
     source_type/common/source_data nesting) are automatically normalized
     into the expected nested format.
+
+    Args:
+        txt_path: Absolute path to the .txt file.
+        input_dir: The corpus input directory (parent of all txt files).
     """
     json_path = txt_path.with_suffix(".json")
-    stem = txt_path.stem
 
     if json_path.exists():
         raw = json_path.read_text(encoding="utf-8")
@@ -175,13 +181,15 @@ def load_citation(txt_path: Path) -> dict[str, object]:
         logger.info("Loaded citation from %s (key=%s, type=%s)", json_path.name, citation_key, source_type)
         return parsed
 
+    relative = txt_path.relative_to(input_dir).with_suffix("")
+    citation_key = str(relative)
     auto_citation: dict[str, object] = {
-        "citation_key": stem,
+        "citation_key": citation_key,
         "source_type": "text_file",
         "common": {"title": txt_path.name},
         "source_data": {},
     }
-    logger.debug("Auto-generated citation for %s (key=%s)", txt_path.name, stem)
+    logger.debug("Auto-generated citation for %s (key=%s)", txt_path.name, citation_key)
     return auto_citation
 
 
@@ -220,7 +228,7 @@ def ingest_files(client: IndexingClient, corpus: str, input_dir: Path, data_dir:
                     "[%d/%d] Skipping %s (empty content) — %d indexed, %d remaining", i, num_files, relative_path, indexed_count, remaining
                 )
                 continue
-            citation = load_citation(file_path)
+            citation = load_citation(file_path, input_dir)
             _document_id, chunk_ids = client.index_document(corpus, file_text, citation=citation)
             indexed_count += 1
             total_chunks += len(chunk_ids)

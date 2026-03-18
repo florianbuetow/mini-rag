@@ -27,6 +27,7 @@ async def _parse_index_request(request: Request) -> IndexRequest | JSONResponse:
     try:
         return IndexRequest.model_validate(body_object)
     except ValidationError as exc:
+        logger.debug("Validation error on index request: %s", exc)
         return error_response(status=422, message=str(exc))
 
 

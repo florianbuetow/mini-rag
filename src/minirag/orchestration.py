@@ -194,24 +194,39 @@ class Orchestration:
         sparse_matches = self._sparse.search(query=query, top_k=top_k)
         return self._resolve_results(scored_chunk_ids=sparse_matches, source="sparse")
 
-    def search_hybrid(self, query: str, top_k: int) -> list[SearchResult]:
-        """Run hybrid search by merging dense and sparse result sets."""
+    def search_hybrid(
+        self,
+        query: str,
+        top_k: int,
+        alpha: float | None,
+        use_reranking: bool | None,
+    ) -> list[SearchResult]:
+        """Run hybrid search by merging dense and sparse result sets.
+
+        Args:
+            query: Search query string.
+            top_k: Number of results to return.
+            alpha: Dense/sparse weighting override. If None, uses config value.
+            use_reranking: Reranking override. If None, uses reranker availability.
+                If False, skips reranking even when a reranker is loaded.
+        """
         self._validate_search_params(query=query, top_k=top_k)
 
-        retrieval_top_k = self._reranker.candidate_count(top_k=top_k) if self._reranker is not None else top_k
+        should_rerank = self._reranker is not None if use_reranking is None else (use_reranking and self._reranker is not None)
+        retrieval_top_k = self._reranker.candidate_count(top_k=top_k) if should_rerank and self._reranker is not None else top_k
 
         dense_results = self.search_dense(query=query, top_k=retrieval_top_k)
         sparse_results = self.search_sparse(query=query, top_k=retrieval_top_k)
 
-        alpha = self._search_config.hybrid.alpha
+        effective_alpha = alpha if alpha is not None else self._search_config.hybrid.alpha
         merged_results = merge_hybrid_results(
             dense_results=dense_results,
             sparse_results=sparse_results,
-            alpha=alpha,
+            alpha=effective_alpha,
             top_k=retrieval_top_k,
         )
 
-        if self._reranker is not None:
+        if should_rerank and self._reranker is not None:
             return self._reranker.rerank(query=query, results=merged_results, top_k=top_k)
 
         return merged_results
