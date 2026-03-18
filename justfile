@@ -98,7 +98,7 @@ init:
     printf "%b\n" "\033[0;32m✓ Development environment ready\033[0m"
     echo ""
 
-# Start the mini-rag service
+# Start the mini-rag service (logs to logs/minirag.log)
 [group('lifecycle')]
 start:
     #!/usr/bin/env bash
@@ -108,11 +108,26 @@ start:
     SERVICE_HOST=$(uv run python -c "import yaml; print(yaml.safe_load(open('config.yaml', encoding='utf-8'))['service']['host'])")
     SERVICE_PORT=$(uv run python -c "import yaml; print(yaml.safe_load(open('config.yaml', encoding='utf-8'))['service']['port'])")
     if curl -fsS "http://${SERVICE_HOST}:${SERVICE_PORT}/v1/health" >/dev/null 2>&1; then
-        printf "%b\n" "\033[0;33m⚠ Service is already running on ${SERVICE_HOST}:${SERVICE_PORT}\033[0m"
-        exit 1
+        printf "%b\n" "\033[0;33m⚠ Service is already running on ${SERVICE_HOST}:${SERVICE_PORT} — stopping it first\033[0m"
+        curl -sS -X POST "http://${SERVICE_HOST}:${SERVICE_PORT}/v1/shutdown" -H "Content-Type: application/json" >/dev/null 2>&1 || true
+        # Wait for the port to be released
+        for i in $(seq 1 30); do
+            if ! curl -fsS "http://${SERVICE_HOST}:${SERVICE_PORT}/v1/health" >/dev/null 2>&1; then
+                break
+            fi
+            sleep 0.5
+        done
+        if curl -fsS "http://${SERVICE_HOST}:${SERVICE_PORT}/v1/health" >/dev/null 2>&1; then
+            printf "%b\n" "\033[0;31m✗ Failed to stop existing service\033[0m"
+            exit 1
+        fi
+        printf "%b\n" "\033[0;32m✓ Previous instance stopped\033[0m"
     fi
-    uv run src/main.py
+    mkdir -p logs
+    LOGFILE="logs/minirag.log"
+    printf "%b\n" "\033[0;32m✓ Logging to ${LOGFILE}\033[0m"
     echo ""
+    uv run src/main.py 2>&1 | tee "$LOGFILE"
 
 # Stop the running service
 [group('lifecycle')]
@@ -400,14 +415,24 @@ test-integration:
     @printf "%b\n" "\033[0;32m✓ Integration tests passed\033[0m"
     @echo ""
 
-# Run end-to-end lifecycle tests (starts service, ingests, evaluates)
+# Run end-to-end lifecycle tests (excludes real-RAG tests that need LM Studio)
 [group('testing')]
 test-e2e:
     @echo ""
     @printf "%b\n" "\033[0;34m=== Running End-to-End Tests ===\033[0m"
-    @uv run pytest tests_e2e/ -v -s --timeout=30 -p no:randomly
+    @uv run pytest tests_e2e/ -v -s --timeout=120 -p no:randomly -m "not rag"
     @echo ""
     @printf "%b\n" "\033[0;32m✓ End-to-end tests passed\033[0m"
+    @echo ""
+
+# Run real-RAG end-to-end tests (requires running service, LM Studio, and seeded corpora)
+[group('testing')]
+test-e2e-rag:
+    @echo ""
+    @printf "%b\n" "\033[0;34m=== Running Real-RAG End-to-End Tests ===\033[0m"
+    @uv run pytest tests_e2e/ -v -s --timeout=240 -p no:randomly -m "rag"
+    @echo ""
+    @printf "%b\n" "\033[0;32m✓ Real-RAG end-to-end tests passed\033[0m"
     @echo ""
 
 # Run MCP server end-to-end tests (requires Node.js)
