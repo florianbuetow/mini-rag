@@ -1,0 +1,888 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>mini-rag Chat</title>
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/github-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/16.3.0/lib/marked.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.2.7/purify.min.js"></script>
+</head>
+<body>
+<div class="app">
+    <!-- Sidebar -->
+    <div class="sidebar" id="sidebar" data-testid="sidebar">
+        <div class="sidebar-header">
+            <button class="new-chat-btn" id="new-chat-btn" data-testid="new-chat">
+                + New Chat
+            </button>
+        </div>
+        <div class="chat-list" id="chat-list">
+            <div class="empty-state" id="empty-sidebar">No conversations yet</div>
+        </div>
+    </div>
+
+    <!-- Main content -->
+    <div class="main">
+        <!-- Top bar -->
+        <div class="top-bar">
+            <div class="selector-group">
+                <label for="model-selector">Model</label>
+                <select id="model-selector" data-testid="model-selector">
+                    <option value="">Loading models...</option>
+                </select>
+            </div>
+            <div class="selector-group">
+                <label for="corpus-selector">Corpus</label>
+                <select id="corpus-selector" data-testid="corpus-selector">
+                    <option value="">Loading corpora...</option>
+                </select>
+            </div>
+            <div class="top-bar-spacer"></div>
+            <div style="position: relative;">
+                <button class="settings-btn" id="settings-btn" data-testid="settings-btn" title="Search Settings">&#9881;</button>
+                <div class="settings-panel" id="settings-panel" data-testid="settings-panel">
+                    <h4>Search Settings</h4>
+                    <div class="setting-row">
+                        <label for="search-mode">Mode</label>
+                        <select id="search-mode" data-testid="search-mode">
+                            <option value="hybrid">Hybrid</option>
+                            <option value="dense">Dense</option>
+                            <option value="sparse">Sparse</option>
+                        </select>
+                    </div>
+                    <div class="setting-row">
+                        <label for="top-k">Top K</label>
+                        <input type="number" id="top-k" data-testid="top-k" min="1" max="100" value="10">
+                    </div>
+                    <div class="setting-row">
+                        <label for="alpha-slider">Alpha</label>
+                        <input type="range" id="alpha-slider" data-testid="alpha-slider" min="0" max="1" step="0.1" value="0.7">
+                        <span class="alpha-value" id="alpha-value" data-testid="alpha-value">0.7</span>
+                    </div>
+                    <div class="setting-row">
+                        <label for="reranking-toggle">Reranking</label>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="reranking-toggle" data-testid="reranking-toggle" checked>
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+            <div style="position: relative;">
+                <button class="export-btn" id="export-btn" data-testid="export-btn">Export</button>
+                <div class="export-menu" id="export-menu">
+                    <button data-testid="export-md" id="export-md">Markdown (.md)</button>
+                    <button data-testid="export-json" id="export-json">JSON (.json)</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Chat area -->
+        <div class="chat-area" id="chat-area" data-testid="chat-area">
+            <div class="messages" id="messages"></div>
+        </div>
+
+        <!-- Input area -->
+        <div class="input-area">
+            <div class="input-container">
+                <textarea id="message-input" data-testid="message-input"
+                    placeholder="Send a message..." rows="1"></textarea>
+                <button class="send-btn" id="send-btn" data-testid="send-btn"
+                    type="submit">&#8593;</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+(function() {
+    'use strict';
+
+    // --- Markdown rendering setup ---
+    marked.use({
+        renderer: {
+            code: function(token) {
+                var lang = token.lang || '';
+                var text = token.text || '';
+                var highlighted;
+                if (lang && hljs.getLanguage(lang)) {
+                    highlighted = hljs.highlight(text, { language: lang }).value;
+                } else {
+                    highlighted = hljs.highlightAuto(text).value;
+                }
+                var cls = 'hljs' + (lang ? ' language-' + lang : '');
+                return '<pre><code class="' + cls + '">' + highlighted + '</code></pre>';
+            },
+            link: function(token) {
+                var href = token.href || '';
+                var title = token.title ? ' title="' + token.title + '"' : '';
+                var text = this.parser.parseInline(token.tokens);
+                return '<a href="' + href + '" target="_blank" rel="noopener noreferrer"' + title + '>' + text + '</a>';
+            }
+        }
+    });
+
+    function renderMarkdown(text) {
+        // Replace [citation_key] with placeholders BEFORE markdown parsing,
+        // since marked strips brackets from unresolved link references.
+        var citations = [];
+        var preprocessed = text.replace(
+            /(`[^`]*`)|(\[([a-zA-Z0-9._\/-]+)\])/g,
+            function(match, code, bracket, key) {
+                if (code) return match;
+                var idx = citations.length;
+                citations.push(key);
+                return '%%CITE' + idx + '%%';
+            }
+        );
+        var html = marked.parse(preprocessed);
+        var safe = DOMPurify.sanitize(html, { ADD_ATTR: ['target'] });
+        // Restore citation placeholders as pills
+        safe = safe.replace(/%%CITE(\d+)%%/g, function(match, idx) {
+            return '<span class="citation-pill">' + citations[parseInt(idx)] + '</span>';
+        });
+        return safe;
+    }
+
+    // --- State ---
+    let currentChatId = null;
+    let currentMessages = [];
+    let isStreaming = false;
+    let searchSettings = { search_mode: 'hybrid', top_k: 10, alpha: 0.7, reranking: true };
+
+    // --- DOM refs ---
+    const sidebar = document.getElementById('sidebar');
+    const chatList = document.getElementById('chat-list');
+    const emptySidebar = document.getElementById('empty-sidebar');
+    const newChatBtn = document.getElementById('new-chat-btn');
+    const modelSelector = document.getElementById('model-selector');
+    const corpusSelector = document.getElementById('corpus-selector');
+    const chatArea = document.getElementById('chat-area');
+    const messagesDiv = document.getElementById('messages');
+    const messageInput = document.getElementById('message-input');
+    const sendBtn = document.getElementById('send-btn');
+    const settingsBtn = document.getElementById('settings-btn');
+    const settingsPanel = document.getElementById('settings-panel');
+    const searchModeSelect = document.getElementById('search-mode');
+    const topKInput = document.getElementById('top-k');
+    const alphaSlider = document.getElementById('alpha-slider');
+    const alphaValue = document.getElementById('alpha-value');
+    const rerankingToggle = document.getElementById('reranking-toggle');
+    const exportBtn = document.getElementById('export-btn');
+    const exportMenu = document.getElementById('export-menu');
+    const exportMd = document.getElementById('export-md');
+    const exportJson = document.getElementById('export-json');
+
+    // --- API helpers ---
+    const API_BASE = '';
+
+    async function apiGet(path) {
+        const resp = await fetch(API_BASE + path);
+        return resp.json();
+    }
+
+    async function apiPost(path, body) {
+        const resp = await fetch(API_BASE + path, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+        return { status: resp.status, data: await resp.json() };
+    }
+
+    async function apiPut(path, body) {
+        const resp = await fetch(API_BASE + path, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+        if (!resp.ok) throw new Error('PUT failed: ' + resp.status);
+        return resp.json();
+    }
+
+    async function apiDelete(path) {
+        const resp = await fetch(API_BASE + path, { method: 'DELETE' });
+        return resp.json();
+    }
+
+    // --- Search settings helpers ---
+    function readSettingsFromUI() {
+        searchSettings = {
+            search_mode: searchModeSelect.value,
+            top_k: parseInt(topKInput.value, 10) || 10,
+            alpha: parseFloat(alphaSlider.value),
+            reranking: rerankingToggle.checked
+        };
+    }
+
+    function applySettingsToUI(settings) {
+        searchModeSelect.value = settings.search_mode || 'hybrid';
+        topKInput.value = settings.top_k || 10;
+        alphaSlider.value = settings.alpha != null ? settings.alpha : 0.7;
+        alphaValue.textContent = alphaSlider.value;
+        rerankingToggle.checked = settings.reranking != null ? settings.reranking : true;
+        searchSettings = { ...settings };
+    }
+
+    function saveSearchSettings() {
+        readSettingsFromUI();
+        if (currentChatId) {
+            apiPut('/v1/chats/' + currentChatId, { search_settings: searchSettings }).catch(function(e) {
+                console.error('Failed to save search settings:', e);
+            });
+        }
+    }
+
+    // --- Load models from LM Studio ---
+    const MODEL_EXCLUDE = ['embedding', '-e5-', 'ocr', 'translate'];
+
+    function getModelPrefix(id) {
+        var match = id.match(/^[a-zA-Z]+/);
+        return match ? match[0] : 'other';
+    }
+
+    async function loadModels() {
+        try {
+            const resp = await fetch(API_BASE + '/v1/models');
+            const data = await resp.json();
+            const allModels = data.data || [];
+            modelSelector.innerHTML = '';
+
+            // Filter out non-chat models
+            const models = allModels.filter(function(m) {
+                var lower = m.id.toLowerCase();
+                return !MODEL_EXCLUDE.some(function(ex) { return lower.includes(ex); });
+            });
+
+            if (models.length === 0) {
+                modelSelector.innerHTML = '<option value="">No models available</option>';
+                return;
+            }
+
+            models.sort(function(a, b) { return a.id.localeCompare(b.id); });
+
+            // Group by prefix
+            var groups = {};
+            var groupOrder = [];
+            models.forEach(function(m) {
+                var prefix = getModelPrefix(m.id);
+                if (!groups[prefix]) {
+                    groups[prefix] = [];
+                    groupOrder.push(prefix);
+                }
+                groups[prefix].push(m);
+            });
+
+            var defaultValue = '';
+            var lightweight = ['gemma', 'qwen'];
+
+            groupOrder.forEach(function(prefix) {
+                var optgroup = document.createElement('optgroup');
+                optgroup.label = prefix;
+                groups[prefix].forEach(function(m) {
+                    var opt = document.createElement('option');
+                    opt.value = m.id;
+                    opt.textContent = m.id;
+                    optgroup.appendChild(opt);
+
+                    if (!defaultValue) {
+                        for (var i = 0; i < lightweight.length; i++) {
+                            if (m.id.toLowerCase().includes(lightweight[i])) {
+                                defaultValue = m.id;
+                                break;
+                            }
+                        }
+                    }
+                });
+                modelSelector.appendChild(optgroup);
+            });
+
+            if (defaultValue) {
+                modelSelector.value = defaultValue;
+            }
+        } catch (e) {
+            modelSelector.innerHTML = '<option value="">Error loading models</option>';
+        }
+    }
+
+    // --- Load corpora ---
+    async function loadCorpora() {
+        try {
+            const data = await apiGet('/v1/corpora');
+            const corpora = data.data.corpora || [];
+            corpusSelector.innerHTML = '';
+
+            if (corpora.length === 0) {
+                corpusSelector.innerHTML = '<option value="">No corpora available</option>';
+                return;
+            }
+
+            corpora.forEach(function(name) {
+                const opt = document.createElement('option');
+                opt.value = name;
+                opt.textContent = name;
+                corpusSelector.appendChild(opt);
+            });
+        } catch (e) {
+            corpusSelector.innerHTML = '<option value="">Error loading corpora</option>';
+        }
+    }
+
+    // --- Load chat list ---
+    async function loadChatList() {
+        try {
+            const data = await apiGet('/v1/chats');
+            const chats = data.data.chats || [];
+
+            chatList.innerHTML = '';
+            if (chats.length === 0) {
+                chatList.innerHTML = '<div class="empty-state" id="empty-sidebar">No conversations yet</div>';
+                return;
+            }
+
+            chats.forEach(function(chat) {
+                const entry = createChatEntry(chat);
+                chatList.appendChild(entry);
+            });
+
+            highlightActiveChat();
+        } catch (e) {
+            chatList.innerHTML = '<div class="empty-state">Error loading chats</div>';
+        }
+    }
+
+    function createChatEntry(chat) {
+        const entry = document.createElement('div');
+        entry.className = 'chat-entry';
+        entry.dataset.chatId = chat.id;
+        entry.dataset.testid = 'chat-entry';
+
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'chat-entry-name';
+        nameSpan.textContent = chat.name || chat.id;
+        entry.appendChild(nameSpan);
+
+        const actions = document.createElement('div');
+        actions.className = 'chat-entry-actions';
+
+        const editBtn = document.createElement('button');
+        editBtn.textContent = '\u270E';
+        editBtn.title = 'Rename';
+        editBtn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            startRename(entry, chat.id, nameSpan);
+        });
+        actions.appendChild(editBtn);
+
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'delete-chat-btn';
+        deleteBtn.dataset.testid = 'delete-chat';
+        deleteBtn.textContent = '\u2715';
+        deleteBtn.title = 'Delete';
+        deleteBtn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            deleteChat(chat.id);
+        });
+        actions.appendChild(deleteBtn);
+
+        entry.appendChild(actions);
+
+        entry.addEventListener('click', function() {
+            loadChat(chat.id);
+        });
+
+        entry.addEventListener('dblclick', function() {
+            startRename(entry, chat.id, nameSpan);
+        });
+
+        return entry;
+    }
+
+    function highlightActiveChat() {
+        document.querySelectorAll('.chat-entry').forEach(function(el) {
+            el.classList.toggle('active', el.dataset.chatId === currentChatId);
+        });
+    }
+
+    // --- Load a specific chat ---
+    async function loadChat(chatId) {
+        // B-03: Prevent chat switching during streaming
+        if (isStreaming) return;
+        try {
+            const data = await apiGet('/v1/chats/' + chatId);
+            const chat = data.data;
+            currentChatId = chat.id;
+            currentMessages = chat.messages || [];
+
+            renderMessages();
+            updateExportBtnState();
+            highlightActiveChat();
+            saveLastActiveChat(chat.id);
+
+            // Restore model, corpus, and search settings
+            if (chat.model) modelSelector.value = chat.model;
+            if (chat.corpus) corpusSelector.value = chat.corpus;
+            if (chat.search_settings) {
+                applySettingsToUI(chat.search_settings);
+            }
+        } catch (e) {
+            console.error('Failed to load chat:', e);
+            showLoadError();
+        }
+    }
+
+    // --- Render messages ---
+    function renderMessages() {
+        messagesDiv.innerHTML = '';
+
+        currentMessages.forEach(function(msg) {
+            appendMessageBubble(msg.role, msg.content);
+        });
+
+        scrollToBottom();
+    }
+
+    function appendMessageBubble(role, content) {
+        const div = document.createElement('div');
+        div.className = 'message message-' + role;
+        div.dataset.role = role;
+        div.dataset.testid = 'message';
+
+        const roleLabel = document.createElement('div');
+        roleLabel.className = 'message-role';
+        roleLabel.textContent = role === 'user' ? 'You' : 'Assistant';
+
+        const contentDiv = document.createElement('div');
+        contentDiv.className = 'message-content';
+        if (role === 'assistant' && content) {
+            contentDiv.innerHTML = renderMarkdown(content);
+        } else {
+            contentDiv.textContent = content || '';
+        }
+
+        div.appendChild(roleLabel);
+        div.appendChild(contentDiv);
+        messagesDiv.appendChild(div);
+
+        return contentDiv;
+    }
+
+    function scrollToBottom() {
+        chatArea.scrollTop = chatArea.scrollHeight;
+    }
+
+    // --- B-07: Enable/disable export button based on message state ---
+    function updateExportBtnState() {
+        exportBtn.disabled = currentMessages.length === 0;
+    }
+
+    // --- Create new chat ---
+    async function createNewChat() {
+        // B-09: Guard against rapid clicks
+        if (newChatBtn.disabled) return;
+        newChatBtn.disabled = true;
+
+        const model = modelSelector.value;
+        const corpus = corpusSelector.value;
+
+        if (!model || !corpus) {
+            newChatBtn.disabled = false;
+            return;
+        }
+
+        try {
+            readSettingsFromUI();
+            const result = await apiPost('/v1/chats', { model: model, corpus: corpus, search_settings: searchSettings });
+            if (result.status === 201) {
+                const chat = result.data.data;
+                currentChatId = chat.id;
+                currentMessages = [];
+                renderMessages();
+                updateExportBtnState();
+                await loadChatList();
+                highlightActiveChat();
+                saveLastActiveChat(chat.id);
+            }
+        } catch (e) {
+            console.error('Failed to create chat:', e);
+        } finally {
+            newChatBtn.disabled = false;
+        }
+    }
+
+    // --- Send message ---
+    async function sendMessage() {
+        const text = messageInput.value.trim();
+        if (!text || isStreaming) return;
+
+        // B-01: Auto-create chat if none is active
+        if (!currentChatId) {
+            const model = modelSelector.value;
+            const corpus = corpusSelector.value;
+            if (!model || !corpus) return;
+            try {
+                const result = await apiPost('/v1/chats', { model: model, corpus: corpus });
+                if (result.status === 201) {
+                    const chat = result.data.data;
+                    currentChatId = chat.id;
+                    currentMessages = [];
+                    await loadChatList();
+                    highlightActiveChat();
+                    saveLastActiveChat(chat.id);
+                } else {
+                    return;
+                }
+            } catch (e) {
+                return;
+            }
+        }
+
+        isStreaming = true;
+        sendBtn.disabled = true;
+        messageInput.disabled = true;
+
+        // Add user message
+        currentMessages.push({ role: 'user', content: text });
+        appendMessageBubble('user', text);
+        messageInput.value = '';
+        autoResizeInput();
+        scrollToBottom();
+
+        // Create assistant bubble for streaming
+        const assistantContent = appendMessageBubble('assistant', '');
+        scrollToBottom();
+
+        let assistantText = '';
+
+        // B-08/J-40: If the user refreshes mid-stream, the partial assistant
+        // response and the sent user message are lost because the PUT to persist
+        // messages fires only after streaming completes. This is accepted behavior.
+        try {
+            readSettingsFromUI();
+            const resp = await fetch(API_BASE + '/v1/chat/completions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    messages: currentMessages,
+                    model: modelSelector.value,
+                    corpus: corpusSelector.value,
+                    search_mode: searchSettings.search_mode,
+                    top_k: searchSettings.top_k,
+                    alpha: searchSettings.alpha,
+                    reranking: searchSettings.reranking
+                })
+            });
+
+            const reader = resp.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop(); // keep incomplete line in buffer
+
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        const data = line.slice(6);
+                        if (data === '[DONE]') continue;
+                        if (data.startsWith('error:')) {
+                            assistantContent.classList.add('message-error');
+                            assistantText += data;
+                        } else if (data === '') {
+                            assistantText += '\n';
+                        } else {
+                            assistantText += data;
+                        }
+                        assistantContent.innerHTML = renderMarkdown(assistantText);
+                        scrollToBottom();
+                    }
+                }
+            }
+        } catch (e) {
+            if (assistantText === '') {
+                assistantContent.textContent = 'Error: Failed to get response';
+                assistantContent.classList.add('message-error');
+            }
+        }
+
+        // Save assistant message
+        currentMessages.push({ role: 'assistant', content: assistantText });
+        updateExportBtnState();
+
+        // Save chat
+        try {
+            await apiPut('/v1/chats/' + currentChatId, { messages: currentMessages });
+        } catch (e) {
+            console.error('Failed to save chat:', e);
+            showSaveWarning();
+        }
+
+        // Auto-generate title after the first exchange (1 user + 1 assistant = 2 messages)
+        if (currentMessages.length === 2 && currentChatId) {
+            try {
+                const titleResult = await apiPost('/v1/chats/' + currentChatId + '/generate-title', {});
+                if (titleResult.status === 200 && titleResult.data && titleResult.data.data) {
+                    const newName = titleResult.data.data.name;
+                    if (newName) {
+                        const entry = document.querySelector('.chat-entry[data-chat-id="' + currentChatId + '"]');
+                        if (entry) {
+                            const nameSpan = entry.querySelector('.chat-name');
+                            if (nameSpan) nameSpan.textContent = newName;
+                        }
+                    }
+                }
+            } catch (e) {
+                console.error('Failed to generate title:', e);
+            }
+        }
+
+        isStreaming = false;
+        sendBtn.disabled = false;
+        messageInput.disabled = false;
+        messageInput.focus();
+    }
+
+    // --- Rename chat ---
+    function startRename(entry, chatId, nameSpan) {
+        const currentName = nameSpan.textContent;
+        const input = document.createElement('input');
+        input.className = 'rename-input';
+        input.dataset.testid = 'rename-input';
+        input.value = currentName;
+        let cancelled = false;
+
+        nameSpan.style.display = 'none';
+        entry.insertBefore(input, nameSpan.nextSibling);
+        input.focus();
+        input.select();
+
+        function finishRename() {
+            if (cancelled) return;
+            const newName = input.value.trim();
+            input.remove();
+            nameSpan.style.display = '';
+
+            if (newName && newName !== currentName) {
+                nameSpan.textContent = newName;
+                apiPut('/v1/chats/' + chatId, { name: newName }).catch(function() {
+                    nameSpan.textContent = currentName;
+                });
+            }
+        }
+
+        input.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                finishRename();
+            } else if (e.key === 'Escape') {
+                cancelled = true;
+                input.remove();
+                nameSpan.style.display = '';
+            }
+        });
+
+        input.addEventListener('blur', finishRename);
+    }
+
+    // --- Delete chat ---
+    async function deleteChat(chatId) {
+        try {
+            await apiDelete('/v1/chats/' + chatId);
+
+            if (currentChatId === chatId) {
+                currentChatId = null;
+                currentMessages = [];
+                renderMessages();
+                updateExportBtnState();
+            }
+
+            await loadChatList();
+        } catch (e) {
+            console.error('Failed to delete chat:', e);
+            showSaveWarning();
+        }
+    }
+
+    // --- Export ---
+    function exportAsMarkdown() {
+        if (!currentMessages.length) return;
+
+        let md = '# Chat Export\n\n';
+        currentMessages.forEach(function(msg) {
+            md += '## ' + (msg.role === 'user' ? 'User' : 'Assistant') + '\n\n';
+            md += msg.content + '\n\n';
+        });
+
+        downloadFile(getChatName() + '.md', md, 'text/markdown');
+        exportMenu.classList.remove('visible');
+    }
+
+    async function exportAsJson() {
+        if (!currentMessages.length || !currentChatId) return;
+
+        try {
+            const resp = await apiGet('/v1/chats/' + currentChatId);
+            const chatObj = resp.data;
+            downloadFile(getChatName() + '.json', JSON.stringify(chatObj, null, 2), 'application/json');
+        } catch (e) {
+            // Fallback: export local state if API fetch fails
+            const data = {
+                id: currentChatId,
+                messages: currentMessages,
+                model: modelSelector.value,
+                corpus: corpusSelector.value
+            };
+            downloadFile(getChatName() + '.json', JSON.stringify(data, null, 2), 'application/json');
+        }
+        exportMenu.classList.remove('visible');
+    }
+
+    function getChatName() {
+        const active = document.querySelector('.chat-entry.active .chat-entry-name');
+        return (active ? active.textContent : 'chat').replace(/[^a-zA-Z0-9_-]/g, '_');
+    }
+
+    function downloadFile(filename, content, mimeType) {
+        const blob = new Blob([content], { type: mimeType });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    // --- B-04: Load failure error ---
+    function showLoadError() {
+        let el = document.getElementById('load-error');
+        if (!el) {
+            el = document.createElement('div');
+            el.id = 'load-error';
+            el.className = 'save-warning load-error';
+            el.dataset.testid = 'load-error';
+            el.textContent = 'Failed to load chat. Please try again.';
+            const closeBtn = document.createElement('button');
+            closeBtn.textContent = '\u2715';
+            closeBtn.addEventListener('click', function() { el.remove(); });
+            el.appendChild(closeBtn);
+            document.querySelector('.main').prepend(el);
+        }
+    }
+
+    // --- Save failure warning ---
+    function showSaveWarning() {
+        let warning = document.getElementById('save-warning');
+        if (!warning) {
+            warning = document.createElement('div');
+            warning.id = 'save-warning';
+            warning.className = 'save-warning';
+            warning.dataset.testid = 'save-warning';
+            warning.textContent = 'Failed to save chat. Your messages may not be persisted.';
+            const closeBtn = document.createElement('button');
+            closeBtn.textContent = '\u2715';
+            closeBtn.addEventListener('click', function() { warning.remove(); });
+            warning.appendChild(closeBtn);
+            document.querySelector('.main').prepend(warning);
+        }
+    }
+
+    // --- Auto-resize textarea ---
+    function autoResizeInput() {
+        messageInput.style.height = 'auto';
+        messageInput.style.height = Math.min(messageInput.scrollHeight, 200) + 'px';
+    }
+
+    // --- Event listeners ---
+    newChatBtn.addEventListener('click', createNewChat);
+
+    sendBtn.addEventListener('click', sendMessage);
+
+    messageInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendMessage();
+        }
+    });
+
+    messageInput.addEventListener('input', autoResizeInput);
+
+    // --- Settings panel ---
+    settingsBtn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        settingsPanel.classList.toggle('visible');
+        exportMenu.classList.remove('visible');
+    });
+
+    settingsPanel.addEventListener('click', function(e) {
+        e.stopPropagation();
+    });
+
+    searchModeSelect.addEventListener('change', saveSearchSettings);
+    topKInput.addEventListener('change', saveSearchSettings);
+    alphaSlider.addEventListener('input', function() {
+        alphaValue.textContent = alphaSlider.value;
+    });
+    alphaSlider.addEventListener('change', saveSearchSettings);
+    rerankingToggle.addEventListener('change', saveSearchSettings);
+
+    exportBtn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        exportMenu.classList.toggle('visible');
+        settingsPanel.classList.remove('visible');
+    });
+
+    exportMd.addEventListener('click', exportAsMarkdown);
+    exportJson.addEventListener('click', exportAsJson);
+
+    document.addEventListener('click', function() {
+        exportMenu.classList.remove('visible');
+        settingsPanel.classList.remove('visible');
+    });
+
+    // --- Last-active-chat persistence ---
+    function saveLastActiveChat(chatId) {
+        try { localStorage.setItem('minirag_last_chat', chatId); } catch (e) { /* ignore */ }
+    }
+
+    function getLastActiveChat() {
+        try { return localStorage.getItem('minirag_last_chat'); } catch (e) { return null; }
+    }
+
+    // --- B-02: Enable/disable new chat button based on selector state ---
+    function updateNewChatBtnState() {
+        newChatBtn.disabled = !modelSelector.value || !corpusSelector.value;
+    }
+
+    modelSelector.addEventListener('change', updateNewChatBtnState);
+    corpusSelector.addEventListener('change', updateNewChatBtnState);
+
+    // --- Init ---
+    async function init() {
+        newChatBtn.disabled = true;
+        exportBtn.disabled = true;
+        await Promise.all([loadModels(), loadCorpora(), loadChatList()]);
+        updateNewChatBtnState();
+
+        // Restore last active chat
+        const lastChatId = getLastActiveChat();
+        if (lastChatId) {
+            const chatEntry = document.querySelector('.chat-entry[data-chat-id="' + lastChatId + '"]');
+            if (chatEntry) {
+                await loadChat(lastChatId);
+            }
+        }
+    }
+
+    init();
+})();
+</script>
+</body>
+</html>
