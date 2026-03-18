@@ -1,14 +1,19 @@
 """Administrative routes for health, info, and shutdown."""
 
+import logging
 import os
 import signal
 
+import httpx
 from fastapi import APIRouter, BackgroundTasks, Request
 from fastapi.responses import JSONResponse
 
+from minirag.agent import LM_STUDIO_BASE_URL
 from minirag.api.models.info import HealthResponse, InfoResponse, ShutdownResponse
-from minirag.api.responses import success_response
+from minirag.api.responses import error_response, success_response
 from minirag.api.utils import ensure_healthy, get_config, get_corpus_manager
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1")
 
@@ -57,6 +62,25 @@ async def shutdown(request: Request, background_tasks: BackgroundTasks) -> JSONR
 
     response = ShutdownResponse(message="shutdown initiated")
     return success_response(status=200, data=response.model_dump())
+
+
+@router.get("/models")
+async def list_models(request: Request) -> JSONResponse:
+    """Proxy LM Studio's model list to avoid browser CORS issues."""
+    guard_response = ensure_healthy(request)
+    if guard_response is not None:
+        return guard_response
+
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(f"{LM_STUDIO_BASE_URL}/models")
+            return JSONResponse(content=resp.json(), status_code=resp.status_code)
+    except httpx.ConnectError:
+        logger.warning("LM Studio not reachable at %s", LM_STUDIO_BASE_URL)
+        return success_response(status=200, data={"data": []})
+    except Exception:
+        logger.exception("Failed to fetch models from LM Studio")
+        return error_response(status=502, message="Failed to fetch models from LM Studio")
 
 
 @router.get("/corpora")

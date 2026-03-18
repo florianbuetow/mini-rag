@@ -1,6 +1,7 @@
 """Service entry point for mini-rag."""
 
 import logging
+import os
 from pathlib import Path
 
 import uvicorn
@@ -33,8 +34,13 @@ def configure_logging(log_level: str) -> None:
 
 
 def load_config(project_root: Path) -> Config:
-    """Load and validate application config from disk."""
-    return Config.from_yaml(project_root / "config.yaml")
+    """Load and validate application config from disk.
+
+    Honors MINIRAG_CONFIG env var to override the default config path.
+    """
+    config_path_str = os.environ.get("MINIRAG_CONFIG")
+    config_path = Path(config_path_str) if config_path_str else project_root / "config.yaml"
+    return Config.from_yaml(config_path)
 
 
 def create_uvicorn_app() -> FastAPI:
