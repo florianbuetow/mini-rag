@@ -44,6 +44,7 @@ coverage.xml
 *.cover
 *.log
 logs/
+docs/retrospective/
 
 # Type checking
 .mypy_cache/
