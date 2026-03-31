@@ -56,6 +56,7 @@ class TestStreamError:
 class TestSaveFailure:
     """Test 23: Save failure surfaces visible warning."""
 
+    @pytest.mark.expect_console_errors
     def test_save_failure_shows_warning(self, page, det_base_url) -> None:
         """If PUT /v1/chats/<id> fails, a visible warning should appear."""
         wait_for_selectors_loaded(page)

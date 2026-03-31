@@ -46,6 +46,9 @@ FAKE_CORPORA: list[str] = ["alpha", "beta", "gamma"]
 
 FAKE_STREAM_CHUNKS: list[str] = ["Hello", " from", " the", " deterministic", " agent."]
 
+# Server-side error tracking for deterministic test server
+_server_errors: list[tuple[str, Exception]] = []
+
 # Markdown response split into newline-safe chunks (SSE strips \n from data lines).
 # Each \n must be sent as its own chunk so the frontend accumulates the full text.
 FAKE_MARKDOWN_TEXT: str = (
@@ -102,7 +105,40 @@ def clean_chats(request: pytest.FixtureRequest) -> Iterator[None]:
 
 
 @pytest.fixture(autouse=True)
-def navigate_to_app(request: pytest.FixtureRequest, page, clean_chats: None) -> None:
+def _fail_on_server_errors() -> Iterator[None]:
+    """Fail fast if the deterministic test server raised unhandled exceptions."""
+    _server_errors.clear()
+    yield
+    if _server_errors:
+        details = "\n".join(f"  {path}: {type(exc).__name__}: {exc}" for path, exc in _server_errors)
+        pytest.fail(f"Unhandled server-side exception(s) during test:\n{details}")
+
+
+@pytest.fixture(autouse=True)
+def _fail_on_console_errors(request: pytest.FixtureRequest, page) -> Iterator[None]:
+    """Fail fast if unexpected browser console.error calls occurred.
+
+    Tests that intentionally trigger console errors must be marked with
+    @pytest.mark.expect_console_errors to opt out.
+    """
+    if any(m.name == "expect_console_errors" for m in request.node.iter_markers()):
+        yield
+        return
+    errors: list[str] = []
+    page.on("console", lambda msg: errors.append(msg.text) if msg.type == "error" else None)
+    yield
+    if errors:
+        details = "\n".join(f"  {e}" for e in errors)
+        pytest.fail(f"Browser console.error(s) during test:\n{details}")
+
+
+@pytest.fixture(autouse=True)
+def navigate_to_app(
+    request: pytest.FixtureRequest,
+    page,
+    clean_chats: None,
+    _fail_on_console_errors: None,
+) -> None:
     """Navigate to the app before each test (after cleaning chats).
 
     Skipped for deterministic tests (they use det_navigate).
@@ -246,6 +282,12 @@ def _create_test_app(chats_dir: Path) -> FastAPI:
     app.state.corpus_manager = _FakeCorpusManager()
     app.state.data_dir = chats_dir.parent
 
+    async def _capture_server_exception(request: Request, exc: Exception) -> JSONResponse:
+        _server_errors.append((request.url.path, exc))
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+    app.add_exception_handler(Exception, _capture_server_exception)
+
     app.include_router(_build_fake_info_router())
     app.include_router(_build_fake_completions_router())
     app.include_router(chats_router)
@@ -375,6 +417,7 @@ def det_navigate(
     page,
     det_base_url: str,
     det_clean_chats: None,
+    _fail_on_console_errors: None,
 ) -> None:
     """Navigate to the deterministic test app before each test.
 

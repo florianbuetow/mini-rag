@@ -171,6 +171,7 @@ class TestHighPriority:
         text = current_assistant_text(page)
         assert "error" in text.lower() or "failed" in text.lower()
 
+    @pytest.mark.expect_console_errors
     def test_uj10_chat_save_fails(self, page):
         """J-19: Save failure shows warning banner."""
         wait_for_selectors_loaded(page)
@@ -595,6 +596,7 @@ class TestMediumPriority:
         text = page.locator("#chat-list").text_content()
         assert "error" in text.lower()
 
+    @pytest.mark.expect_console_errors
     def test_uj40_load_specific_chat_fails(self, page, det_api_client, det_base_url):
         """J-46: Visible error when loading a chat fails."""
         chat = _create_chat(det_api_client, name="Will Fail")
@@ -652,6 +654,7 @@ class TestMediumPriority:
         entries = page.locator("[data-testid='chat-entry']")
         assert entries.count() == 1
 
+    @pytest.mark.expect_console_errors
     def test_uj42_localstorage_unavailable(self, page, det_base_url):
         """J-51: App works when localStorage throws."""
         page.add_init_script("""

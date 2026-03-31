@@ -163,6 +163,14 @@ md2txt:
     @uv run scripts/md2txt.py
     @echo ""
 
+# Convert PDF files to plain text using LiteParse
+[group('tools')]
+pdf2txt:
+    @echo ""
+    @printf "%b\n" "\033[0;34m=== Converting PDFs to Text ===\033[0m"
+    @uv run scripts/pdf2txt.py
+    @echo ""
+
 # Destroy and re-ingest all .txt files into a corpus
 [group('corpus')]
 ingest corpus="":
@@ -420,7 +428,7 @@ test-integration:
 test-e2e:
     @echo ""
     @printf "%b\n" "\033[0;34m=== Running End-to-End Tests ===\033[0m"
-    @uv run pytest tests_e2e/ -v -s --timeout=120 -p no:randomly -m "not rag"
+    @uv run pytest tests_e2e/ -v -s -x --timeout=120 -p no:randomly -m "not rag"
     @echo ""
     @printf "%b\n" "\033[0;32m✓ End-to-end tests passed\033[0m"
     @echo ""
@@ -430,7 +438,7 @@ test-e2e:
 test-e2e-rag:
     @echo ""
     @printf "%b\n" "\033[0;34m=== Running Real-RAG End-to-End Tests ===\033[0m"
-    @uv run pytest tests_e2e/ -v -s --timeout=240 -p no:randomly -m "rag"
+    @uv run pytest tests_e2e/ -v -s -x --timeout=240 -p no:randomly -m "rag"
     @echo ""
     @printf "%b\n" "\033[0;32m✓ Real-RAG end-to-end tests passed\033[0m"
     @echo ""
