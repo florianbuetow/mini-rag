@@ -44,6 +44,7 @@ class TestCritical:
         )
         assert page.locator("[data-testid='chat-entry']").count() >= 1
 
+    @pytest.mark.expect_console_errors
     def test_uj02_new_chat_before_selectors_load(self, page, det_base_url):
         """J-03: +New Chat disabled when selectors empty."""
         page.route("**/v1/models", lambda route: route.abort())
@@ -158,6 +159,7 @@ class TestHighPriority:
         assert page.locator(".message-error").count() >= 1
         assert "error" in current_assistant_text(page).lower()
 
+    @pytest.mark.expect_console_errors
     def test_uj09_network_failure_mid_stream(self, page):
         """J-18: Network failure shows error message."""
         wait_for_selectors_loaded(page)
@@ -222,6 +224,7 @@ class TestMediumPriority:
         assert page.locator("[data-testid='message']").count() == 0
         assert not page.locator("#message-input").is_disabled()
 
+    @pytest.mark.expect_console_errors
     def test_uj14_models_fail_to_load(self, page, det_base_url):
         """J-04: Selector shows error."""
         page.route(
@@ -239,6 +242,7 @@ class TestMediumPriority:
         assert "error" in text or "no models" in text
         assert page.locator("#model-selector").input_value() == ""
 
+    @pytest.mark.expect_console_errors
     def test_uj15_corpora_fail_to_load(self, page, det_base_url):
         """J-05: Selector shows error."""
         page.route(
@@ -580,6 +584,7 @@ class TestMediumPriority:
         }""")
         assert at_bottom
 
+    @pytest.mark.expect_console_errors
     def test_uj39_chat_list_load_fails(self, page, det_base_url):
         """J-45: Error shown in sidebar."""
         page.route(
@@ -619,6 +624,7 @@ class TestMediumPriority:
         }""")
         assert error_visible
 
+    @pytest.mark.expect_console_errors
     def test_uj41_rename_put_fails(self, page):
         """J-48: Name rolled back on PUT failure."""
         wait_for_selectors_loaded(page)

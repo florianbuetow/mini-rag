@@ -274,12 +274,18 @@ class _FakeConfig:
         return _SC()
 
 
+class _FakeTitleAgent:
+    def generate_title(self, messages: list[dict[str, str]], model: str) -> str:
+        return "Test Chat Title"
+
+
 def _create_test_app(chats_dir: Path) -> FastAPI:
     """Create a FastAPI app for deterministic E2E tests."""
     app = FastAPI()
     app.state.app_status = "healthy"
     app.state.config = _FakeConfig()
     app.state.corpus_manager = _FakeCorpusManager()
+    app.state.title_agent = _FakeTitleAgent()
     app.state.data_dir = chats_dir.parent
 
     async def _capture_server_exception(request: Request, exc: Exception) -> JSONResponse:

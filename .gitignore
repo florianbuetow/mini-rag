@@ -64,6 +64,9 @@ reports/
 .AppleDouble
 .LSOverride
 
+# Claude Code
+.claude/
+
 # Copier answers file
 .copier-answers.yml
 
