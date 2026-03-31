@@ -16,6 +16,7 @@ dependencies = [
     "sentence-transformers>=3.0.0",
     "numpy>=1.26.0",
     "strands-agents[openai]>=1.0.0",
+    "liteparse>=0.1.0",
 
     # Testing
     "pytest>=7.4.0",
@@ -119,6 +120,7 @@ markers = [
     "deterministic: deterministic browser tests with fake server",
     "rag: real-RAG browser tests requiring LM Studio and seeded corpora",
     "integration: integration tests without browser",
+    "expect_console_errors: test intentionally triggers browser console.error calls",
 ]
 
 [tool.mypy]
@@ -228,6 +230,7 @@ DEP002 = [
     "sentence-transformers",
     "numpy",
     "strands-agents",
+    "liteparse",
     # CLI dev tools — invoked by justfile, never imported in source
     "pytest",
     "pytest-asyncio",
