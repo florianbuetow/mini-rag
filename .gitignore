@@ -85,3 +85,6 @@ data/*
 data/input/*
 !data/input/test/
 data/input/test/txt/
+# Local cache/artifact directories
+.cache/
+Library/
