@@ -1,4 +1,4 @@
-/* Chat UI - ChatGPT-style dark theme */
+/* Chat UI - ChatGPT-style theme */
 
 * {
     margin: 0;
@@ -6,7 +6,9 @@
     box-sizing: border-box;
 }
 
-:root {
+:root,
+:root[data-theme="dark"] {
+    color-scheme: dark;
     --bg-primary: #212121;
     --bg-secondary: #171717;
     --bg-sidebar: #171717;
@@ -19,10 +21,54 @@
     --border-color: #444;
     --accent: #10a37f;
     --accent-hover: #0d8c6d;
+    --accent-contrast: #fff;
     --user-bubble: #2f2f2f;
     --assistant-bubble: transparent;
     --error-color: #ef4444;
     --scrollbar-thumb: #565869;
+    --code-bg: #1e1e2e;
+    --warning-bg: #5c2d2d;
+    --warning-border: #7c3a3a;
+    --warning-text: #f8d7da;
+    --toggle-knob: #fff;
+    --theme-btn-bg: #25352f;
+    --theme-btn-hover-bg: #2f4a41;
+    --theme-btn-border: #2e6b5d;
+    --theme-btn-text: #d8fff2;
+    --theme-btn-indicator: #10a37f;
+    --theme-btn-ring: rgba(16, 163, 127, 0.22);
+}
+
+:root[data-theme="light"] {
+    color-scheme: light;
+    --bg-primary: #f7f7f4;
+    --bg-secondary: #ffffff;
+    --bg-sidebar: #efeee9;
+    --bg-input: #ffffff;
+    --bg-hover: #e8e6df;
+    --bg-active: #ddd9ce;
+    --text-primary: #202124;
+    --text-secondary: #4f545c;
+    --text-muted: #78716c;
+    --border-color: #d4d0c7;
+    --accent: #0f8f72;
+    --accent-hover: #0b755d;
+    --accent-contrast: #fff;
+    --user-bubble: #ece9df;
+    --assistant-bubble: transparent;
+    --error-color: #b42318;
+    --scrollbar-thumb: #b8b2a7;
+    --code-bg: #f0eee7;
+    --warning-bg: #fff1f0;
+    --warning-border: #ffccc7;
+    --warning-text: #a8071a;
+    --toggle-knob: #fff;
+    --theme-btn-bg: #fff7df;
+    --theme-btn-hover-bg: #f4e7bd;
+    --theme-btn-border: #d7b35d;
+    --theme-btn-text: #5a4214;
+    --theme-btn-indicator: #d69a17;
+    --theme-btn-ring: rgba(214, 154, 23, 0.22);
 }
 
 html, body {
@@ -207,7 +253,8 @@ html, body {
     flex: 1;
 }
 
-.export-btn {
+.export-btn,
+.theme-btn {
     background: none;
     border: 1px solid var(--border-color);
     color: var(--text-secondary);
@@ -218,9 +265,33 @@ html, body {
     position: relative;
 }
 
+.theme-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--theme-btn-bg);
+    border-color: var(--theme-btn-border);
+    color: var(--theme-btn-text);
+    font-weight: 600;
+}
+
+.theme-btn::before {
+    content: "";
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: var(--theme-btn-indicator);
+    box-shadow: 0 0 0 3px var(--theme-btn-ring);
+}
+
 .export-btn:hover {
     background: var(--bg-hover);
     color: var(--text-primary);
+}
+
+.theme-btn:hover {
+    background: var(--theme-btn-hover-bg);
+    color: var(--theme-btn-text);
 }
 
 .export-menu {
@@ -373,7 +444,7 @@ html, body {
 .message-assistant .message-content pre code {
     display: block;
     padding: 12px 16px;
-    background: #1e1e2e;
+    background: var(--code-bg);
     border-radius: 8px;
     font-size: 0.85em;
     line-height: 1.5;
@@ -432,7 +503,7 @@ html, body {
 .citation-pill {
     display: inline-block;
     background: var(--accent);
-    color: #fff;
+    color: var(--accent-contrast);
     font-size: 0.75em;
     font-weight: 600;
     padding: 2px 8px;
@@ -484,7 +555,7 @@ html, body {
 
 .send-btn {
     background: var(--accent);
-    color: white;
+    color: var(--accent-contrast);
     border: none;
     border-radius: 10px;
     width: 32px;
@@ -525,17 +596,17 @@ html, body {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    background: #5c2d2d;
-    color: #f8d7da;
+    background: var(--warning-bg);
+    color: var(--warning-text);
     padding: 8px 16px;
     font-size: 0.85rem;
-    border-bottom: 1px solid #7c3a3a;
+    border-bottom: 1px solid var(--warning-border);
 }
 
 .save-warning button {
     background: none;
     border: none;
-    color: #f8d7da;
+    color: var(--warning-text);
     cursor: pointer;
     font-size: 1rem;
     padding: 0 4px;
@@ -670,5 +741,5 @@ html, body {
 
 .toggle-switch input:checked + .toggle-slider::before {
     transform: translateX(18px);
-    background: #fff;
+    background: var(--toggle-knob);
 }

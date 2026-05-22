@@ -4,6 +4,23 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>mini-rag Chat</title>
+    <script>
+        (function() {
+            var fallbackTheme = 'dark';
+            var resolvedTheme = fallbackTheme;
+            try {
+                var storedTheme = localStorage.getItem('minirag_theme');
+                if (storedTheme === 'dark' || storedTheme === 'light') {
+                    resolvedTheme = storedTheme;
+                } else if (window.matchMedia('(prefers-color-scheme: light)').matches) {
+                    resolvedTheme = 'light';
+                }
+            } catch (e) {
+                resolvedTheme = fallbackTheme;
+            }
+            document.documentElement.dataset.theme = resolvedTheme;
+        })();
+    </script>
     <link rel="stylesheet" href="/css/style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/github-dark.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/16.3.0/lib/marked.umd.min.js"></script>
@@ -41,6 +58,9 @@
                 </select>
             </div>
             <div class="top-bar-spacer"></div>
+            <button class="theme-btn" id="theme-btn" data-testid="theme-toggle" type="button" aria-label="Switch color theme" aria-pressed="false">
+                Light
+            </button>
             <div style="position: relative;">
                 <button class="settings-btn" id="settings-btn" data-testid="settings-btn" title="Search Settings">&#9881;</button>
                 <div class="settings-panel" id="settings-panel" data-testid="settings-panel">
@@ -79,6 +99,43 @@
                 </div>
             </div>
         </div>
+
+        <script>
+            (function() {
+                var validThemes = { dark: true, light: true };
+
+                function readTheme() {
+                    var theme = document.documentElement.dataset.theme;
+                    return validThemes[theme] ? theme : 'dark';
+                }
+
+                function saveTheme(theme) {
+                    try { localStorage.setItem('minirag_theme', theme); } catch (e) { /* ignore */ }
+                }
+
+                function applyTheme(theme, shouldSave) {
+                    var themeBtn = document.getElementById('theme-btn');
+                    document.documentElement.dataset.theme = theme;
+                    if (themeBtn) {
+                        var nextTheme = theme === 'dark' ? 'light' : 'dark';
+                        themeBtn.textContent = nextTheme === 'light' ? 'Light mode' : 'Dark mode';
+                        themeBtn.dataset.currentTheme = theme;
+                        themeBtn.setAttribute('aria-label', 'Switch to ' + nextTheme + ' theme');
+                        themeBtn.setAttribute('aria-pressed', theme === 'light' ? 'true' : 'false');
+                    }
+                    if (shouldSave) saveTheme(theme);
+                }
+
+                var button = document.getElementById('theme-btn');
+                applyTheme(readTheme(), false);
+                if (button) {
+                    button.addEventListener('click', function() {
+                        var nextTheme = readTheme() === 'dark' ? 'light' : 'dark';
+                        applyTheme(nextTheme, true);
+                    });
+                }
+            })();
+        </script>
 
         <!-- Chat area -->
         <div class="chat-area" id="chat-area" data-testid="chat-area">

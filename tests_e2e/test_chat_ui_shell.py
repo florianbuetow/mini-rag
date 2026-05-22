@@ -45,8 +45,49 @@ class TestAppBoot:
     def test_css_loaded(self, page) -> None:
         """Verify CSS is loaded by checking a computed style on the body."""
         bg = page.evaluate("getComputedStyle(document.body).backgroundColor")
-        # The dark theme sets a non-default background
+        # The theme stylesheet sets a non-default background.
         assert bg != "rgba(0, 0, 0, 0)", f"CSS not loaded — body background is transparent: {bg}"
+
+    def test_theme_toggle_visible(self, page) -> None:
+        toggle = page.locator("[data-testid='theme-toggle']")
+        assert toggle.is_visible()
+
+
+class TestThemeSwitcher:
+    """Theme switcher toggles and persists the selected color theme."""
+
+    def test_theme_toggle_switches_to_light_and_persists(self, page) -> None:
+        page.evaluate("localStorage.setItem('minirag_theme', 'dark')")
+        page.reload()
+        page.wait_for_load_state("networkidle")
+
+        assert page.evaluate("document.documentElement.dataset.theme") == "dark"
+        dark_bg = page.evaluate("getComputedStyle(document.body).backgroundColor")
+        dark_button_bg = page.evaluate("getComputedStyle(document.querySelector('[data-testid=\"theme-toggle\"]')).backgroundColor")
+
+        page.locator("[data-testid='theme-toggle']").click()
+
+        assert page.evaluate("document.documentElement.dataset.theme") == "light"
+        assert page.evaluate("localStorage.getItem('minirag_theme')") == "light"
+        light_bg = page.evaluate("getComputedStyle(document.body).backgroundColor")
+        light_button_bg = page.evaluate("getComputedStyle(document.querySelector('[data-testid=\"theme-toggle\"]')).backgroundColor")
+        assert light_bg != dark_bg
+        assert light_button_bg != dark_button_bg
+
+    @pytest.mark.expect_console_errors
+    def test_theme_toggle_works_when_markdown_dependency_fails(self, page) -> None:
+        def abort_marked(route):
+            route.abort()
+
+        page.route("https://cdnjs.cloudflare.com/ajax/libs/marked/**", abort_marked)
+        page.evaluate("localStorage.setItem('minirag_theme', 'dark')")
+        page.reload()
+        page.wait_for_load_state("domcontentloaded")
+
+        page.locator("[data-testid='theme-toggle']").click()
+
+        assert page.evaluate("document.documentElement.dataset.theme") == "light"
+        assert page.evaluate("localStorage.getItem('minirag_theme')") == "light"
 
 
 class TestEmptySidebarState:
