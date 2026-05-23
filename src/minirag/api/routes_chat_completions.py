@@ -49,8 +49,8 @@ class ChatCompletionRequest(BaseModel):
     model: str
     corpus: str
     search_mode: str = "hybrid"
-    top_k: int = 10
-    alpha: float = 0.7
+    top_k: int = 50
+    alpha: float = 0.5
     reranking: bool = True
 
     @field_validator("messages")

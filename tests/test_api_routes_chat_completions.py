@@ -71,8 +71,8 @@ class FakeAgent:
         model: str,
         corpus: str,
         search_mode: str = "hybrid",
-        top_k: int = 10,
-        alpha: float = 0.7,
+        top_k: int = 50,
+        alpha: float = 0.5,
         reranking: bool = True,
     ) -> Generator[str, None, None]:
         self.received_messages = list(messages)
@@ -246,7 +246,7 @@ def test_sse_error_when_llm_unavailable():
 
     # Should contain an error message
     full_text = " ".join(events)
-    assert "error" in full_text.lower() or "unreachable" in full_text.lower()
+    assert "error: LM Studio unreachable" in full_text
 
 
 # TS-9: Handle empty retrieval
@@ -327,8 +327,8 @@ def test_search_settings_default_when_omitted():
 
     assert agent.received_search_settings is not None
     assert agent.received_search_settings["search_mode"] == "hybrid"
-    assert agent.received_search_settings["top_k"] == 10
-    assert agent.received_search_settings["alpha"] == 0.7
+    assert agent.received_search_settings["top_k"] == 50
+    assert agent.received_search_settings["alpha"] == 0.5
     assert agent.received_search_settings["reranking"] is True
 
 

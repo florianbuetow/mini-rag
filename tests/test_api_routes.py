@@ -240,12 +240,12 @@ def test_index_runtime_error_returns_500_with_message() -> None:
 
 
 def test_index_unexpected_error_returns_500() -> None:
-    """Unexpected exception from orchestration should return 500."""
+    """Unexpected exception from orchestration should return 500 with error message."""
     client = _make_error_client(OSError("disk failed"))
 
     resp = client.post(f"/v1/corpus/{CORPUS}/index", json={"document": "hello world"})
     assert resp.status_code == 500
-    assert resp.json()["error"] == "Internal server error"
+    assert resp.json()["error"] == "disk failed"
 
 
 def test_query_dense_value_error_returns_400() -> None:
@@ -267,12 +267,12 @@ def test_query_dense_runtime_error_returns_500_with_message() -> None:
 
 
 def test_query_dense_unexpected_error_returns_500() -> None:
-    """Unexpected exception from dense search should return 500."""
+    """Unexpected exception from dense search should return 500 with error message."""
     client = _make_error_client(OSError("disk failed"))
 
     resp = client.post(f"/v1/corpus/{CORPUS}/query/dense", json={"query": "hello", "top_k": 3})
     assert resp.status_code == 500
-    assert resp.json()["error"] == "Internal server error"
+    assert resp.json()["error"] == "disk failed"
 
 
 def test_destroy_index_success() -> None:
@@ -294,12 +294,12 @@ def test_destroy_index_runtime_error_returns_500_with_message() -> None:
 
 
 def test_destroy_index_unexpected_error_returns_500() -> None:
-    """Unexpected exception from destroy should return 500."""
+    """Unexpected exception from destroy should return 500 with error message."""
     client = _make_error_client(OSError("disk failed"))
 
     resp = client.delete(f"/v1/corpus/{CORPUS}/index")
     assert resp.status_code == 500
-    assert resp.json()["error"] == "Internal server error"
+    assert resp.json()["error"] == "disk failed"
 
 
 def test_destroy_index_when_shutting_down_returns_503(monkeypatch: Any) -> None:
@@ -358,12 +358,12 @@ def test_query_sparse_runtime_error_returns_500_with_message() -> None:
 
 
 def test_query_sparse_unexpected_error_returns_500() -> None:
-    """Unexpected exception from sparse search should return 500."""
+    """Unexpected exception from sparse search should return 500 with error message."""
     client = _make_error_client(OSError("disk failed"))
 
     resp = client.post(f"/v1/corpus/{CORPUS}/query/sparse", json={"query": "hello", "top_k": 3})
     assert resp.status_code == 500
-    assert resp.json()["error"] == "Internal server error"
+    assert resp.json()["error"] == "disk failed"
 
 
 def test_query_hybrid_value_error_returns_400() -> None:
@@ -385,12 +385,12 @@ def test_query_hybrid_runtime_error_returns_500_with_message() -> None:
 
 
 def test_query_hybrid_unexpected_error_returns_500() -> None:
-    """Unexpected exception from hybrid search should return 500."""
+    """Unexpected exception from hybrid search should return 500 with error message."""
     client = _make_error_client(OSError("disk failed"))
 
     resp = client.post(f"/v1/corpus/{CORPUS}/query/hybrid", json={"query": "hello", "top_k": 3})
     assert resp.status_code == 500
-    assert resp.json()["error"] == "Internal server error"
+    assert resp.json()["error"] == "disk failed"
 
 
 def test_invalid_field_values_return_422() -> None:
@@ -506,12 +506,12 @@ def test_citation_route_value_error_returns_400() -> None:
 
 
 def test_citation_route_unexpected_error_returns_500() -> None:
-    """Unexpected exception from get_citation should return 500."""
+    """Unexpected exception from get_citation should return 500 with error message."""
     client = _make_error_client(OSError("disk failed"))
 
     resp = client.get(f"/v1/corpus/{CORPUS}/citation/somekey")
     assert resp.status_code == 500
-    assert resp.json()["error"] == "Internal server error"
+    assert resp.json()["error"] == "disk failed"
 
 
 def test_citation_route_invalid_corpus_returns_400() -> None:

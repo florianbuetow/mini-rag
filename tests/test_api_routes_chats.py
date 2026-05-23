@@ -418,7 +418,7 @@ def test_create_chat_default_search_settings(tmp_path: Path):
 
     assert resp.status_code == 201
     chat = resp.json()["data"]
-    assert chat["search_settings"] == {"search_mode": "hybrid", "top_k": 10, "alpha": 0.7, "reranking": True}
+    assert chat["search_settings"] == {"search_mode": "hybrid", "top_k": 50, "alpha": 0.5, "reranking": True}
 
 
 # TS-SS-3: Update search settings

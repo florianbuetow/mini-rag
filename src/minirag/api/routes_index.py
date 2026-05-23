@@ -42,11 +42,14 @@ async def index_document(request: Request, corpus: str) -> JSONResponse:
     if isinstance(parsed_payload, JSONResponse):
         return parsed_payload
 
-    corpus_manager = get_corpus_manager(request)
     try:
+        corpus_manager = get_corpus_manager(request)
         orchestration = await asyncio.to_thread(corpus_manager.get, corpus)
     except ValueError as exc:
         return error_response(status=400, message=str(exc))
+    except Exception as exc:
+        logger.exception("Failed to load corpus for indexing, corpus=%s", corpus)
+        return error_response(status=500, message=str(exc))
 
     citation_payload = parsed_payload.citation.model_dump() if parsed_payload.citation is not None else None
     try:
@@ -60,9 +63,9 @@ async def index_document(request: Request, corpus: str) -> JSONResponse:
     except RuntimeError as exc:
         logger.exception("Failed to index document, corpus=%s", corpus)
         return error_response(status=500, message=str(exc))
-    except Exception:
+    except Exception as exc:
         logger.exception("Failed to index document, corpus=%s", corpus)
-        return error_response(status=500, message="Internal server error")
+        return error_response(status=500, message=str(exc))
 
     response_model = IndexResponse(
         document_id=document_id,
@@ -79,16 +82,16 @@ async def destroy_index(request: Request, corpus: str) -> JSONResponse:
     if guard_response is not None:
         return guard_response
 
-    corpus_manager = get_corpus_manager(request)
     try:
+        corpus_manager = get_corpus_manager(request)
         await asyncio.to_thread(corpus_manager.destroy, corpus)
     except ValueError as exc:
         return error_response(status=400, message=str(exc))
     except RuntimeError as exc:
         logger.exception("Failed to destroy index, corpus=%s", corpus)
         return error_response(status=500, message=str(exc))
-    except Exception:
+    except Exception as exc:
         logger.exception("Failed to destroy index, corpus=%s", corpus)
-        return error_response(status=500, message="Internal server error")
+        return error_response(status=500, message=str(exc))
 
     return success_response(status=200, data={"message": "index destroyed"})

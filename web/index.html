@@ -75,12 +75,12 @@
                     </div>
                     <div class="setting-row">
                         <label for="top-k">Top K</label>
-                        <input type="number" id="top-k" data-testid="top-k" min="1" max="100" value="10">
+                        <input type="number" id="top-k" data-testid="top-k" min="1" max="100" value="50">
                     </div>
                     <div class="setting-row">
                         <label for="alpha-slider">Alpha</label>
-                        <input type="range" id="alpha-slider" data-testid="alpha-slider" min="0" max="1" step="0.1" value="0.7">
-                        <span class="alpha-value" id="alpha-value" data-testid="alpha-value">0.7</span>
+                        <input type="range" id="alpha-slider" data-testid="alpha-slider" min="0" max="1" step="0.1" value="0.5">
+                        <span class="alpha-value" id="alpha-value" data-testid="alpha-value">0.5</span>
                     </div>
                     <div class="setting-row">
                         <label for="reranking-toggle">Reranking</label>
@@ -208,7 +208,8 @@
     let currentChatId = null;
     let currentMessages = [];
     let isStreaming = false;
-    let searchSettings = { search_mode: 'hybrid', top_k: 10, alpha: 0.7, reranking: true };
+    const SEARCH_SETTINGS_STORAGE_KEY = 'minirag_search_settings';
+    let searchSettings = { search_mode: 'hybrid', top_k: 50, alpha: 0.5, reranking: true };
 
     // --- DOM refs ---
     const sidebar = document.getElementById('sidebar');
@@ -235,6 +236,37 @@
 
     // --- API helpers ---
     const API_BASE = '';
+
+    function caughtErrorMessage(error) {
+        if (error instanceof Error && error.message.trim()) {
+            return error.message;
+        }
+        if (typeof error === 'string' && error.trim()) {
+            return error;
+        }
+        const text = String(error);
+        if (text && text !== '[object Object]') {
+            return text;
+        }
+        return 'caught error did not include a message';
+    }
+
+    async function responseErrorMessage(resp) {
+        const contentType = resp.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+            const payload = await resp.json();
+            if (payload && typeof payload.error === 'string' && payload.error.trim()) {
+                return payload.error;
+            }
+            throw new Error('HTTP ' + resp.status + ' error response missing string error field');
+        }
+
+        const body = await resp.text();
+        if (body.trim()) {
+            return body;
+        }
+        throw new Error('HTTP ' + resp.status + ' error response had an empty body');
+    }
 
     async function apiGet(path) {
         const resp = await fetch(API_BASE + path);
@@ -269,23 +301,43 @@
     function readSettingsFromUI() {
         searchSettings = {
             search_mode: searchModeSelect.value,
-            top_k: parseInt(topKInput.value, 10) || 10,
+            top_k: parseInt(topKInput.value, 10) || 50,
             alpha: parseFloat(alphaSlider.value),
             reranking: rerankingToggle.checked
         };
     }
 
     function applySettingsToUI(settings) {
-        searchModeSelect.value = settings.search_mode || 'hybrid';
-        topKInput.value = settings.top_k || 10;
-        alphaSlider.value = settings.alpha != null ? settings.alpha : 0.7;
+        const normalized = {
+            search_mode: settings.search_mode || 'hybrid',
+            top_k: settings.top_k || 50,
+            alpha: settings.alpha != null ? settings.alpha : 0.5,
+            reranking: settings.reranking != null ? settings.reranking : true
+        };
+        searchModeSelect.value = normalized.search_mode;
+        topKInput.value = normalized.top_k;
+        alphaSlider.value = normalized.alpha;
         alphaValue.textContent = alphaSlider.value;
-        rerankingToggle.checked = settings.reranking != null ? settings.reranking : true;
-        searchSettings = { ...settings };
+        rerankingToggle.checked = normalized.reranking;
+        searchSettings = normalized;
+    }
+
+    function getStoredSearchSettings() {
+        try {
+            const raw = localStorage.getItem(SEARCH_SETTINGS_STORAGE_KEY);
+            return raw ? JSON.parse(raw) : null;
+        } catch (e) {
+            return null;
+        }
     }
 
     function saveSearchSettings() {
         readSettingsFromUI();
+        try {
+            localStorage.setItem(SEARCH_SETTINGS_STORAGE_KEY, JSON.stringify(searchSettings));
+        } catch (e) {
+            // Ignore storage errors so chat-level persistence can still run.
+        }
         if (currentChatId) {
             apiPut('/v1/chats/' + currentChatId, { search_settings: searchSettings }).catch(function(e) {
                 console.error('Failed to save search settings:', e);
@@ -633,6 +685,13 @@
                 })
             });
 
+            if (!resp.ok) {
+                throw new Error(await responseErrorMessage(resp));
+            }
+            if (!resp.body) {
+                throw new Error('chat completion response has no readable body');
+            }
+
             const reader = resp.body.getReader();
             const decoder = new TextDecoder();
             let buffer = '';
@@ -662,11 +721,15 @@
                     }
                 }
             }
-        } catch (e) {
             if (assistantText === '') {
-                assistantContent.textContent = 'Error: Failed to get response';
-                assistantContent.classList.add('message-error');
+                throw new Error('chat completion stream ended without a response');
             }
+        } catch (e) {
+            const errorText = 'Error: ' + caughtErrorMessage(e);
+            assistantText = assistantText ? assistantText + '\n' + errorText : errorText;
+            assistantContent.classList.add('message-error');
+            assistantContent.innerHTML = renderMarkdown(assistantText);
+            scrollToBottom();
         }
 
         // Save assistant message
@@ -926,6 +989,10 @@
         newChatBtn.disabled = true;
         exportBtn.disabled = true;
         await Promise.all([loadModels(), loadCorpora(), loadChatList()]);
+        const storedSettings = getStoredSearchSettings();
+        if (storedSettings) {
+            applySettingsToUI(storedSettings);
+        }
         updateNewChatBtnState();
 
         // Restore last active chat

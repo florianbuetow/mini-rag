@@ -162,6 +162,7 @@ async def test_unhandled_exception_handler_wraps_error() -> None:
     response = await app_module.unhandled_exception_handler(request, RuntimeError("boom"))
 
     assert response.status_code == 500
+    assert response.body == b'{"status":500,"error":"boom"}'
 
 
 def test_create_app_builds_reranker_when_enabled(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

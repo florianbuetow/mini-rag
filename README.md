@@ -105,6 +105,14 @@ Corpus names must start with a letter and contain only alphanumeric characters, 
 
 Both `md2txt` and `ingest` scan subdirectories recursively and skip symbolic links.
 
+## How Answers Are Generated
+
+MiniRAG does not send an entire corpus to the language model. When a user asks a question, the chat agent first receives the conversation and a search tool connected to the selected corpus. The model decides when to call that tool, usually once per question, to collect the most relevant document chunks before writing an answer.
+
+Each search call looks across the indexed corpus using lexical and semantic retrieval, then returns a small set of matching chunks with source identifiers. Those chunks are added back into the conversation as evidence, and the model uses them to produce a grounded response with citations.
+
+This keeps large document collections manageable: the system searches the full index, but only the selected evidence is placed in the model context. If the retrieved evidence is still too large for the active model, the agent framework attempts to shrink older or oversized context before retrying; if it cannot fit safely, the request fails instead of silently dropping the whole corpus into the prompt.
+
 ## API
 
 FastAPI auto-generates interactive docs at `/docs` (Swagger) and `/redoc` (ReDoc) when the service is running.

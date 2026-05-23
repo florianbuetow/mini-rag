@@ -20,8 +20,8 @@ router = APIRouter(prefix="/v1")
 
 _DEFAULT_SEARCH_SETTINGS: dict[str, object] = {
     "search_mode": "hybrid",
-    "top_k": 10,
-    "alpha": 0.7,
+    "top_k": 50,
+    "alpha": 0.5,
     "reranking": True,
 }
 

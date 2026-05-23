@@ -76,11 +76,14 @@ async def _run_query(
     query_display = parsed_payload.query[:120] + "..." if len(parsed_payload.query) > 120 else parsed_payload.query
     logger.info('%s corpus=%s query="%s" top_k=%d', search_name, corpus, query_display, parsed_payload.top_k)
 
-    corpus_manager = get_corpus_manager(request)
     try:
+        corpus_manager = get_corpus_manager(request)
         orchestration = await asyncio.to_thread(corpus_manager.get, corpus)
     except ValueError as exc:
         return error_response(status=400, message=str(exc))
+    except Exception as exc:
+        logger.exception("Failed to load corpus for %s search, corpus=%s", search_name, corpus)
+        return error_response(status=500, message=str(exc))
 
     search_fn = search_fn_getter(orchestration)
     try:
@@ -94,9 +97,9 @@ async def _run_query(
     except RuntimeError as exc:
         logger.exception("Failed to execute %s search, corpus=%s", search_name, corpus)
         return error_response(status=500, message=str(exc))
-    except Exception:
+    except Exception as exc:
         logger.exception("Failed to execute %s search, corpus=%s", search_name, corpus)
-        return error_response(status=500, message="Internal server error")
+        return error_response(status=500, message=str(exc))
 
     response_model = _build_query_response(results)
     return success_response(status=200, data=response_model.model_dump())

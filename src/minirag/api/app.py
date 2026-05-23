@@ -46,7 +46,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
     """Wrap uncaught errors in the standard error envelope."""
     del request
     logger.exception("Unhandled exception")
-    return error_response(status=500, message="Internal server error")
+    return error_response(status=500, message=str(exc))
 
 
 @asynccontextmanager

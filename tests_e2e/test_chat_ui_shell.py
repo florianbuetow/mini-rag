@@ -90,6 +90,39 @@ class TestThemeSwitcher:
         assert page.evaluate("localStorage.getItem('minirag_theme')") == "light"
 
 
+class TestSearchSettingsPersistence:
+    """Search settings persist in the browser across page refreshes."""
+
+    def test_search_settings_defaults(self, page) -> None:
+        assert page.locator("[data-testid='search-mode']").input_value() == "hybrid"
+        assert page.locator("[data-testid='top-k']").input_value() == "50"
+        assert page.locator("[data-testid='alpha-slider']").input_value() == "0.5"
+        assert page.locator("[data-testid='alpha-value']").text_content() == "0.5"
+        assert page.locator("[data-testid='reranking-toggle']").is_checked()
+
+    def test_search_settings_persist_after_reload(self, page) -> None:
+        page.locator("[data-testid='settings-btn']").click()
+        page.locator("[data-testid='search-mode']").select_option("dense")
+        page.locator("[data-testid='top-k']").fill("23")
+        page.locator("[data-testid='top-k']").dispatch_event("change")
+        page.locator("[data-testid='alpha-slider']").evaluate(
+            "(el) => { el.value = '0.3'; el.dispatchEvent(new Event('input', { bubbles: true }));"
+            " el.dispatchEvent(new Event('change', { bubbles: true })); }"
+        )
+        page.locator("[data-testid='reranking-toggle']").evaluate(
+            "(el) => { el.checked = false; el.dispatchEvent(new Event('change', { bubbles: true })); }"
+        )
+
+        page.reload()
+        page.wait_for_selector("[data-testid='search-mode']", state="attached")
+
+        assert page.locator("[data-testid='search-mode']").input_value() == "dense"
+        assert page.locator("[data-testid='top-k']").input_value() == "23"
+        assert page.locator("[data-testid='alpha-slider']").input_value() == "0.3"
+        assert page.locator("[data-testid='alpha-value']").text_content() == "0.3"
+        assert not page.locator("[data-testid='reranking-toggle']").is_checked()
+
+
 class TestEmptySidebarState:
     """Test 2: Empty sidebar state shown when no chats exist."""
 

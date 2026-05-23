@@ -52,15 +52,12 @@ class ConversationTitleAgent:
 
         conversation_text = "\n".join(f"{msg['role'].capitalize()}: {msg['content']}" for msg in messages)
         prompt = f"Here is a conversation:\n\n{conversation_text}\n\nGenerate a title for this conversation in 5 words or fewer."
-
-        strands_model_id = model if model.startswith("openai/") else f"openai/{model}"
-
         openai_model = OpenAIModel(
             client_args={
                 "api_key": "lm-studio",
                 "base_url": self._lm_studio_base_url,
             },
-            model_id=strands_model_id,
+            model_id=model,
         )
 
         agent = Agent(

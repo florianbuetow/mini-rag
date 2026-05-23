@@ -164,15 +164,13 @@ class MiniRagAgent:
             reranking=reranking,
         )
 
-        # Strands requires openai/ prefix for models served via OpenAI-compatible APIs
-        strands_model_id = model if model.startswith("openai/") else f"openai/{model}"
-
+        # Use the model identifier exactly as provided by LM Studio /v1/models
         openai_model = OpenAIModel(
             client_args={
                 "api_key": "lm-studio",
                 "base_url": self._lm_studio_base_url,
             },
-            model_id=strands_model_id,
+            model_id=model,
         )
         agent = Agent(
             model=openai_model,

@@ -52,6 +52,26 @@ class TestStreamError:
         # The fake error stream yields "Partial" then "error: simulated streaming error"
         assert "Partial" in text, f"Partial text should be preserved, got: {text}"
 
+    @pytest.mark.expect_console_errors
+    def test_json_error_response_message_is_rendered(self, page) -> None:
+        """Non-SSE chat completion errors should render the API error message."""
+        wait_for_selectors_loaded(page)
+        create_new_chat(page)
+
+        page.route(
+            "**/v1/chat/completions",
+            lambda route: route.fulfill(
+                status=500,
+                content_type="application/json",
+                body='{"status":500,"error":"dense search failed: embedding model timed out"}',
+            ),
+        )
+
+        text = send_message_and_wait(page, "trigger json error")
+
+        assert "dense search failed: embedding model timed out" in text
+        assert page.locator(".message-error").count() >= 1
+
 
 class TestSaveFailure:
     """Test 23: Save failure surfaces visible warning."""
