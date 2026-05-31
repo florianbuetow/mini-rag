@@ -40,6 +40,7 @@ dependencies = [
     "semgrep>=1.163",
     # Git Hooks
     "pre-commit>=3.6.0",
+    "tiktoken>=0.13.0",
 ]
 
 [build-system]

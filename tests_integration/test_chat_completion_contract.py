@@ -1,11 +1,12 @@
 """Layer C — Integration tests: Chat completion contract.
 
 Tests 8-10 from specifications2.md section 7:
-8. Chat completion route returns SSE and [DONE].
+8. Chat completion route returns typed SSE and done.
 9. Chat completion route rejects invalid corpus.
 10. Chat completion route streams error when model provider fails.
 """
 
+import json
 import shutil
 from pathlib import Path
 
@@ -14,6 +15,7 @@ import pytest
 
 from tests_integration.helpers_runtime import (
     create_temp_data_dir,
+    find_allowed_loaded_model,
     find_free_port,
     ingest_corpus,
     lm_studio_available,
@@ -62,17 +64,49 @@ def completions_service():
     shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
-def _parse_sse_events(response: httpx.Response) -> list[str]:
-    """Parse SSE events from response text."""
-    return [line[6:] for line in response.text.splitlines() if line.startswith("data: ")]
+def _parse_sse_events(response: httpx.Response) -> list[dict[str, object]]:
+    """Parse named SSE events from response text."""
+    events: list[dict[str, object]] = []
+    event_name = "message"
+    data_lines: list[str] = []
+
+    def flush() -> None:
+        nonlocal event_name, data_lines
+        if not data_lines:
+            event_name = "message"
+            return
+        raw_data = "\n".join(data_lines)
+        try:
+            data: object = json.loads(raw_data)
+        except json.JSONDecodeError:
+            data = raw_data
+        events.append({"event": event_name, "data": data})
+        event_name = "message"
+        data_lines = []
+
+    for line in response.text.splitlines():
+        if line == "":
+            flush()
+        elif line.startswith("event: "):
+            event_name = line[len("event: ") :]
+        elif line.startswith("data:"):
+            data = line[len("data:") :]
+            if data.startswith(" "):
+                data = data[1:]
+            data_lines.append(data)
+    flush()
+    return events
 
 
 class TestChatCompletionSSE:
-    """Test 8: Chat completion returns SSE stream with [DONE]."""
+    """Test 8: Chat completion returns typed SSE stream with done."""
 
     def test_sse_stream_with_done(self, completions_service) -> None:
         if not lm_studio_available():
             pytest.skip("LM Studio not running — cannot test real completions")
+        model_id = find_allowed_loaded_model()
+        if model_id is None:
+            pytest.skip("No allowed model loaded in LM Studio")
 
         base_url, _ = completions_service
         with httpx.Client(base_url=base_url, timeout=60.0) as client:
@@ -80,15 +114,15 @@ class TestChatCompletionSSE:
                 "/v1/chat/completions",
                 json={
                     "messages": [{"role": "user", "content": "What is RAG?"}],
-                    "model": "test-model",
+                    "model": model_id,
                     "corpus": "knowledgebase",
                 },
             )
             assert resp.status_code == 200
             events = _parse_sse_events(resp)
-            assert "[DONE]" in events, f"SSE stream missing [DONE]: {events[-5:]}"
-            non_done = [e for e in events if e != "[DONE]"]
-            assert len(non_done) >= 1, "Expected at least one content chunk"
+            assert events[-1] == {"event": "done", "data": {}}, f"SSE stream missing done: {events[-5:]}"
+            assert any(event["event"] == "status" for event in events), "Expected at least one status event"
+            assert any(event["event"] == "token" for event in events), "Expected at least one token event"
 
 
 class TestChatCompletionValidation:
@@ -147,7 +181,7 @@ class TestChatCompletionStreamError:
     """Test 10: Stream error when model provider fails."""
 
     def test_streams_error_when_model_unavailable(self, broken_lm_service) -> None:
-        """When LM Studio is unreachable, SSE stream should contain error and [DONE]."""
+        """When LM Studio is unreachable, SSE stream should contain error and done."""
         base_url, _ = broken_lm_service
         with httpx.Client(base_url=base_url, timeout=60.0) as client:
             resp = client.post(
@@ -161,7 +195,6 @@ class TestChatCompletionStreamError:
             # The route always returns 200 with SSE — errors appear in the stream
             assert resp.status_code == 200
             events = _parse_sse_events(resp)
-            assert "[DONE]" in events, f"SSE stream missing [DONE] after error: {events[-5:]}"
-            # At least one event should contain an error indicator
-            error_events = [e for e in events if "error" in e.lower()]
+            assert events[-1] == {"event": "done", "data": {}}, f"SSE stream missing done after error: {events[-5:]}"
+            error_events = [e for e in events if e["event"] == "error"]
             assert len(error_events) >= 1, f"Expected error event in stream, got: {events}"

@@ -1,7 +1,7 @@
 """Base HTTP client for mini-rag service communication."""
 
 import logging
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from typing import cast
 
@@ -28,7 +28,7 @@ class BaseClient:
         self._http_client = http_client
 
     @contextmanager
-    def _client(self, timeout: float) -> Iterator[httpx.Client]:
+    def _client(self, timeout: float) -> Generator[httpx.Client]:
         """Yield an httpx.Client, reusing the injected one or creating a temporary one."""
         if self._http_client is not None:
             yield self._http_client

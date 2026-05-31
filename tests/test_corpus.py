@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from minirag.corpus import CorpusManager, validate_corpus_name
+from minirag.storage.interface import CorpusStats
 
 
 class FakeIndexConfig:
@@ -50,12 +51,17 @@ class FakeOrchestration:
     def __init__(self) -> None:
         self.destroyed = False
         self.closed = False
+        self.stats_call_count = 0
 
     def destroy_index(self) -> None:
         self.destroyed = True
 
     def close_storage(self) -> None:
         self.closed = True
+
+    def corpus_stats(self) -> CorpusStats:
+        self.stats_call_count += 1
+        return CorpusStats(document_count=2, chunk_count=5)
 
 
 class TestCorpusManager:
@@ -86,6 +92,25 @@ class TestCorpusManager:
     def test_get_validates_name(self, manager: CorpusManager) -> None:
         with pytest.raises(ValueError, match="invalid corpus name"):
             manager.get("123bad")
+
+    def test_corpus_stats_loads_once_and_caches_until_destroy(self, manager: CorpusManager) -> None:
+        """Corpus stats should be cached in-process and invalidated only when destroying the corpus."""
+        stats_one = manager.corpus_stats("books")
+        orch = manager.get("books")
+        stats_two = manager.corpus_stats("books")
+
+        assert stats_one == CorpusStats(document_count=2, chunk_count=5)
+        assert stats_two == stats_one
+        assert isinstance(orch, FakeOrchestration)
+        assert orch.stats_call_count == 1
+
+        manager.destroy("books")
+        fresh = manager.get("books")
+        stats_three = manager.corpus_stats("books")
+
+        assert isinstance(fresh, FakeOrchestration)
+        assert fresh.stats_call_count == 1
+        assert stats_three == stats_one
 
     def test_destroy_evicts_cached(self, manager: CorpusManager) -> None:
         orch = manager.get("books")

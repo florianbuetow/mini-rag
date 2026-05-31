@@ -18,6 +18,13 @@ class ChunkRecord(NamedTuple):
     content: str
 
 
+class CorpusStats(NamedTuple):
+    """Aggregate corpus storage counts used for query-time status."""
+
+    document_count: int
+    chunk_count: int
+
+
 class StorageReader(ABC):
     """Read-only contract for persisted documents and chunks."""
 
@@ -32,6 +39,10 @@ class StorageReader(ABC):
     @abstractmethod
     def list_chunks(self, document_id: int) -> list[ChunkRecord]:
         """Return all chunk records for one document."""
+
+    @abstractmethod
+    def corpus_stats(self) -> CorpusStats:
+        """Return aggregate document and chunk counts for the corpus."""
 
     @abstractmethod
     def get_citation_key(self, document_id: int) -> str | None:

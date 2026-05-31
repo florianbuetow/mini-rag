@@ -75,6 +75,26 @@ def test_sqlite_storage_list_chunks_isolated_by_document(tmp_path: Path) -> None
     assert storage.list_chunks(document_two) == [(chunk_two, "two-a")]
 
 
+def test_sqlite_storage_corpus_stats_tracks_documents_and_chunks(tmp_path: Path) -> None:
+    """corpus_stats should read stored metadata maintained by SQLite triggers."""
+    database_path = tmp_path / "storage" / "stats.db"
+    storage = SQLiteStorage(database_path=database_path)
+    document_one = storage.insert_document("doc one")
+    document_two = storage.insert_document("doc two")
+    storage.insert_chunk(document_id=document_one, content="one-a")
+    storage.insert_chunk(document_id=document_one, content="one-b")
+    storage.insert_chunk(document_id=document_two, content="two-a")
+
+    assert storage.corpus_stats() == (2, 3)
+
+    storage.close()
+    reopened = SQLiteStorage(database_path=database_path)
+    assert reopened.corpus_stats() == (2, 3)
+
+    reopened.destroy()
+    assert reopened.corpus_stats() == (0, 0)
+
+
 def test_sqlite_storage_insert_and_get_citation(tmp_path: Path) -> None:
     """insert_citation should store and get_citation should retrieve citation data."""
     storage = SQLiteStorage(database_path=tmp_path / "storage" / "citation.db")

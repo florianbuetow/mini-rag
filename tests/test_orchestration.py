@@ -18,7 +18,7 @@ from minirag.retrieval.dense_interface import DenseRetrieval
 from minirag.retrieval.sparse_interface import SparseRetrieval
 from minirag.search.embeddings_interface import Embeddings
 from minirag.search.types import ScoredChunk, SearchResult
-from minirag.storage.interface import ChunkRecord, ChunkWithDocument, Storage
+from minirag.storage.interface import ChunkRecord, ChunkWithDocument, CorpusStats, Storage
 
 
 class FakeEmbeddings:
@@ -95,6 +95,9 @@ class FakeStorage:
         return [
             ChunkRecord(chunk_id=chunk_id, content=content) for chunk_id, (doc_id, content) in self.chunks.items() if doc_id == document_id
         ]
+
+    def corpus_stats(self) -> CorpusStats:
+        return CorpusStats(document_count=len(self.documents), chunk_count=len(self.chunks))
 
     def close(self) -> None:
         pass

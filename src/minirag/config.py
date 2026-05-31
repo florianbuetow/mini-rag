@@ -3,7 +3,7 @@
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class ServiceConfig(BaseModel):
@@ -237,6 +237,33 @@ class RerankingConfig(BaseModel):
         return value
 
 
+class ContextPruningConfig(BaseModel):
+    """Token-budget pruning settings for retrieved document context."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    document_context_fraction: float = 0.6
+    fallback_context_window_tokens: int = 4096
+
+    @field_validator("document_context_fraction")
+    @classmethod
+    def validate_document_context_fraction(cls, value: float) -> float:
+        """Ensure the document context fraction is in (0.0, 1.0]."""
+        if value <= 0.0:
+            raise ValueError("search.context_pruning.document_context_fraction must be greater than 0.0")
+        if value > 1.0:
+            raise ValueError("search.context_pruning.document_context_fraction must be less than or equal to 1.0")
+        return value
+
+    @field_validator("fallback_context_window_tokens")
+    @classmethod
+    def validate_fallback_context_window_tokens(cls, value: int) -> int:
+        """Ensure fallback context window is strictly positive."""
+        if value <= 0:
+            raise ValueError("search.context_pruning.fallback_context_window_tokens must be greater than 0")
+        return value
+
+
 class SearchConfig(BaseModel):
     """Search subsystem settings."""
 
@@ -246,6 +273,7 @@ class SearchConfig(BaseModel):
     dense: DenseSearchConfig
     sparse: SparseSearchConfig
     reranking: RerankingConfig
+    context_pruning: ContextPruningConfig = Field(default_factory=ContextPruningConfig)
 
 
 class Config(BaseModel):

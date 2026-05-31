@@ -10,6 +10,7 @@ from minirag.config import IndexConfig, SearchConfig
 from minirag.orchestration import Orchestration
 from minirag.reranking.interface import Reranker
 from minirag.search.embeddings_interface import Embeddings
+from minirag.storage.interface import CorpusStats
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +67,7 @@ class CorpusManager:
         self._backend_factory = backend_factory
         self._reranker = reranker
         self._cache: dict[str, Orchestration] = {}
+        self._stats_cache: dict[str, CorpusStats] = {}
         self._lock = threading.Lock()
 
     def get(self, corpus: str) -> Orchestration:
@@ -81,6 +83,7 @@ class CorpusManager:
         validate_corpus_name(corpus)
         with self._lock:
             orch = self._cache.pop(corpus, None)
+            self._stats_cache.pop(corpus, None)
             if orch is None:
                 orch = self._create_orchestration(corpus)
 
@@ -129,6 +132,21 @@ class CorpusManager:
         if errors:
             names = ", ".join(n for n, _ in errors)
             raise RuntimeError(f"failed to close storage for corpora: {names}")
+
+    def corpus_stats(self, corpus: str) -> CorpusStats:
+        """Return cached aggregate corpus counts, loading them on first query."""
+        validate_corpus_name(corpus)
+        with self._lock:
+            cached = self._stats_cache.get(corpus)
+            if cached is not None:
+                return cached
+            orch = self._cache.get(corpus)
+            if orch is None:
+                orch = self._create_orchestration(corpus)
+                self._cache[corpus] = orch
+            stats = orch.corpus_stats()
+            self._stats_cache[corpus] = stats
+            return stats
 
     def list_corpora(self) -> list[str]:
         """Return sorted list of corpus names that have storage on disk."""

@@ -8,6 +8,7 @@ Deterministic fixtures (for @pytest.mark.deterministic tests) run a local
 FastAPI test server on a free port with fake models/corpora/streaming.
 """
 
+import json
 import shutil
 import tempfile
 import threading
@@ -71,6 +72,17 @@ FAKE_MARKDOWN_TEXT: str = (
 def _is_deterministic(request: pytest.FixtureRequest) -> bool:
     """Check if the current test is marked as deterministic."""
     return any(m.name == "deterministic" for m in request.node.iter_markers())
+
+
+def _sse_event(event_name: str, payload: dict[str, object]) -> str:
+    """Build one named SSE event."""
+    if event_name == "status":
+        payload = {
+            "timestamp": "2026-05-23T00:00:00+00:00",
+            "message": str(payload.get("message", "")),
+            "type": str(payload.get("type", "info")),
+        }
+    return f"event: {event_name}\ndata: {json.dumps(payload, separators=(',', ':'))}\n\n"
 
 
 # ---------------------------------------------------------------------------
@@ -190,9 +202,17 @@ def _build_fake_info_router() -> APIRouter:
 
 def _build_normal_stream() -> Generator[str, None, None]:
     """Build a normal SSE stream from FAKE_STREAM_CHUNKS."""
+    yield _sse_event("status", {"phase": "queued", "message": "Preparing request..."})
+    yield _sse_event(
+        "status",
+        {"phase": "searching", "message": "Searching corpus...", "search_mode": "hybrid", "top_k": 5, "reranking": True},
+    )
+    yield _sse_event("status", {"phase": "context_ready", "message": "Using 5 chunks from 2 documents", "chunks": 5, "documents": 2})
+    yield _sse_event("status", {"phase": "streaming_answer", "message": "Streaming answer..."})
     for chunk in FAKE_STREAM_CHUNKS:
-        yield f"data: {chunk}\n\n"
-    yield "data: [DONE]\n\n"
+        yield _sse_event("token", {"text": chunk})
+    yield _sse_event("status", {"message": ""})
+    yield _sse_event("done", {})
 
 
 def _build_markdown_stream() -> Generator[str, None, None]:
@@ -202,18 +222,23 @@ def _build_markdown_stream() -> Generator[str, None, None]:
     data event and each newline as an empty "data: \\n\\n" event.
     The frontend treats empty data as a newline character.
     """
+    yield _sse_event("status", {"phase": "queued", "message": "Preparing request..."})
+    yield _sse_event("status", {"phase": "context_ready", "message": "Using 8 chunks from 3 documents", "chunks": 8, "documents": 3})
     for line in FAKE_MARKDOWN_TEXT.split("\n"):
         if line:
-            yield f"data: {line}\n\n"
-        yield "data: \n\n"
-    yield "data: [DONE]\n\n"
+            yield _sse_event("token", {"text": line})
+        yield _sse_event("token", {"text": "\n"})
+    yield _sse_event("status", {"message": ""})
+    yield _sse_event("done", {})
 
 
 def _build_error_stream() -> Generator[str, None, None]:
     """Build an SSE stream that simulates a streaming error."""
-    yield "data: Partial\n\n"
-    yield "data: error: simulated streaming error\n\n"
-    yield "data: [DONE]\n\n"
+    yield _sse_event("status", {"phase": "queued", "message": "Preparing request..."})
+    yield _sse_event("token", {"text": "Partial"})
+    yield _sse_event("error", {"message": "simulated streaming error"})
+    yield _sse_event("status", {"message": ""})
+    yield _sse_event("done", {})
 
 
 def _build_fake_completions_router() -> APIRouter:

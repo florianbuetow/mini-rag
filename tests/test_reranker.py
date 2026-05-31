@@ -22,7 +22,7 @@ from minirag.retrieval.dense_interface import DenseRetrieval
 from minirag.retrieval.sparse_interface import SparseRetrieval
 from minirag.search.embeddings_interface import Embeddings
 from minirag.search.types import ScoredChunk, SearchResult
-from minirag.storage.interface import ChunkRecord, ChunkWithDocument, Storage
+from minirag.storage.interface import ChunkRecord, ChunkWithDocument, CorpusStats, Storage
 
 
 class FakeCrossEncoderModel:
@@ -236,6 +236,9 @@ class FakeStorage:
         del document_id
         return []
 
+    def corpus_stats(self) -> CorpusStats:
+        return CorpusStats(document_count=0, chunk_count=0)
+
     def close(self) -> None:
         return None
 
@@ -342,7 +345,15 @@ def test_orchestration_hybrid_with_reranker() -> None:
         reranker=reranker,
     )
 
-    results = orchestration.search_hybrid(query="query", top_k=2, alpha=None, use_reranking=None)
+    candidate_counts: list[int] = []
+
+    results, trace = orchestration.search_hybrid_with_trace(
+        query="query",
+        top_k=2,
+        alpha=None,
+        use_reranking=None,
+        reranking_candidate_callback=candidate_counts.append,
+    )
 
     assert dense.last_top_k == 6
     assert sparse.last_top_k == 6
@@ -351,6 +362,16 @@ def test_orchestration_hybrid_with_reranker() -> None:
     assert reranker.last_top_k == 2
     assert len(reranker.last_results) == 6
     assert len(results) == 2
+    assert candidate_counts == [6]
+    assert trace.reranking_active is True
+    assert trace.retrieval_top_k == 6
+    assert trace.dense_count == 6
+    assert trace.sparse_count == 6
+    assert trace.merged_candidate_count == 6
+    assert trace.final_result_count == 2
+
+    result_only = orchestration.search_hybrid(query="query", top_k=2, alpha=None, use_reranking=None)
+    assert len(result_only) == 2
 
 
 def test_orchestration_hybrid_without_reranker() -> None:
@@ -366,8 +387,59 @@ def test_orchestration_hybrid_without_reranker() -> None:
         reranker=None,
     )
 
-    results = orchestration.search_hybrid(query="query", top_k=2, alpha=None, use_reranking=None)
+    candidate_counts: list[int] = []
+
+    results, trace = orchestration.search_hybrid_with_trace(
+        query="query",
+        top_k=2,
+        alpha=None,
+        use_reranking=None,
+        reranking_candidate_callback=candidate_counts.append,
+    )
 
     assert dense.last_top_k == 2
     assert sparse.last_top_k == 2
     assert len(results) == 2
+    assert candidate_counts == []
+    assert trace.reranking_active is False
+    assert trace.retrieval_top_k == 2
+    assert trace.dense_count == 2
+    assert trace.sparse_count == 2
+    assert trace.merged_candidate_count == 2
+    assert trace.final_result_count == 2
+
+
+def test_orchestration_hybrid_trace_uses_actual_underpopulated_candidate_count() -> None:
+    """Trace candidate counts should reflect returned candidates, not requested counts."""
+    dense = FakeDense(chunk_ids=[1, 2])
+    sparse = FakeSparse(chunk_ids=[2, 3])
+    reranker = FakeReranker(candidate_multiplier=4)
+    orchestration = Orchestration(
+        chunking_config=ChunkingConfig(chunk_size=4, overlap=0.5),
+        embeddings=cast(Embeddings, FakeEmbeddings()),
+        storage=cast(Storage, FakeStorage()),
+        dense=cast(DenseRetrieval, dense),
+        sparse=cast(SparseRetrieval, sparse),
+        search_config=_make_search_config(enabled=True, candidate_multiplier=4),
+        reranker=reranker,
+    )
+    candidate_counts: list[int] = []
+
+    results, trace = orchestration.search_hybrid_with_trace(
+        query="query",
+        top_k=5,
+        alpha=None,
+        use_reranking=True,
+        reranking_candidate_callback=candidate_counts.append,
+    )
+
+    assert dense.last_top_k == 20
+    assert sparse.last_top_k == 20
+    assert candidate_counts == [3]
+    assert trace.retrieval_top_k == 20
+    assert trace.dense_count == 2
+    assert trace.sparse_count == 2
+    assert trace.merged_candidate_count == 3
+    assert trace.final_result_count == 3
+    assert len(reranker.last_results) == 3
+    assert len(results) == 3

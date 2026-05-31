@@ -135,6 +135,7 @@ def _contains_any_keyword(text, keywords):
 
 # Skip entire module if prerequisites are not met
 pytestmark = [
+    pytest.mark.rag,
     pytest.mark.skipif(not _service_available(), reason="mini-rag service not running"),
     pytest.mark.skipif(not _lm_studio_available(), reason="LM Studio not running"),
     pytest.mark.skipif(not _knowledgebase_available(), reason="knowledgebase corpus not available"),

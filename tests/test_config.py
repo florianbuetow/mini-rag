@@ -65,6 +65,8 @@ def test_config_from_yaml_and_validate_startup(tmp_path: Path) -> None:
 
     assert config.get_service_config().port == 7001
     assert config.get_index_config().embeddings.dimension == 300
+    assert config.get_search_config().context_pruning.document_context_fraction == 0.6
+    assert config.get_search_config().context_pruning.fallback_context_window_tokens == 4096
 
     validate_startup_environment(config=config, project_root=tmp_path)
 

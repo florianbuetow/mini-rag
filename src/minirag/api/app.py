@@ -2,7 +2,7 @@
 
 import logging
 import os
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -21,7 +21,9 @@ from minirag.api.routes_query import router as query_router
 from minirag.api.static import mount_static_files
 from minirag.backend_factory import build_orchestration
 from minirag.config import Config
+from minirag.context_pruning import ContextPruner
 from minirag.corpus import CorpusManager
+from minirag.lm_studio import LMStudioModelInfo
 from minirag.reranking.cross_encoder import CrossEncoderReranker
 from minirag.reranking.interface import Reranker
 from minirag.search.embeddings import FastTextEmbeddings
@@ -50,7 +52,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     """Manage application lifecycle — close all corpus storage on shutdown."""
     yield
     if hasattr(app.state, "corpus_manager"):
@@ -95,6 +97,13 @@ def create_app(config: Config, project_root: Path) -> FastAPI:
     agent = MiniRagAgent(
         corpus_manager=corpus_manager,
         lm_studio_base_url=lm_studio_url,
+        context_pruning_config=search_config.context_pruning,
+        model_info=LMStudioModelInfo(
+            lm_studio_url,
+            fallback_context_window_tokens=search_config.context_pruning.fallback_context_window_tokens,
+            timeout_seconds=2.0,
+        ),
+        context_pruner=ContextPruner(),
     )
 
     title_agent = ConversationTitleAgent(lm_studio_base_url=lm_studio_url)

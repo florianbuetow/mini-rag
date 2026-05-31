@@ -66,6 +66,9 @@ class TestExportMarkdown:
         assert "## Assistant" in content
         assert "export test message" in content
         assert "Hello from the deterministic agent." in content
+        assert "Searching corpus" not in content
+        assert "Using 5 chunks from 2 documents" not in content
+        assert "Streaming answer" not in content
 
 
 class TestExportJson:
@@ -95,6 +98,10 @@ class TestExportJson:
         assert messages[0]["role"] == "user"
         assert messages[0]["content"] == "export test message"
         assert messages[1]["role"] == "assistant"
+        assert "Hello from the deterministic agent." in messages[1]["content"]
+        assert "Searching corpus" not in messages[1]["content"]
+        assert "Using 5 chunks from 2 documents" not in messages[1]["content"]
+        assert "Streaming answer" not in messages[1]["content"]
 
     def test_export_filename_derived_from_chat_name(self, page) -> None:
         """Export filename is derived from the visible chat name and sanitized."""

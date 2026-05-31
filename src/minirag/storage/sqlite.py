@@ -6,7 +6,7 @@ import sqlite3
 import threading
 from pathlib import Path
 
-from minirag.storage.interface import ChunkRecord, ChunkWithDocument, Storage
+from minirag.storage.interface import ChunkRecord, ChunkWithDocument, CorpusStats, Storage
 
 logger = logging.getLogger(__name__)
 
@@ -68,11 +68,87 @@ class SQLiteStorage(Storage):
             )
             cursor.execute(
                 """
+                CREATE TABLE IF NOT EXISTS corpus_stats (
+                    table_name TEXT PRIMARY KEY,
+                    row_count INTEGER NOT NULL CHECK(row_count >= 0)
+                )
+                """
+            )
+            self._initialize_corpus_stats(cursor)
+            self._create_corpus_stats_triggers(cursor)
+            cursor.execute(
+                """
                 CREATE INDEX IF NOT EXISTS idx_citations_document_id
                     ON document_citations(document_id)
                 """
             )
             self._connection.commit()
+
+    def _initialize_corpus_stats(self, cursor: sqlite3.Cursor) -> None:
+        """Initialize missing stats rows, backfilling only during schema setup."""
+        cursor.execute(
+            "SELECT COUNT(*) FROM corpus_stats WHERE table_name IN ('documents', 'chunks')",
+        )
+        row = cursor.fetchone()
+        existing_stats_rows = _count_row_value(row, "corpus_stats")
+        if existing_stats_rows == 2:
+            return
+        cursor.execute("DELETE FROM corpus_stats")
+        cursor.execute(
+            """
+            INSERT INTO corpus_stats(table_name, row_count)
+            VALUES
+                ('documents', (SELECT COUNT(*) FROM documents)),
+                ('chunks', (SELECT COUNT(*) FROM chunks))
+            """
+        )
+
+    def _create_corpus_stats_triggers(self, cursor: sqlite3.Cursor) -> None:
+        """Maintain corpus stats rows as documents and chunks change."""
+        cursor.execute(
+            """
+            CREATE TRIGGER IF NOT EXISTS trg_documents_stats_insert
+            AFTER INSERT ON documents
+            BEGIN
+                UPDATE corpus_stats
+                SET row_count = row_count + 1
+                WHERE table_name = 'documents';
+            END
+            """
+        )
+        cursor.execute(
+            """
+            CREATE TRIGGER IF NOT EXISTS trg_documents_stats_delete
+            AFTER DELETE ON documents
+            BEGIN
+                UPDATE corpus_stats
+                SET row_count = row_count - 1
+                WHERE table_name = 'documents';
+            END
+            """
+        )
+        cursor.execute(
+            """
+            CREATE TRIGGER IF NOT EXISTS trg_chunks_stats_insert
+            AFTER INSERT ON chunks
+            BEGIN
+                UPDATE corpus_stats
+                SET row_count = row_count + 1
+                WHERE table_name = 'chunks';
+            END
+            """
+        )
+        cursor.execute(
+            """
+            CREATE TRIGGER IF NOT EXISTS trg_chunks_stats_delete
+            AFTER DELETE ON chunks
+            BEGIN
+                UPDATE corpus_stats
+                SET row_count = row_count - 1
+                WHERE table_name = 'chunks';
+            END
+            """
+        )
 
     def insert_document_with_citation(self, content: str, citation: dict[str, object] | None) -> int:
         """Store a document and its citation in one transaction."""
@@ -252,6 +328,25 @@ class SQLiteStorage(Storage):
 
         return chunks
 
+    def corpus_stats(self) -> CorpusStats:
+        """Return stored document and chunk counts without scanning corpus rows."""
+        with self._lock:
+            cursor = self._connection.cursor()
+            cursor.execute(
+                """
+                SELECT table_name, row_count
+                FROM corpus_stats
+                WHERE table_name IN ('documents', 'chunks')
+                """
+            )
+            rows = cursor.fetchall()
+
+        counts = _corpus_stats_from_rows(rows)
+        return CorpusStats(
+            document_count=counts["documents"],
+            chunk_count=counts["chunks"],
+        )
+
     def get_citation_key(self, document_id: int) -> str | None:
         """Return the citation_key for a document, or None if not found."""
         if document_id <= 0:
@@ -310,3 +405,31 @@ class SQLiteStorage(Storage):
             cursor.execute("DELETE FROM documents")
             self._connection.commit()
         logger.info("Destroyed SQLite storage contents at %s", self._database_path)
+
+
+def _count_row_value(row: tuple[object, ...] | None, table_name: str) -> int:
+    """Extract a non-negative SQLite count result."""
+    if row is None:
+        raise ValueError(f"failed to count rows in {table_name}")
+    value = row[0]
+    if not isinstance(value, int) or value < 0:
+        raise ValueError(f"invalid row count for {table_name}: {value!r}")
+    return value
+
+
+def _corpus_stats_from_rows(rows: list[tuple[object, ...]]) -> dict[str, int]:
+    """Convert stored stats rows into validated document and chunk counts."""
+    counts: dict[str, int] = {}
+    for row in rows:
+        if len(row) != 2:
+            raise ValueError(f"invalid corpus stats row: {row!r}")
+        table_name = row[0]
+        row_count = row[1]
+        if not isinstance(table_name, str) or table_name not in {"documents", "chunks"}:
+            raise ValueError(f"unexpected corpus stats table name: {table_name!r}")
+        if not isinstance(row_count, int) or row_count < 0:
+            raise ValueError(f"invalid corpus stats count for {table_name}: {row_count!r}")
+        counts[table_name] = row_count
+    if "documents" not in counts or "chunks" not in counts:
+        raise ValueError("missing corpus stats rows")
+    return counts

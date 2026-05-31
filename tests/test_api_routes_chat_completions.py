@@ -6,8 +6,11 @@ Test spec: docs/specs/conversational-agent-test-specification.md
 These tests will FAIL until the conversational agent feature is implemented.
 """
 
+import json
+import threading
 from collections.abc import Generator
 from concurrent.futures import ThreadPoolExecutor
+from typing import cast
 
 import httpx
 from fastapi import FastAPI
@@ -15,6 +18,7 @@ from fastapi.testclient import TestClient
 
 from minirag.api.app import unhandled_exception_handler
 from minirag.api.routes_info import router as info_router
+from minirag.chat_stream import ChatStreamEvent
 
 
 class FakeServiceConfig:
@@ -74,7 +78,9 @@ class FakeAgent:
         top_k: int = 50,
         alpha: float = 0.5,
         reranking: bool = True,
-    ) -> Generator[str, None, None]:
+        cancellation_event: threading.Event | None = None,
+    ) -> Generator[ChatStreamEvent, None, None]:
+        del cancellation_event
         self.received_messages = list(messages)
         self.received_search_settings = {
             "search_mode": search_mode,
@@ -85,23 +91,134 @@ class FakeAgent:
         if self.error is not None:
             raise self.error
         if self.no_results:
-            yield "I could not find any relevant documents in the corpus."
+            yield {"type": "status", "message": "Using 0 chunks from 0 documents"}
+            yield {"type": "token", "text": "I could not find any relevant documents in the corpus."}
             return
-        yield from self.chunks
+        for chunk in self.chunks:
+            yield {"type": "token", "text": chunk}
 
 
-def _parse_sse_events(response: httpx.Response) -> list[str]:
-    """Parse SSE data events from a streaming response."""
-    events: list[str] = []
+class EventAgent:
+    """Agent that emits explicit stream events for route contract tests."""
+
+    def __init__(self, events: list[object]) -> None:
+        self.events = events
+        self.received_messages: list[dict[str, str]] = []
+        self.received_search_settings: dict[str, object] | None = None
+
+    def stream(
+        self,
+        messages: list[dict[str, str]],
+        model: str,
+        corpus: str,
+        search_mode: str = "hybrid",
+        top_k: int = 50,
+        alpha: float = 0.5,
+        reranking: bool = True,
+        cancellation_event: threading.Event | None = None,
+    ) -> Generator[object, None, None]:
+        del model, corpus, cancellation_event
+        self.received_messages = list(messages)
+        self.received_search_settings = {
+            "search_mode": search_mode,
+            "top_k": top_k,
+            "alpha": alpha,
+            "reranking": reranking,
+        }
+        yield from self.events
+
+
+class CancellationAwareAgent:
+    """Agent that records the cancellation event passed by the route."""
+
+    def __init__(self) -> None:
+        self.cancellation_event: threading.Event | None = None
+
+    def stream(
+        self,
+        messages: list[dict[str, str]],
+        model: str,
+        corpus: str,
+        search_mode: str = "hybrid",
+        top_k: int = 50,
+        alpha: float = 0.5,
+        reranking: bool = True,
+        cancellation_event: threading.Event | None = None,
+    ) -> Generator[ChatStreamEvent, None, None]:
+        del messages, model, corpus, search_mode, top_k, alpha, reranking
+        self.cancellation_event = cancellation_event
+        yield {"type": "token", "text": "partial"}
+        yield {"type": "token", "text": "unread"}
+
+
+def _parse_sse_events(response: httpx.Response) -> list[dict[str, object]]:
+    """Parse named SSE events from a streaming response."""
+    events: list[dict[str, object]] = []
+    event_name = "message"
+    data_lines: list[str] = []
+
+    def flush() -> None:
+        nonlocal event_name, data_lines
+        if not data_lines:
+            event_name = "message"
+            return
+        raw_data = "\n".join(data_lines)
+        try:
+            data: object = json.loads(raw_data)
+        except json.JSONDecodeError:
+            data = raw_data
+        events.append({"event": event_name, "data": data})
+        event_name = "message"
+        data_lines = []
+
     for line in response.iter_lines():
-        if line.startswith("data: "):
-            data = line[len("data: ") :]
-            events.append(data)
+        if line == "":
+            flush()
+        elif line.startswith("event: "):
+            event_name = line[len("event: ") :]
+        elif line.startswith("data:"):
+            data = line[len("data:") :]
+            if data.startswith(" "):
+                data = data[1:]
+            data_lines.append(data)
+    flush()
     return events
 
 
+def _token_text(events: list[dict[str, object]]) -> str:
+    """Return concatenated token text from parsed SSE events."""
+    text = ""
+    for event in events:
+        if event["event"] == "token":
+            data = event["data"]
+            assert isinstance(data, dict)
+            token_data = cast(dict[str, object], data)
+            text += str(token_data["text"])
+    return text
+
+
+def _status_events(events: list[dict[str, object]]) -> list[dict[str, object]]:
+    """Return status payloads from parsed SSE events."""
+    statuses: list[dict[str, object]] = []
+    for event in events:
+        if event["event"] == "status":
+            data = event["data"]
+            assert isinstance(data, dict)
+            statuses.append(cast(dict[str, object], data))
+    return statuses
+
+
+def _assert_simple_status_payload(data: dict[str, object], expected_message: str, expected_type: str = "info") -> None:
+    """Assert public status payload has only timestamp, message, and type."""
+    assert set(data) == {"timestamp", "message", "type"}
+    assert isinstance(data["timestamp"], str)
+    assert data["timestamp"] != ""
+    assert data["message"] == expected_message
+    assert data["type"] == expected_type
+
+
 def _make_app(
-    agent: FakeAgent | None = None,
+    agent: object | None = None,
     corpus_manager: FakeCorpusManager | None = None,
     status: str = "healthy",
 ) -> FastAPI:
@@ -139,8 +256,8 @@ def test_chat_completion_returns_sse_response():
         assert "text/event-stream" in resp.headers["content-type"]
         events = _parse_sse_events(resp)
 
-    # Collected events should contain the agent's response text
-    full_text = "".join(e for e in events if e != "[DONE]")
+    assert events[0]["event"] == "status"
+    full_text = _token_text(events)
     assert "Mini-rag" in full_text
 
 
@@ -153,9 +270,117 @@ def test_response_is_sse_stream_with_chunks():
         assert "text/event-stream" in resp.headers["content-type"]
         events = _parse_sse_events(resp)
 
-    # Filter out the [DONE] sentinel
-    data_events = [e for e in events if e != "[DONE]"]
-    assert len(data_events) >= 3
+    token_events = [e for e in events if e["event"] == "token"]
+    assert len(token_events) >= 3
+
+
+def test_stream_emits_status_before_first_token():
+    """At least one status event should arrive before answer tokens."""
+    client = TestClient(_make_app())
+
+    with client.stream("POST", "/v1/chat/completions", json=VALID_REQUEST) as resp:
+        events = _parse_sse_events(resp)
+
+    event_names = [str(event["event"]) for event in events]
+    assert "status" in event_names
+    assert "token" in event_names
+    assert event_names.index("status") < event_names.index("token")
+
+
+def test_status_event_payload_is_simple_ui_contract():
+    """Status events should expose only timestamp, message, and type."""
+    agent = EventAgent(
+        [
+            {
+                "type": "status",
+                "message": "Using 3 chunks from 2 documents",
+                "status_type": "info",
+            },
+            {"type": "token", "text": "answer"},
+        ]
+    )
+    client = TestClient(_make_app(agent=agent))
+
+    with client.stream("POST", "/v1/chat/completions", json=VALID_REQUEST) as resp:
+        events = _parse_sse_events(resp)
+
+    statuses = _status_events(events)
+    _assert_simple_status_payload(statuses[0], "Preparing request...")
+    _assert_simple_status_payload(statuses[1], "Using 3 chunks from 2 documents")
+
+
+def test_status_payload_does_not_expose_internal_metadata():
+    """Internal status details must not leak into the public status JSON."""
+    agent = EventAgent(
+        [
+            {
+                "type": "status",
+                "message": "Searching corpus...",
+                "phase": "searching",
+                "search_mode": "hybrid",
+                "top_k": 50,
+                "alpha": 0.5,
+                "reranking": True,
+                "chunks": 99,
+                "documents": 10,
+            },
+            {"type": "token", "text": "answer"},
+        ]
+    )
+    client = TestClient(_make_app(agent=agent))
+
+    with client.stream("POST", "/v1/chat/completions", json=VALID_REQUEST) as resp:
+        events = _parse_sse_events(resp)
+
+    status = _status_events(events)[1]
+    _assert_simple_status_payload(status, "Searching corpus...")
+    assert "phase" not in status
+    assert "chunks" not in status
+    assert "documents" not in status
+    assert "top_k" not in status
+
+
+def test_status_type_is_normalized_to_allowed_values():
+    """Unknown internal status types should fall back to info."""
+    agent = EventAgent(
+        [
+            {
+                "type": "status",
+                "message": "Checking retrieval...",
+                "status_type": "debug",
+            },
+            {"type": "token", "text": "answer"},
+        ]
+    )
+    client = TestClient(_make_app(agent=agent))
+
+    with client.stream("POST", "/v1/chat/completions", json=VALID_REQUEST) as resp:
+        events = _parse_sse_events(resp)
+
+    _assert_simple_status_payload(_status_events(events)[1], "Checking retrieval...", expected_type="info")
+
+
+def test_empty_status_message_is_still_serialized_as_simple_contract():
+    """Malformed internal status without message should still produce a string message field."""
+    agent = EventAgent([{"type": "status"}, {"type": "token", "text": "answer"}])
+    client = TestClient(_make_app(agent=agent))
+
+    with client.stream("POST", "/v1/chat/completions", json=VALID_REQUEST) as resp:
+        events = _parse_sse_events(resp)
+
+    _assert_simple_status_payload(_status_events(events)[1], "")
+
+
+def test_token_json_escapes_newlines_without_breaking_sse_framing():
+    """Token text with newlines should remain one JSON token payload."""
+    agent = EventAgent([{"type": "token", "text": "line 1\nline 2"}])
+    client = TestClient(_make_app(agent=agent))
+
+    with client.stream("POST", "/v1/chat/completions", json=VALID_REQUEST) as resp:
+        events = _parse_sse_events(resp)
+
+    token_events = [event for event in events if event["event"] == "token"]
+    assert token_events == [{"event": "token", "data": {"text": "line 1\nline 2"}}]
 
 
 # TS-3: Stream terminates with done signal
@@ -165,7 +390,20 @@ def test_sse_stream_ends_with_done_signal():
     with client.stream("POST", "/v1/chat/completions", json=VALID_REQUEST) as resp:
         events = _parse_sse_events(resp)
 
-    assert "[DONE]" in events
+    assert events[-1] == {"event": "done", "data": {}}
+
+
+def test_sse_stream_resets_status_before_done_signal():
+    """A successful stream should clear transient UI status before completion."""
+    client = TestClient(_make_app())
+
+    with client.stream("POST", "/v1/chat/completions", json=VALID_REQUEST) as resp:
+        events = _parse_sse_events(resp)
+
+    assert events[-2]["event"] == "status"
+    data = events[-2]["data"]
+    assert isinstance(data, dict)
+    _assert_simple_status_payload(cast(dict[str, object], data), "")
 
 
 # TS-4: Server handles client disconnect
@@ -181,6 +419,32 @@ def test_server_handles_client_disconnect():
             if line.startswith("data: "):
                 break
     # Test passes if no exception was raised
+
+
+def test_stream_close_sets_cancellation_event_for_agent() -> None:
+    """Closing the SSE generator should notify the active model stream."""
+    from minirag.api.routes_chat_completions import stream_agent_response
+
+    agent = CancellationAwareAgent()
+    cancellation_event = threading.Event()
+    stream = stream_agent_response(
+        agent=agent,
+        messages=[{"role": "user", "content": "hello"}],
+        model="model",
+        corpus="docs",
+        search_mode="hybrid",
+        top_k=5,
+        alpha=0.5,
+        reranking=True,
+        cancellation_event=cancellation_event,
+    )
+
+    next(stream)
+    next(stream)
+    stream.close()
+
+    assert cancellation_event.is_set()
+    assert agent.cancellation_event is cancellation_event
 
 
 # TS-5: Multi-turn conversation
@@ -244,9 +508,10 @@ def test_sse_error_when_llm_unavailable():
     with client.stream("POST", "/v1/chat/completions", json=VALID_REQUEST) as resp:
         events = _parse_sse_events(resp)
 
-    # Should contain an error message
-    full_text = " ".join(events)
-    assert "error: LM Studio unreachable" in full_text
+    error_events = [event for event in events if event["event"] == "error"]
+    assert len(error_events) == 1
+    assert error_events[0]["data"] == {"message": "LM Studio unreachable"}
+    assert events[-1] == {"event": "done", "data": {}}
 
 
 # TS-9: Handle empty retrieval
@@ -257,7 +522,7 @@ def test_response_when_no_documents_found():
     with client.stream("POST", "/v1/chat/completions", json=VALID_REQUEST) as resp:
         events = _parse_sse_events(resp)
 
-    full_text = " ".join(e for e in events if e != "[DONE]")
+    full_text = _token_text(events)
     assert "could not find" in full_text.lower() or "no relevant" in full_text.lower()
 
 
@@ -266,7 +531,7 @@ def test_concurrent_chat_completions():
     agent = FakeAgent()
     app = _make_app(agent=agent)
 
-    def send_request(_: int) -> tuple[int, list[str]]:
+    def send_request(_: int) -> tuple[int, list[dict[str, object]]]:
         c = TestClient(app)
         with c.stream("POST", "/v1/chat/completions", json=VALID_REQUEST) as resp:
             events = _parse_sse_events(resp)

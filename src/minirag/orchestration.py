@@ -4,6 +4,8 @@ import json
 import logging
 import threading
 from collections import OrderedDict
+from collections.abc import Callable
+from dataclasses import dataclass
 
 from minirag.config import ChunkingConfig, SearchConfig
 from minirag.ingestion.chunker import chunk_text
@@ -13,11 +15,23 @@ from minirag.retrieval.sparse_interface import SparseRetrieval
 from minirag.search.embeddings_interface import Embeddings
 from minirag.search.hybrid import merge_hybrid_results
 from minirag.search.types import ScoredChunk, SearchResult
-from minirag.storage.interface import Storage
+from minirag.storage.interface import CorpusStats, Storage
 
 logger = logging.getLogger(__name__)
 
 _CITATION_KEY_CACHE_MAX = 1024
+
+
+@dataclass(frozen=True)
+class SearchTrace:
+    """Internal search trace for status and tests without changing public API payloads."""
+
+    reranking_active: bool
+    retrieval_top_k: int
+    dense_count: int
+    sparse_count: int
+    merged_candidate_count: int
+    final_result_count: int
 
 
 class Orchestration:
@@ -102,6 +116,10 @@ class Orchestration:
     def close_storage(self) -> None:
         """Close the storage connection."""
         self._storage.close()
+
+    def corpus_stats(self) -> CorpusStats:
+        """Return aggregate corpus counts from storage."""
+        return self._storage.corpus_stats()
 
     def _get_citation_key_for_document(self, document_id: int) -> str:
         """Look up citation_key for a document, with cache for positive results only.
@@ -210,6 +228,29 @@ class Orchestration:
             use_reranking: Reranking override. If None, uses reranker availability.
                 If False, skips reranking even when a reranker is loaded.
         """
+        results, _trace = self.search_hybrid_with_trace(
+            query=query,
+            top_k=top_k,
+            alpha=alpha,
+            use_reranking=use_reranking,
+            reranking_candidate_callback=None,
+        )
+        return results
+
+    def search_hybrid_with_trace(
+        self,
+        query: str,
+        top_k: int,
+        alpha: float | None,
+        use_reranking: bool | None,
+        reranking_candidate_callback: Callable[[int], None] | None,
+    ) -> tuple[list[SearchResult], SearchTrace]:
+        """Run hybrid search and return internal trace metrics.
+
+        The trace is intentionally not used by public query endpoints. Chat
+        streaming can use it for exact status messages without changing the
+        non-chat search response contract.
+        """
         self._validate_search_params(query=query, top_k=top_k)
 
         should_rerank = self._reranker is not None if use_reranking is None else (use_reranking and self._reranker is not None)
@@ -227,6 +268,18 @@ class Orchestration:
         )
 
         if should_rerank and self._reranker is not None:
-            return self._reranker.rerank(query=query, results=merged_results, top_k=top_k)
+            if reranking_candidate_callback is not None:
+                reranking_candidate_callback(len(merged_results))
+            final_results = self._reranker.rerank(query=query, results=merged_results, top_k=top_k)
+        else:
+            final_results = merged_results
 
-        return merged_results
+        trace = SearchTrace(
+            reranking_active=should_rerank,
+            retrieval_top_k=retrieval_top_k,
+            dense_count=len(dense_results),
+            sparse_count=len(sparse_results),
+            merged_candidate_count=len(merged_results),
+            final_result_count=len(final_results),
+        )
+        return final_results, trace

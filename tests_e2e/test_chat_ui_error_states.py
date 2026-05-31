@@ -72,6 +72,53 @@ class TestStreamError:
         assert "dense search failed: embedding model timed out" in text
         assert page.locator(".message-error").count() >= 1
 
+    @pytest.mark.expect_console_errors
+    def test_legacy_anonymous_stream_frame_renders_contract_error(self, page) -> None:
+        """Malformed legacy SSE frames should render a descriptive stream-contract error."""
+        wait_for_selectors_loaded(page)
+        create_new_chat(page)
+
+        page.route(
+            "**/v1/chat/completions",
+            lambda route: route.fulfill(
+                status=200,
+                content_type="text/event-stream",
+                body="data: legacy token\n\ndata: [DONE]\n\n",
+            ),
+        )
+
+        text = send_message_and_wait(page, "trigger malformed legacy stream")
+
+        assert "Stream contract error" in text
+        assert "failed parsing anonymous SSE frame" in text
+        assert "Payload:" in text
+        assert "legacy token" in text
+        assert page.locator(".message-error").count() >= 1
+
+    @pytest.mark.expect_console_errors
+    def test_invalid_typed_stream_payload_renders_contract_error(self, page) -> None:
+        """Typed SSE events with invalid JSON should render a descriptive error."""
+        wait_for_selectors_loaded(page)
+        create_new_chat(page)
+
+        page.route(
+            "**/v1/chat/completions",
+            lambda route: route.fulfill(
+                status=200,
+                content_type="text/event-stream",
+                body="event: status\ndata: not-json\n\n",
+            ),
+        )
+
+        text = send_message_and_wait(page, "trigger invalid json stream")
+
+        assert "Stream contract error" in text
+        assert 'failed parsing event "status"' in text
+        assert "Data is not valid JSON" in text
+        assert "Payload:" in text
+        assert "not-json" in text
+        assert page.locator(".message-error").count() >= 1
+
 
 class TestSaveFailure:
     """Test 23: Save failure surfaces visible warning."""

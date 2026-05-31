@@ -74,6 +74,32 @@ class TestUserMessageAndStreaming:
         appeared_first = page.evaluate("window.__userBubbleAppearedFirst")
         assert appeared_first, "User message should appear before stream completes"
 
+    def test_status_updates_are_transient_and_separate_from_content(self, page) -> None:
+        """Status should render near the active assistant response without entering message content."""
+        _create_chat_and_prepare(page)
+
+        page.evaluate("""() => {
+            window.__statusTexts = [];
+            document.addEventListener('minirag:status', (event) => {
+                const text = event.detail.message || '';
+                if (text && !window.__statusTexts.includes(text)) {
+                    window.__statusTexts.push(text);
+                }
+            });
+        }""")
+
+        response_text = send_message_and_wait(page, "status test")
+        status_texts = page.evaluate("window.__statusTexts")
+
+        assert any("Preparing request" in text for text in status_texts), status_texts
+        assert any("Searching corpus" in text for text in status_texts), status_texts
+        assert any("Using 5 chunks from 2 documents" in text for text in status_texts), status_texts
+        assert "Hello from the deterministic agent." in response_text
+        assert "Searching corpus" not in response_text
+        assert "Using 5 chunks from 2 documents" not in response_text
+        assert "Streaming answer" not in response_text
+        assert page.locator("#chat-status").is_hidden()
+
     def test_assistant_grows_incrementally(self, page) -> None:
         """Test 16: Assistant message grows incrementally over at least two chunks."""
         _create_chat_and_prepare(page)
@@ -258,3 +284,6 @@ class TestChatPersistence:
         assistant_msg = messages[1]
         assert assistant_msg["role"] == "assistant"
         assert "Hello from the deterministic agent." in assistant_msg["content"]
+        assert "Searching corpus" not in assistant_msg["content"]
+        assert "Using 5 chunks from 2 documents" not in assistant_msg["content"]
+        assert "Streaming answer" not in assistant_msg["content"]

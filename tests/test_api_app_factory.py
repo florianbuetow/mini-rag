@@ -43,6 +43,10 @@ class FakeConfig:
     """Fake config object for app factory tests."""
 
     class SearchConfig:
+        class ContextPruning:
+            document_context_fraction = 0.6
+            fallback_context_window_tokens = 4096
+
         class Reranking:
             def __init__(self, enabled: bool) -> None:
                 self.enabled = enabled
@@ -51,6 +55,7 @@ class FakeConfig:
 
         def __init__(self, reranking_enabled: bool) -> None:
             self.reranking = FakeConfig.SearchConfig.Reranking(enabled=reranking_enabled)
+            self.context_pruning = FakeConfig.SearchConfig.ContextPruning()
 
     def __init__(self, data_dir: Path, reranking_enabled: bool) -> None:
         self._data_dir = data_dir
