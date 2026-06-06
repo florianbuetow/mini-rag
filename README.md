@@ -87,6 +87,8 @@ Reranking is disabled by default. To enable it, set `search.reranking.enabled: t
 | `just status` | Show service configuration or "not running" |
 | `just md2txt` | Convert markdown files to plain text |
 | `just ingest <corpus>` | Delete and re-ingest all text files for a corpus |
+| `just update <corpus>` | Incrementally index only new text files (skips already-indexed) |
+| `just backfill-ledger <corpus>` | Seed the ledger from an existing index without re-indexing (one-time migration) |
 | `just search <corpus>` | Interactive search query loop for a corpus |
 | `just delete <corpus>` | Delete a corpus index and storage |
 | `just evaluate <corpus>` | Evaluate retrieval quality using Q&A pairs |
@@ -104,6 +106,8 @@ Corpus names must start with a letter and contain only alphanumeric characters, 
 5. Run `just search <corpus>` to query the corpus interactively
 
 Both `md2txt` and `ingest` scan subdirectories recursively and skip symbolic links.
+
+To add documents later without rebuilding the whole corpus, drop new files into the `txt/` folder and run `just update <corpus>`. It indexes only files not already recorded in the corpus ingestion ledger (`data/storage/<corpus>/indexed.txt`), leaving the existing index untouched. `just ingest` (full rebuild) and `just delete` reset the ledger; `just update` and `just backfill-ledger` maintain it. For a corpus that was indexed before the ledger existed, run `just backfill-ledger <corpus>` once to seed the ledger from the current index, then use `just update` for additions.
 
 ## How Answers Are Generated
 

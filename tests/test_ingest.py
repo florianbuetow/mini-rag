@@ -5,9 +5,18 @@ from pathlib import Path
 
 import pytest
 
-from scripts.ingest import infer_source_type, ingest_files, load_citation, normalize_flat_citation, resolve_input_dir
+from minirag.ingestion import ledger
+from minirag.ingestion.citations import infer_source_type, load_citation, normalize_flat_citation, resolve_input_dir
+from scripts.ingest import ingest_files
 
 CORPUS = "testcorpus"
+
+
+def _make_corpus_input(data_dir: Path) -> Path:
+    """Create and return a realistic txt inbox under data_dir/input/{corpus}/txt."""
+    input_dir = data_dir / "input" / CORPUS / "txt"
+    input_dir.mkdir(parents=True)
+    return input_dir
 
 
 class FakeIndexingClient:
@@ -315,3 +324,105 @@ def test_infer_source_type_raises_when_undetermined() -> None:
     """Should raise ValueError when no inference rule matches."""
     with pytest.raises(ValueError, match="cannot infer source_type"):
         infer_source_type({"title": "T"}, Path("t.json"))
+
+
+# --- incremental update (ledger) tests ---
+
+
+def test_full_ingest_writes_ledger(tmp_path: Path) -> None:
+    """Full ingest records every indexed file in the committed ledger."""
+    input_dir = _make_corpus_input(tmp_path)
+    (input_dir / "a.txt").write_text("alpha", encoding="utf-8")
+    (input_dir / "b.txt").write_text("beta", encoding="utf-8")
+
+    client = FakeIndexingClient()
+    ingest_files(client=client, corpus=CORPUS, input_dir=input_dir, data_dir=tmp_path)  # type: ignore[arg-type]
+
+    assert client.destroyed
+    assert ledger.load_indexed(tmp_path, CORPUS) == {"a.txt", "b.txt"}
+
+
+def test_full_ingest_clears_stale_ledger_before_indexing(tmp_path: Path) -> None:
+    """Full ingest wipes a pre-existing ledger so it reflects only this run."""
+    input_dir = _make_corpus_input(tmp_path)
+    (input_dir / "a.txt").write_text("alpha", encoding="utf-8")
+    # Stale entry from a previous corpus state that no longer has a file.
+    ledger.record_indexed(tmp_path, CORPUS, "gone.txt")
+    ledger.commit(tmp_path, CORPUS)
+
+    client = FakeIndexingClient()
+    ingest_files(client=client, corpus=CORPUS, input_dir=input_dir, data_dir=tmp_path)  # type: ignore[arg-type]
+
+    assert ledger.load_indexed(tmp_path, CORPUS) == {"a.txt"}
+
+
+def test_update_skips_already_indexed_and_does_not_destroy(tmp_path: Path) -> None:
+    """Incremental update indexes only new files and never destroys the index."""
+    input_dir = _make_corpus_input(tmp_path)
+    (input_dir / "a.txt").write_text("alpha", encoding="utf-8")
+    (input_dir / "b.txt").write_text("beta", encoding="utf-8")
+    # a.txt was indexed in a prior run.
+    ledger.record_indexed(tmp_path, CORPUS, "a.txt")
+    ledger.commit(tmp_path, CORPUS)
+
+    client = FakeIndexingClient()
+    ingest_files(client=client, corpus=CORPUS, input_dir=input_dir, data_dir=tmp_path, incremental=True)  # type: ignore[arg-type]
+
+    assert not client.destroyed
+    assert len(client.indexed) == 1
+    assert client.indexed[0] == "beta"
+    assert ledger.load_indexed(tmp_path, CORPUS) == {"a.txt", "b.txt"}
+
+
+def test_update_with_empty_ledger_indexes_all(tmp_path: Path) -> None:
+    """With no prior ledger, update indexes everything and records it, without destroying."""
+    input_dir = _make_corpus_input(tmp_path)
+    (input_dir / "a.txt").write_text("alpha", encoding="utf-8")
+    (input_dir / "b.txt").write_text("beta", encoding="utf-8")
+
+    client = FakeIndexingClient()
+    ingest_files(client=client, corpus=CORPUS, input_dir=input_dir, data_dir=tmp_path, incremental=True)  # type: ignore[arg-type]
+
+    assert not client.destroyed
+    assert len(client.indexed) == 2
+    assert ledger.load_indexed(tmp_path, CORPUS) == {"a.txt", "b.txt"}
+
+
+def test_update_skips_subdirectory_paths(tmp_path: Path) -> None:
+    """Ledger identity is the path relative to the inbox, including subdirectories."""
+    input_dir = _make_corpus_input(tmp_path)
+    sub = input_dir / "topic"
+    sub.mkdir()
+    (sub / "a.txt").write_text("alpha", encoding="utf-8")
+    (input_dir / "b.txt").write_text("beta", encoding="utf-8")
+    ledger.record_indexed(tmp_path, CORPUS, "topic/a.txt")
+    ledger.commit(tmp_path, CORPUS)
+
+    client = FakeIndexingClient()
+    ingest_files(client=client, corpus=CORPUS, input_dir=input_dir, data_dir=tmp_path, incremental=True)  # type: ignore[arg-type]
+
+    assert client.indexed == ["beta"]
+    assert ledger.load_indexed(tmp_path, CORPUS) == {"topic/a.txt", "b.txt"}
+
+
+def test_update_after_crash_skips_files_recorded_before_failure(tmp_path: Path) -> None:
+    """A failed update leaves its log behind so a re-run skips the files it already indexed."""
+    input_dir = _make_corpus_input(tmp_path)
+    (input_dir / "a.txt").write_text("good", encoding="utf-8")
+    (input_dir / "b.txt").write_text("bad", encoding="utf-8")
+    (input_dir / "c.txt").write_text("also good", encoding="utf-8")
+
+    # First run aborts on b.txt; a.txt has already been indexed and recorded.
+    failing_client = FakeIndexingClient(fail_on={"bad"})
+    with pytest.raises(RuntimeError, match="simulated failure for: bad"):
+        ingest_files(client=failing_client, corpus=CORPUS, input_dir=input_dir, data_dir=tmp_path, incremental=True)  # type: ignore[arg-type]
+    assert failing_client.indexed == ["good"]
+    assert "a.txt" in ledger.load_indexed(tmp_path, CORPUS)
+
+    # Second run must skip a.txt (recorded in the log) rather than re-index it.
+    client = FakeIndexingClient()
+    ingest_files(client=client, corpus=CORPUS, input_dir=input_dir, data_dir=tmp_path, incremental=True)  # type: ignore[arg-type]
+
+    assert "good" not in client.indexed  # a.txt was skipped
+    assert sorted(client.indexed) == ["also good", "bad"]
+    assert ledger.load_indexed(tmp_path, CORPUS) == {"a.txt", "b.txt", "c.txt"}
