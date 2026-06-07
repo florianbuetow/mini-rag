@@ -2,6 +2,7 @@
 
 import importlib
 import math
+from functools import partial
 from pathlib import Path
 from typing import cast
 
@@ -9,13 +10,13 @@ import pytest
 from pydantic import ValidationError
 
 from minirag.config import (
-    ChunkingConfig,
     DenseSearchConfig,
     HybridConfig,
     RerankingConfig,
     SearchConfig,
     SparseSearchConfig,
 )
+from minirag.ingestion.chunker import chunk_text
 from minirag.orchestration import Orchestration
 from minirag.reranking.cross_encoder import CrossEncoderReranker
 from minirag.retrieval.dense_interface import DenseRetrieval
@@ -336,7 +337,7 @@ def test_orchestration_hybrid_with_reranker() -> None:
     sparse = FakeSparse(chunk_ids=[101, 102, 103, 104, 105, 106, 107, 108])
     reranker = FakeReranker(candidate_multiplier=3)
     orchestration = Orchestration(
-        chunking_config=ChunkingConfig(chunk_size=4, overlap=0.5),
+        chunker=partial(chunk_text, chunk_size=4, overlap=0.5),
         embeddings=cast(Embeddings, FakeEmbeddings()),
         storage=cast(Storage, FakeStorage()),
         dense=cast(DenseRetrieval, dense),
@@ -378,7 +379,7 @@ def test_orchestration_hybrid_without_reranker() -> None:
     dense = FakeDense(chunk_ids=[1, 2, 3, 4, 5])
     sparse = FakeSparse(chunk_ids=[101, 102, 103, 104, 105])
     orchestration = Orchestration(
-        chunking_config=ChunkingConfig(chunk_size=4, overlap=0.5),
+        chunker=partial(chunk_text, chunk_size=4, overlap=0.5),
         embeddings=cast(Embeddings, FakeEmbeddings()),
         storage=cast(Storage, FakeStorage()),
         dense=cast(DenseRetrieval, dense),
@@ -415,7 +416,7 @@ def test_orchestration_hybrid_trace_uses_actual_underpopulated_candidate_count()
     sparse = FakeSparse(chunk_ids=[2, 3])
     reranker = FakeReranker(candidate_multiplier=4)
     orchestration = Orchestration(
-        chunking_config=ChunkingConfig(chunk_size=4, overlap=0.5),
+        chunker=partial(chunk_text, chunk_size=4, overlap=0.5),
         embeddings=cast(Embeddings, FakeEmbeddings()),
         storage=cast(Storage, FakeStorage()),
         dense=cast(DenseRetrieval, dense),

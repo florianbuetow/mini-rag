@@ -4,8 +4,23 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import tiktoken
 
 import minirag.backend_factory as factory_module
+from minirag.config import IndexConfig
+
+
+class FakeEmbeddingsConfig:
+    """Minimal embeddings config shape with a provider-aware active dimension."""
+
+    def __init__(self, provider: str = "fasttext", dimension: int = 300) -> None:
+        self.provider = provider
+        self.model_name = "cc.en.300.bin"
+        self.dimension = dimension
+        self.lmstudio = None
+
+    def active_dimension(self) -> int:
+        return self.dimension
 
 
 class FakeIndexConfig:
@@ -13,9 +28,6 @@ class FakeIndexConfig:
 
     class Storage:
         db_filename = "minirag.db"
-
-    class Embeddings:
-        dimension = 300
 
     class Faiss:
         nprobe = 7
@@ -25,13 +37,15 @@ class FakeIndexConfig:
         stemming = True
 
     class Chunking:
-        pass
+        chunk_size = 4
+        overlap = 0.5
 
-    storage = Storage()
-    embeddings = Embeddings()
-    faiss = Faiss()
-    tantivy = Tantivy()
-    chunking = Chunking()
+    def __init__(self, embeddings: FakeEmbeddingsConfig | None = None) -> None:
+        self.storage = self.Storage()
+        self.embeddings = embeddings if embeddings is not None else FakeEmbeddingsConfig()
+        self.faiss = self.Faiss()
+        self.tantivy = self.Tantivy()
+        self.chunking = self.Chunking()
 
 
 class FakeStorage:
@@ -264,3 +278,80 @@ def test_build_orchestration_raises_exception_group_when_tantivy_init_and_cleanu
     assert any("tantivy failed" in message for message in messages)
     assert any("dense close failed" in message for message in messages)
     assert any("storage close failed" in message for message in messages)
+
+
+@pytest.mark.parametrize(("provider", "dimension"), [("fasttext", 300), ("lmstudio", 1024)])
+def test_dense_index_uses_active_provider_dimension(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, provider: str, dimension: int) -> None:
+    """The dense index is created with the active provider's embedding dimension."""
+    captured: dict[str, Any] = {}
+
+    def fake_orchestration(**kwargs: object) -> object:
+        captured["kwargs"] = kwargs
+        return object()
+
+    monkeypatch.setattr(factory_module, "SQLiteStorage", FakeStorage)
+    monkeypatch.setattr(factory_module, "FAISSDense", FakeDense)
+    monkeypatch.setattr(factory_module, "TantivySparse", FakeSparse)
+    monkeypatch.setattr(factory_module, "Orchestration", fake_orchestration)
+
+    index_config = FakeIndexConfig(FakeEmbeddingsConfig(provider=provider, dimension=dimension))
+    factory_module.build_orchestration(
+        corpus="books",
+        data_dir=tmp_path / "data",
+        index_config=index_config,  # type: ignore[arg-type]
+        search_config=object(),  # type: ignore[arg-type]
+        embeddings=object(),  # type: ignore[arg-type]
+        reranker=None,
+    )
+
+    assert captured["kwargs"]["dense"].dimension == dimension
+
+
+def _index_config(embeddings: dict[str, Any], chunking: dict[str, Any]) -> IndexConfig:
+    return IndexConfig.model_validate(
+        {
+            "chunking": chunking,
+            "embeddings": embeddings,
+            "storage": {"db_filename": "minirag.db"},
+            "faiss": {"index_type": "IndexFlatIP", "nprobe": 1},
+            "tantivy": {"language": "en", "stemming": True},
+        }
+    )
+
+
+def test_build_chunker_selects_word_chunker_for_fasttext() -> None:
+    """The fastText provider yields a word-based chunker."""
+    index_config = _index_config(
+        embeddings={"provider": "fasttext", "model_name": "cc.en.300.bin", "dimension": 300},
+        chunking={"chunk_size": 4, "overlap": 0.5},
+    )
+
+    chunks = factory_module.build_chunker(index_config)("one two three four five six")
+
+    assert chunks[0] == "one two three four"
+
+
+def test_build_chunker_selects_token_chunker_for_lmstudio() -> None:
+    """The LM Studio provider yields a token-budget chunker bounded by 80% of the window."""
+    index_config = _index_config(
+        embeddings={
+            "provider": "lmstudio",
+            "model_name": "cc.en.300.bin",
+            "dimension": 300,
+            "lmstudio": {
+                "base_url": "http://127.0.0.1:1234/v1",
+                "model_name": "bge",
+                "dimension": 1024,
+                "max_input_tokens": 512,
+                "safety_fraction": 0.80,
+            },
+        },
+        chunking={"chunk_size": 4, "overlap": 0.3},
+    )
+
+    long_text = " ".join(f"word{i}" for i in range(2000))
+    chunks = factory_module.build_chunker(index_config)(long_text)
+
+    encoding = tiktoken.get_encoding("cl100k_base")
+    assert len(chunks) > 1
+    assert all(len(encoding.encode(chunk)) <= 409 for chunk in chunks)

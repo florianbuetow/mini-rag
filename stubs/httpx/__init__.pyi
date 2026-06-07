@@ -1,22 +1,53 @@
 """Type stubs for httpx — covers only the API surface used by minirag."""
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from types import TracebackType
 from typing import Any
 
-class ConnectError(Exception): ...
-class ReadTimeout(Exception): ...
+class HTTPError(Exception): ...
+class ConnectError(HTTPError): ...
+class ReadTimeout(HTTPError): ...
+class TimeoutException(HTTPError): ...
+class HTTPStatusError(HTTPError): ...
+
+class Request:
+    method: str
+    url: Any
+    content: bytes
 
 class Response:
     status_code: int
     text: str
     headers: dict[str, str]
 
+    def __init__(
+        self,
+        status_code: int = ...,
+        *,
+        json: Any = ...,
+        content: Any = ...,
+        text: str = ...,
+        request: Request | None = ...,
+        headers: dict[str, str] | None = ...,
+    ) -> None: ...
     def json(self) -> Any: ...
     def iter_lines(self) -> Iterator[str]: ...
+    def raise_for_status(self) -> Response: ...
+
+class BaseTransport: ...
+
+class MockTransport(BaseTransport):
+    def __init__(self, handler: Callable[[Request], Response]) -> None: ...
 
 class Client:
-    def __init__(self, *, base_url: str = ..., timeout: float = ..., **kwargs: Any) -> None: ...
+    def __init__(
+        self,
+        *,
+        base_url: str = ...,
+        timeout: float = ...,
+        transport: BaseTransport | None = ...,
+        **kwargs: Any,
+    ) -> None: ...
     def __enter__(self) -> Client: ...
     def __exit__(
         self,

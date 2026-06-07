@@ -17,6 +17,7 @@ class FaissIndex(Protocol):
     """Subset of FAISS index methods used by this adapter."""
 
     ntotal: int
+    d: int
 
     def add_with_ids(self, vectors: np.ndarray, ids: np.ndarray) -> None:
         """Insert vectors with external IDs."""
@@ -74,6 +75,11 @@ class FAISSDense(DenseRetrieval):
 
         if self._index_path.exists():
             self._index = self._faiss.read_index(str(self._index_path))
+            if self._index.d != dimension:
+                raise ValueError(
+                    f"persisted FAISS index dimension {self._index.d} does not match configured dimension "
+                    f"{dimension}; re-index this corpus after changing the embedding provider"
+                )
             logger.info("Loaded FAISS index from %s", self._index_path)
         else:
             self._index = self._create_index()

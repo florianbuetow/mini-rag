@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>mini-rag Chat</title>
     <script>
         (function() {
@@ -28,9 +28,10 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.2.7/purify.min.js"></script>
 </head>
 <body>
+<a class="skip-link" href="#message-input">Skip to chat</a>
 <div class="app">
     <!-- Sidebar -->
-    <div class="sidebar" id="sidebar" data-testid="sidebar">
+    <nav class="sidebar" id="sidebar" data-testid="sidebar" aria-label="Conversations">
         <div class="sidebar-header">
             <button class="new-chat-btn" id="new-chat-btn" data-testid="new-chat">
                 + New Chat
@@ -39,12 +40,15 @@
         <div class="chat-list" id="chat-list">
             <div class="empty-state" id="empty-sidebar">No conversations yet</div>
         </div>
-    </div>
+    </nav>
+
+    <div class="sidebar-backdrop" id="sidebar-backdrop" data-testid="sidebar-backdrop"></div>
 
     <!-- Main content -->
-    <div class="main">
+    <main class="main">
         <!-- Top bar -->
         <div class="top-bar">
+            <button class="sidebar-toggle" id="sidebar-toggle" data-testid="sidebar-toggle" type="button" aria-label="Show conversations" aria-controls="sidebar" aria-expanded="false">&#9776;</button>
             <div class="selector-group">
                 <label for="model-selector">Model</label>
                 <select id="model-selector" data-testid="model-selector">
@@ -62,7 +66,7 @@
                 Light
             </button>
             <div style="position: relative;">
-                <button class="settings-btn" id="settings-btn" data-testid="settings-btn" title="Search Settings">&#9881;</button>
+                <button class="settings-btn" id="settings-btn" data-testid="settings-btn" title="Search Settings" aria-label="Search settings">&#9881;</button>
                 <div class="settings-panel" id="settings-panel" data-testid="settings-panel">
                     <h4>Search Settings</h4>
                     <div class="setting-row">
@@ -115,7 +119,15 @@
 
                 function applyTheme(theme, shouldSave) {
                     var themeBtn = document.getElementById('theme-btn');
-                    document.documentElement.dataset.theme = theme;
+                    var root = document.documentElement;
+                    // Suppress transitions for the switch so colors change instantly.
+                    root.classList.add('theme-no-transition');
+                    root.dataset.theme = theme;
+                    window.requestAnimationFrame(function() {
+                        window.requestAnimationFrame(function() {
+                            root.classList.remove('theme-no-transition');
+                        });
+                    });
                     if (themeBtn) {
                         var nextTheme = theme === 'dark' ? 'light' : 'dark';
                         themeBtn.textContent = nextTheme === 'light' ? 'Light mode' : 'Dark mode';
@@ -140,7 +152,11 @@
         <!-- Chat area -->
         <div class="chat-area" id="chat-area" data-testid="chat-area">
             <div class="messages" id="messages"></div>
-            <div class="chat-status" id="chat-status" data-testid="chat-status" hidden></div>
+            <div class="chat-empty" id="chat-empty" data-testid="chat-empty">
+                <div class="chat-empty__title">Ask your documents a question</div>
+                <div class="chat-empty__body">Pick a corpus and model above, then type below. Answers cite the source chunks they were drawn from.</div>
+            </div>
+            <div class="chat-status" id="chat-status" data-testid="chat-status" role="status" aria-live="polite" hidden></div>
         </div>
 
         <!-- Input area -->
@@ -149,10 +165,10 @@
                 <textarea id="message-input" data-testid="message-input"
                     placeholder="Send a message..." rows="1"></textarea>
                 <button class="send-btn" id="send-btn" data-testid="send-btn"
-                    type="submit">&#8593;</button>
+                    type="submit" aria-label="Send message">&#8593;</button>
             </div>
         </div>
-    </div>
+    </main>
 </div>
 
 <script>
@@ -215,6 +231,9 @@
 
     // --- DOM refs ---
     const sidebar = document.getElementById('sidebar');
+    const sidebarToggle = document.getElementById('sidebar-toggle');
+    const sidebarBackdrop = document.getElementById('sidebar-backdrop');
+    const appEl = document.querySelector('.app');
     const chatList = document.getElementById('chat-list');
     const emptySidebar = document.getElementById('empty-sidebar');
     const newChatBtn = document.getElementById('new-chat-btn');
@@ -223,6 +242,7 @@
     const chatArea = document.getElementById('chat-area');
     const messagesDiv = document.getElementById('messages');
     const chatStatus = document.getElementById('chat-status');
+    const chatEmpty = document.getElementById('chat-empty');
     const messageInput = document.getElementById('message-input');
     const sendBtn = document.getElementById('send-btn');
     const settingsBtn = document.getElementById('settings-btn');
@@ -471,6 +491,7 @@
         entry.className = 'chat-entry';
         entry.dataset.chatId = chat.id;
         entry.dataset.testid = 'chat-entry';
+        entry.tabIndex = 0;
 
         const nameSpan = document.createElement('span');
         nameSpan.className = 'chat-entry-name';
@@ -483,6 +504,7 @@
         const editBtn = document.createElement('button');
         editBtn.textContent = '\u270E';
         editBtn.title = 'Rename';
+        editBtn.setAttribute('aria-label', 'Rename conversation');
         editBtn.addEventListener('click', function(e) {
             e.stopPropagation();
             startRename(entry, chat.id, nameSpan);
@@ -494,6 +516,7 @@
         deleteBtn.dataset.testid = 'delete-chat';
         deleteBtn.textContent = '\u2715';
         deleteBtn.title = 'Delete';
+        deleteBtn.setAttribute('aria-label', 'Delete conversation');
         deleteBtn.addEventListener('click', function(e) {
             e.stopPropagation();
             deleteChat(chat.id);
@@ -504,6 +527,15 @@
 
         entry.addEventListener('click', function() {
             loadChat(chat.id);
+        });
+
+        entry.addEventListener('keydown', function(e) {
+            // Ignore keys originating from the rename input or action buttons.
+            if (e.target !== entry) return;
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                loadChat(chat.id);
+            }
         });
 
         entry.addEventListener('dblclick', function() {
@@ -533,6 +565,7 @@
             updateExportBtnState();
             highlightActiveChat();
             saveLastActiveChat(chat.id);
+            closeSidebar();
 
             // Restore model, corpus, and search settings
             if (chat.model) modelSelector.value = chat.model;
@@ -550,6 +583,7 @@
     function renderMessages() {
         messagesDiv.innerHTML = '';
         setChatStatus('');
+        if (chatEmpty) chatEmpty.hidden = currentMessages.length > 0;
 
         currentMessages.forEach(function(msg) {
             appendMessageBubble(msg.role, msg.content);
@@ -559,6 +593,7 @@
     }
 
     function appendMessageBubble(role, content) {
+        if (chatEmpty) chatEmpty.hidden = true;
         const div = document.createElement('div');
         div.className = 'message message-' + role;
         div.dataset.role = role;
@@ -584,9 +619,11 @@
     }
 
     function setChatStatus(text, type) {
-        chatStatus.textContent = text || '';
+        // Unhide before writing the text: a role="status" live region is skipped
+        // by screen readers when its content changes while it is display:none.
         chatStatus.dataset.statusType = type || 'info';
         chatStatus.hidden = !text;
+        chatStatus.textContent = text || '';
         document.dispatchEvent(new CustomEvent('minirag:status', {
             detail: { message: text || '', type: type || 'info' }
         }));
@@ -631,6 +668,7 @@
                 await loadChatList();
                 highlightActiveChat();
                 saveLastActiveChat(chat.id);
+                closeSidebar();
             }
         } catch (e) {
             console.error('Failed to create chat:', e);
@@ -914,7 +952,7 @@
                     if (newName) {
                         const entry = document.querySelector('.chat-entry[data-chat-id="' + currentChatId + '"]');
                         if (entry) {
-                            const nameSpan = entry.querySelector('.chat-name');
+                            const nameSpan = entry.querySelector('.chat-entry-name');
                             if (nameSpan) nameSpan.textContent = newName;
                         }
                     }
@@ -1052,6 +1090,7 @@
             el.textContent = 'Failed to load chat. Please try again.';
             const closeBtn = document.createElement('button');
             closeBtn.textContent = '\u2715';
+            closeBtn.setAttribute('aria-label', 'Dismiss');
             closeBtn.addEventListener('click', function() { el.remove(); });
             el.appendChild(closeBtn);
             document.querySelector('.main').prepend(el);
@@ -1069,6 +1108,7 @@
             warning.textContent = 'Failed to save chat. Your messages may not be persisted.';
             const closeBtn = document.createElement('button');
             closeBtn.textContent = '\u2715';
+            closeBtn.setAttribute('aria-label', 'Dismiss');
             closeBtn.addEventListener('click', function() { warning.remove(); });
             warning.appendChild(closeBtn);
             document.querySelector('.main').prepend(warning);
@@ -1126,6 +1166,47 @@
     document.addEventListener('click', function() {
         exportMenu.classList.remove('visible');
         settingsPanel.classList.remove('visible');
+    });
+
+    // --- Sidebar drawer (mobile only; the CSS keeps the sidebar persistent on desktop) ---
+    function isSidebarOpen() {
+        return !!appEl && appEl.classList.contains('sidebar-open');
+    }
+
+    function openSidebar() {
+        if (!appEl) return;
+        appEl.classList.add('sidebar-open');
+        if (sidebarToggle) sidebarToggle.setAttribute('aria-expanded', 'true');
+        if (newChatBtn) newChatBtn.focus();
+    }
+
+    function closeSidebar() {
+        if (!appEl) return;
+        appEl.classList.remove('sidebar-open');
+        if (sidebarToggle) sidebarToggle.setAttribute('aria-expanded', 'false');
+    }
+
+    if (sidebarToggle) {
+        sidebarToggle.addEventListener('click', function(e) {
+            e.stopPropagation();
+            if (isSidebarOpen()) {
+                closeSidebar();
+                sidebarToggle.focus();
+            } else {
+                openSidebar();
+            }
+        });
+    }
+
+    if (sidebarBackdrop) {
+        sidebarBackdrop.addEventListener('click', closeSidebar);
+    }
+
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' && isSidebarOpen()) {
+            closeSidebar();
+            if (sidebarToggle) sidebarToggle.focus();
+        }
     });
 
     // --- Last-active-chat persistence ---

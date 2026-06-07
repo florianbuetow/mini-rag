@@ -3,7 +3,7 @@
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class ServiceConfig(BaseModel):
@@ -86,13 +86,97 @@ class ChunkingConfig(BaseModel):
         return value
 
 
-class EmbeddingsConfig(BaseModel):
-    """Embedding model settings."""
+class LMStudioEmbeddingsConfig(BaseModel):
+    """LM Studio (OpenAI-compatible) embedding provider settings."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
+    base_url: str
     model_name: str
     dimension: int
+    max_input_tokens: int
+    safety_fraction: float = 0.80
+    batch_size: int = 32
+    timeout_seconds: float = 30.0
+
+    @field_validator("base_url", "model_name")
+    @classmethod
+    def validate_non_empty(cls, value: str) -> str:
+        """Ensure required text fields are non-empty."""
+        if value.strip() == "":
+            raise ValueError("index.embeddings.lmstudio text fields must not be empty")
+        return value
+
+    @field_validator("dimension")
+    @classmethod
+    def validate_dimension(cls, value: int) -> int:
+        """Ensure embedding dimension is strictly positive."""
+        if value <= 0:
+            raise ValueError("index.embeddings.lmstudio.dimension must be greater than 0")
+        return value
+
+    @field_validator("max_input_tokens")
+    @classmethod
+    def validate_max_input_tokens(cls, value: int) -> int:
+        """Ensure the model token window is strictly positive."""
+        if value <= 0:
+            raise ValueError("index.embeddings.lmstudio.max_input_tokens must be greater than 0")
+        return value
+
+    @field_validator("safety_fraction")
+    @classmethod
+    def validate_safety_fraction(cls, value: float) -> float:
+        """Ensure the safety fraction is in the half-open range (0.0, 1.0]."""
+        if value <= 0.0:
+            raise ValueError("index.embeddings.lmstudio.safety_fraction must be greater than 0.0")
+        if value > 1.0:
+            raise ValueError("index.embeddings.lmstudio.safety_fraction must be less than or equal to 1.0")
+        return value
+
+    @field_validator("batch_size")
+    @classmethod
+    def validate_batch_size(cls, value: int) -> int:
+        """Ensure the request batch size is strictly positive."""
+        if value <= 0:
+            raise ValueError("index.embeddings.lmstudio.batch_size must be greater than 0")
+        return value
+
+    @field_validator("timeout_seconds")
+    @classmethod
+    def validate_timeout_seconds(cls, value: float) -> float:
+        """Ensure the request timeout is strictly positive."""
+        if value <= 0.0:
+            raise ValueError("index.embeddings.lmstudio.timeout_seconds must be greater than 0.0")
+        return value
+
+    def token_budget(self) -> int:
+        """Return the per-chunk token ceiling (token window times safety fraction)."""
+        return max(1, int(self.max_input_tokens * self.safety_fraction))
+
+
+class EmbeddingsConfig(BaseModel):
+    """Embedding model settings.
+
+    `provider` selects the active embedding backend. `model_name` and `dimension`
+    configure the fastText backend (preserved for backward compatibility); the
+    `lmstudio` section configures the LM Studio backend.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    provider: str = "fasttext"
+    model_name: str
+    dimension: int
+    lmstudio: LMStudioEmbeddingsConfig | None = None
+
+    @field_validator("provider")
+    @classmethod
+    def validate_provider(cls, value: str) -> str:
+        """Ensure the provider selector is one of the supported backends."""
+        allowed_providers = ("fasttext", "lmstudio")
+        if value not in allowed_providers:
+            raise ValueError(f"index.embeddings.provider must be one of {allowed_providers}; got {value!r}")
+        return value
 
     @field_validator("model_name")
     @classmethod
@@ -109,6 +193,19 @@ class EmbeddingsConfig(BaseModel):
         if value <= 0:
             raise ValueError("index.embeddings.dimension must be greater than 0")
         return value
+
+    @model_validator(mode="after")
+    def validate_lmstudio_present_for_provider(self) -> "EmbeddingsConfig":
+        """Require the LM Studio section when the lmstudio provider is selected."""
+        if self.provider == "lmstudio" and self.lmstudio is None:
+            raise ValueError("index.embeddings.lmstudio section is required when provider is 'lmstudio'")
+        return self
+
+    def active_dimension(self) -> int:
+        """Return the embedding dimension of the active provider."""
+        if self.provider == "lmstudio" and self.lmstudio is not None:
+            return self.lmstudio.dimension
+        return self.dimension
 
 
 class StorageConfig(BaseModel):

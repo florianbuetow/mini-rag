@@ -1,18 +1,19 @@
 """Unit tests for orchestration coordination logic."""
 
 import json
+from functools import partial
 from typing import Any, Final, cast
 
 import pytest
 
 from minirag.config import (
-    ChunkingConfig,
     DenseSearchConfig,
     HybridConfig,
     RerankingConfig,
     SearchConfig,
     SparseSearchConfig,
 )
+from minirag.ingestion.chunker import chunk_text
 from minirag.orchestration import Orchestration
 from minirag.retrieval.dense_interface import DenseRetrieval
 from minirag.retrieval.sparse_interface import SparseRetrieval
@@ -165,7 +166,7 @@ def make_orchestration() -> Orchestration:
     )
 
     return Orchestration(
-        chunking_config=ChunkingConfig(chunk_size=4, overlap=0.5),
+        chunker=partial(chunk_text, chunk_size=4, overlap=0.5),
         embeddings=cast(Embeddings, FakeEmbeddings()),
         storage=cast(Storage, FakeStorage()),
         dense=cast(DenseRetrieval, FakeDense()),
@@ -195,6 +196,14 @@ def test_orchestration_index_and_search() -> None:
     assert isinstance(hybrid_results[0], SearchResult)
     assert hybrid_results[0].document_id == 1
     assert hybrid_results[0].citation_key == "1"
+
+
+def test_orchestration_rejects_whitespace_document() -> None:
+    """index_document rejects a whitespace-only document before any embedding."""
+    orchestration = make_orchestration()
+
+    with pytest.raises(ValueError, match="document text must not be empty"):
+        orchestration.index_document("   ", citation=None)
 
 
 def test_orchestration_index_with_citation() -> None:
@@ -314,7 +323,7 @@ def test_orchestration_partial_chunk_failure() -> None:
         ),
     )
     orchestration = Orchestration(
-        chunking_config=ChunkingConfig(chunk_size=4, overlap=0.5),
+        chunker=partial(chunk_text, chunk_size=4, overlap=0.5),
         embeddings=cast(Embeddings, FakeEmbeddings()),
         storage=cast(Storage, storage),
         dense=cast(DenseRetrieval, FakeDense()),
@@ -343,7 +352,7 @@ def test_orchestration_raises_on_stale_chunks() -> None:
         ),
     )
     orchestration = Orchestration(
-        chunking_config=ChunkingConfig(chunk_size=4, overlap=0.5),
+        chunker=partial(chunk_text, chunk_size=4, overlap=0.5),
         embeddings=cast(Embeddings, FakeEmbeddings()),
         storage=cast(Storage, storage),
         dense=cast(DenseRetrieval, FakeDense()),
@@ -441,7 +450,7 @@ def test_orchestration_get_citation_corrupt_json_raises() -> None:
         ),
     )
     orchestration = Orchestration(
-        chunking_config=ChunkingConfig(chunk_size=4, overlap=0.5),
+        chunker=partial(chunk_text, chunk_size=4, overlap=0.5),
         embeddings=cast(Embeddings, FakeEmbeddings()),
         storage=cast(Storage, storage),
         dense=cast(DenseRetrieval, FakeDense()),
@@ -492,7 +501,7 @@ def test_orchestration_raises_on_missing_citation_record() -> None:
         ),
     )
     orchestration = Orchestration(
-        chunking_config=ChunkingConfig(chunk_size=4, overlap=0.5),
+        chunker=partial(chunk_text, chunk_size=4, overlap=0.5),
         embeddings=cast(Embeddings, FakeEmbeddings()),
         storage=cast(Storage, storage),
         dense=cast(DenseRetrieval, FakeDense()),

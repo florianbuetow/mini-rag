@@ -15,6 +15,7 @@ class FakeIndexConfig:
     """Fake index config tree."""
 
     class Embeddings:
+        provider = "fasttext"
         model_name = "cc.en.300.bin"
         dimension = 300
 
@@ -83,8 +84,8 @@ def test_create_app_wires_state_and_routes(monkeypatch: pytest.MonkeyPatch, tmp_
     fake_config = cast(Config, FakeConfig(tmp_path / "data", reranking_enabled=False))
     _prepare_startup_data_dir(tmp_path / "data")
 
-    def fake_embeddings(model_path: Path, expected_dimension: int) -> object:
-        del model_path, expected_dimension
+    def fake_embeddings(embeddings_config: object, data_dir: Path) -> object:
+        del embeddings_config, data_dir
         return object()
 
     def fake_corpus_manager(
@@ -98,7 +99,7 @@ def test_create_app_wires_state_and_routes(monkeypatch: pytest.MonkeyPatch, tmp_
         del data_dir, index_config, search_config, embeddings, backend_factory, reranker
         return object()
 
-    monkeypatch.setattr(app_module, "FastTextEmbeddings", fake_embeddings)
+    monkeypatch.setattr(app_module, "build_embeddings", fake_embeddings)
     monkeypatch.setattr(app_module, "CorpusManager", fake_corpus_manager)
 
     app = app_module.create_app(config=fake_config, project_root=tmp_path)
@@ -124,15 +125,15 @@ async def test_lifespan_calls_close_all_on_shutdown(monkeypatch: pytest.MonkeyPa
             nonlocal close_all_called
             close_all_called = True
 
-    def fake_embeddings(model_path: Path, expected_dimension: int) -> object:
-        del model_path, expected_dimension
+    def fake_embeddings(embeddings_config: object, data_dir: Path) -> object:
+        del embeddings_config, data_dir
         return object()
 
     def fake_corpus_manager(**kwargs: object) -> TrackingCorpusManager:
         del kwargs
         return TrackingCorpusManager()
 
-    monkeypatch.setattr(app_module, "FastTextEmbeddings", fake_embeddings)
+    monkeypatch.setattr(app_module, "build_embeddings", fake_embeddings)
     monkeypatch.setattr(app_module, "CorpusManager", fake_corpus_manager)
 
     app = app_module.create_app(config=fake_config, project_root=tmp_path)
@@ -176,8 +177,8 @@ def test_create_app_builds_reranker_when_enabled(monkeypatch: pytest.MonkeyPatch
     _prepare_startup_data_dir(tmp_path / "data")
     captured: dict[str, object] = {}
 
-    def fake_embeddings(model_path: Path, expected_dimension: int) -> object:
-        del model_path, expected_dimension
+    def fake_embeddings(embeddings_config: object, data_dir: Path) -> object:
+        del embeddings_config, data_dir
         return object()
 
     def fake_reranker(model_name: str, model_cache_dir: Path, candidate_multiplier: int) -> object:
@@ -198,7 +199,7 @@ def test_create_app_builds_reranker_when_enabled(monkeypatch: pytest.MonkeyPatch
         captured["reranker"] = reranker
         return object()
 
-    monkeypatch.setattr(app_module, "FastTextEmbeddings", fake_embeddings)
+    monkeypatch.setattr(app_module, "build_embeddings", fake_embeddings)
     monkeypatch.setattr(app_module, "CrossEncoderReranker", fake_reranker)
     monkeypatch.setattr(app_module, "CorpusManager", fake_corpus_manager)
 

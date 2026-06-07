@@ -48,3 +48,14 @@ def test_faiss_dense_invalid_parameters_raise(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError):
         dense.search(query_embedding=[1.0, 0.0, 0.0], top_k=0)
+
+
+def test_faiss_dense_rejects_dimension_mismatch_on_reload(tmp_path: Path) -> None:
+    """Reloading a persisted index under a different dimension raises a re-index error."""
+    index_dir = tmp_path / "faiss"
+    dense = FAISSDense(dimension=3, index_dir=index_dir, nprobe=1)
+    dense.index(chunk_id=1, embedding=[1.0, 0.0, 0.0])
+    dense.persist()
+
+    with pytest.raises(ValueError, match="re-index"):
+        FAISSDense(dimension=5, index_dir=index_dir, nprobe=1)

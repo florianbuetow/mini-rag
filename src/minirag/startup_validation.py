@@ -16,12 +16,15 @@ def validate_startup_environment(config: Config, project_root: Path) -> None:
     if not data_dir.is_dir():
         raise ValueError(f"data path is not a directory: {data_dir}")
 
-    model_path = data_dir / "models" / index_config.embeddings.model_name
-    if not model_path.exists():
-        raise FileNotFoundError(f"embedding model file not found: {model_path}")
+    # Only the fastText provider loads a local model file; the LM Studio provider
+    # resolves its model remotely and is validated at embed time, not at startup.
+    if index_config.embeddings.provider == "fasttext":
+        model_path = data_dir / "models" / index_config.embeddings.model_name
+        if not model_path.exists():
+            raise FileNotFoundError(f"embedding model file not found: {model_path}")
 
-    if not model_path.is_file():
-        raise ValueError(f"embedding model path is not a file: {model_path}")
+        if not model_path.is_file():
+            raise ValueError(f"embedding model path is not a file: {model_path}")
 
     probe_path = data_dir / ".minirag_write_probe"
     try:

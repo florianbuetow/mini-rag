@@ -17,14 +17,14 @@
     --bg-active: #343541;
     --text-primary: #ececec;
     --text-secondary: #b4b4b4;
-    --text-muted: #8e8ea0;
+    --text-muted: #a1a1b0;
     --border-color: #444;
     --accent: #10a37f;
     --accent-hover: #0d8c6d;
     --accent-contrast: #fff;
     --user-bubble: #2f2f2f;
     --assistant-bubble: transparent;
-    --error-color: #ef4444;
+    --error-color: #f87171;
     --scrollbar-thumb: #565869;
     --code-bg: #1e1e2e;
     --warning-bg: #5c2d2d;
@@ -37,6 +37,17 @@
     --theme-btn-text: #d8fff2;
     --theme-btn-indicator: #10a37f;
     --theme-btn-ring: rgba(16, 163, 127, 0.22);
+    /* Deeper accent shade so white text on a pill clears WCAG AA (4.5:1) */
+    --citation-bg: #0b7a5e;
+    /* Overlay lift for floating panels only (per DESIGN.md: The Flat-Anchor Rule) */
+    --shadow-overlay: 0 8px 24px rgba(0, 0, 0, 0.32);
+    --focus-ring: rgba(16, 163, 127, 0.5);
+    /* Shared, theme-independent tokens */
+    --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+    --z-dropdown: 50;
+    --z-sticky: 100;
+    --z-backdrop: 200;
+    --z-drawer: 210;
 }
 
 :root[data-theme="light"] {
@@ -49,7 +60,7 @@
     --bg-active: #ddd9ce;
     --text-primary: #202124;
     --text-secondary: #4f545c;
-    --text-muted: #78716c;
+    --text-muted: #6b6660;
     --border-color: #d4d0c7;
     --accent: #0f8f72;
     --accent-hover: #0b755d;
@@ -69,6 +80,8 @@
     --theme-btn-text: #5a4214;
     --theme-btn-indicator: #d69a17;
     --theme-btn-ring: rgba(214, 154, 23, 0.22);
+    --shadow-overlay: 0 8px 24px rgba(0, 0, 0, 0.12);
+    --focus-ring: rgba(15, 143, 114, 0.45);
 }
 
 html, body {
@@ -82,6 +95,7 @@ html, body {
 .app {
     display: flex;
     height: 100vh;
+    height: 100dvh;
 }
 
 /* Sidebar */
@@ -173,7 +187,8 @@ html, body {
     gap: 4px;
 }
 
-.chat-entry:hover .chat-entry-actions {
+.chat-entry:hover .chat-entry-actions,
+.chat-entry:focus-within .chat-entry-actions {
     display: flex;
 }
 
@@ -304,7 +319,8 @@ html, body {
     border: 1px solid var(--border-color);
     border-radius: 6px;
     overflow: hidden;
-    z-index: 10;
+    box-shadow: var(--shadow-overlay);
+    z-index: var(--z-dropdown);
 }
 
 .export-menu.visible {
@@ -388,6 +404,7 @@ html, body {
     color: var(--text-muted);
     font-size: 12px;
     line-height: 1.4;
+    z-index: var(--z-sticky);
 }
 
 .chat-status[data-status-type="error"] {
@@ -521,7 +538,7 @@ html, body {
 /* Citation pills */
 .citation-pill {
     display: inline-block;
-    background: var(--accent);
+    background: var(--citation-bg);
     color: var(--accent-contrast);
     font-size: 0.75em;
     font-weight: 600;
@@ -552,6 +569,7 @@ html, body {
 
 .input-container:focus-within {
     border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--focus-ring);
 }
 
 #message-input {
@@ -657,7 +675,8 @@ html, body {
     border: 1px solid var(--border-color);
     border-radius: 8px;
     padding: 16px;
-    z-index: 20;
+    box-shadow: var(--shadow-overlay);
+    z-index: var(--z-dropdown);
     width: 280px;
 }
 
@@ -738,7 +757,8 @@ html, body {
     background: var(--bg-primary);
     border: 1px solid var(--border-color);
     border-radius: 22px;
-    transition: background 0.2s;
+    transition: background-color 160ms var(--ease-out),
+                border-color 160ms var(--ease-out);
 }
 
 .toggle-slider::before {
@@ -750,7 +770,8 @@ html, body {
     bottom: 2px;
     background: var(--text-secondary);
     border-radius: 50%;
-    transition: transform 0.2s;
+    transition: transform 160ms var(--ease-out),
+                background-color 160ms var(--ease-out);
 }
 
 .toggle-switch input:checked + .toggle-slider {
@@ -761,4 +782,255 @@ html, body {
 .toggle-switch input:checked + .toggle-slider::before {
     transform: translateX(18px);
     background: var(--toggle-knob);
+}
+
+/* --- Smooth state transitions on interactive controls --- */
+.new-chat-btn,
+.chat-entry,
+.chat-entry-actions button,
+.selector-group select,
+.setting-row select,
+.setting-row input,
+.export-btn,
+.theme-btn,
+.settings-btn,
+.export-menu button,
+.send-btn,
+.input-container {
+    transition: background-color 160ms var(--ease-out),
+                border-color 160ms var(--ease-out),
+                color 160ms var(--ease-out),
+                box-shadow 160ms var(--ease-out);
+}
+
+/* Theme switches are instant, not a 160ms color morph of the whole UI */
+.theme-no-transition,
+.theme-no-transition *,
+.theme-no-transition *::before,
+.theme-no-transition *::after {
+    transition: none !important;
+}
+
+/* --- Keyboard focus indicators (visible, not color-only) --- */
+.new-chat-btn:focus-visible,
+.send-btn:focus-visible,
+.export-btn:focus-visible,
+.theme-btn:focus-visible,
+.settings-btn:focus-visible,
+.selector-group select:focus-visible,
+.setting-row select:focus-visible,
+.setting-row input:focus-visible,
+.chat-entry:focus-visible,
+.chat-entry-actions button:focus-visible,
+.export-menu button:focus-visible,
+.save-warning button:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.toggle-switch input:focus-visible + .toggle-slider {
+    box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+/* --- Empty state for the chat area (distinct from sidebar .empty-state) --- */
+.chat-empty {
+    max-width: 480px;
+    margin: 14vh auto 0;
+    padding: 0 24px;
+    text-align: center;
+    color: var(--text-secondary);
+}
+
+.chat-empty[hidden] {
+    display: none;
+}
+
+.chat-empty__title {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 8px;
+    text-wrap: balance;
+}
+
+.chat-empty__body {
+    font-size: 14px;
+    line-height: 1.6;
+    text-wrap: pretty;
+}
+
+/* --- Reduced motion: collapse all animation/transition to near-instant --- */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
+
+    .loading-dots::after {
+        content: '\2026';
+        animation: none;
+    }
+}
+
+/* --- Mobile drawer: hamburger toggle + off-canvas sidebar (desktop-first retrofit) --- */
+.sidebar-toggle {
+    display: none; /* desktop: hidden; the sidebar is persistent */
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    background: none;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    color: var(--text-secondary);
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background-color 160ms var(--ease-out),
+                color 160ms var(--ease-out),
+                box-shadow 160ms var(--ease-out);
+}
+
+.sidebar-toggle:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.sidebar-toggle:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.sidebar-backdrop {
+    display: none; /* shown only on mobile while the drawer is open */
+}
+
+@media (max-width: 768px) {
+    .sidebar-toggle {
+        display: inline-flex;
+    }
+
+    /* Sidebar becomes an off-canvas drawer */
+    .sidebar {
+        position: fixed;
+        inset: 0 auto 0 0;
+        width: min(82vw, 300px);
+        transform: translateX(-100%);
+        transition: transform 240ms var(--ease-out);
+        z-index: var(--z-drawer);
+    }
+
+    .app.sidebar-open .sidebar {
+        transform: translateX(0);
+    }
+
+    .app.sidebar-open .sidebar-backdrop {
+        display: block;
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.5);
+        z-index: var(--z-backdrop);
+    }
+
+    /* Top bar: wrap controls, let selects shrink, drop the desktop spacer */
+    .top-bar {
+        flex-wrap: wrap;
+        row-gap: 8px;
+    }
+
+    .top-bar-spacer {
+        display: none;
+    }
+
+    .selector-group {
+        flex: 1 1 auto;
+        min-width: 0;
+    }
+
+    .selector-group select {
+        flex: 1;
+        min-width: 0;
+    }
+
+    /* Reading column uses the full narrow width */
+    .messages {
+        padding: 0 16px;
+    }
+
+    .message-user {
+        margin-left: 16px;
+    }
+
+    .input-area {
+        padding: 12px 12px max(16px, env(safe-area-inset-bottom));
+    }
+}
+
+/* --- Touch input: reveal hover-only actions, enlarge tap targets --- */
+@media (hover: none) {
+    .chat-entry-actions {
+        display: flex;
+    }
+
+    .chat-entry-actions button {
+        padding: 8px;
+        font-size: 16px;
+    }
+
+    .send-btn {
+        width: 40px;
+        height: 40px;
+    }
+}
+
+/* --- Skip link: bypass the conversation list straight to the composer --- */
+.skip-link {
+    position: absolute;
+    left: 8px;
+    top: -56px;
+    z-index: var(--z-drawer);
+    padding: 8px 14px;
+    background: var(--bg-input);
+    color: var(--text-primary);
+    border: 1px solid var(--accent);
+    border-radius: 8px;
+    font-size: 14px;
+    text-decoration: none;
+    transition: top 160ms var(--ease-out);
+}
+
+.skip-link:focus {
+    top: 8px;
+    outline: 2px solid transparent; /* becomes a visible outline in forced-colors mode */
+    outline-offset: 2px;
+}
+
+/* --- Forced-colors / Windows high-contrast: box-shadow focus rings are dropped,
+       so guarantee a real outline on every focusable control --- */
+@media (forced-colors: active) {
+    .new-chat-btn:focus-visible,
+    .send-btn:focus-visible,
+    .export-btn:focus-visible,
+    .theme-btn:focus-visible,
+    .settings-btn:focus-visible,
+    .sidebar-toggle:focus-visible,
+    .selector-group select:focus,
+    .setting-row select:focus,
+    .setting-row input:focus,
+    .chat-entry:focus-visible,
+    .chat-entry-actions button:focus-visible,
+    .export-menu button:focus-visible,
+    .save-warning button:focus-visible,
+    .rename-input:focus,
+    #message-input:focus,
+    .toggle-switch input:focus-visible + .toggle-slider {
+        outline: 2px solid CanvasText;
+        outline-offset: 2px;
+    }
 }

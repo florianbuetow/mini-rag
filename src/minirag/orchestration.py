@@ -7,8 +7,7 @@ from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from minirag.config import ChunkingConfig, SearchConfig
-from minirag.ingestion.chunker import chunk_text
+from minirag.config import SearchConfig
 from minirag.reranking.interface import Reranker
 from minirag.retrieval.dense_interface import DenseRetrieval
 from minirag.retrieval.sparse_interface import SparseRetrieval
@@ -39,16 +38,20 @@ class Orchestration:
 
     def __init__(
         self,
-        chunking_config: ChunkingConfig,
         embeddings: Embeddings,
         storage: Storage,
         dense: DenseRetrieval,
         sparse: SparseRetrieval,
         search_config: SearchConfig,
         reranker: Reranker | None,
+        chunker: Callable[[str], list[str]],
     ) -> None:
-        """Initialize orchestration with all backend dependencies."""
-        self._chunking_config = chunking_config
+        """Initialize orchestration with all backend dependencies.
+
+        ``chunker`` splits a document into chunks; the factory supplies a word-based
+        chunker for fastText and a token-budget chunker for token-limited providers.
+        """
+        self._chunker = chunker
         self._embeddings = embeddings
         self._storage = storage
         self._dense = dense
@@ -74,11 +77,7 @@ class Orchestration:
 
         document_id = self._storage.insert_document_with_citation(text, citation)
 
-        chunks = chunk_text(
-            text=text,
-            chunk_size=self._chunking_config.chunk_size,
-            overlap=self._chunking_config.overlap,
-        )
+        chunks = self._chunker(text)
 
         chunk_ids: list[int] = []
         for chunk_index, chunk in enumerate(chunks):

@@ -19,14 +19,13 @@ from minirag.api.routes_index import router as index_router
 from minirag.api.routes_info import router as info_router
 from minirag.api.routes_query import router as query_router
 from minirag.api.static import mount_static_files
-from minirag.backend_factory import build_orchestration
+from minirag.backend_factory import build_embeddings, build_orchestration
 from minirag.config import Config
 from minirag.context_pruning import ContextPruner
 from minirag.corpus import CorpusManager
 from minirag.lm_studio import LMStudioModelInfo
 from minirag.reranking.cross_encoder import CrossEncoderReranker
 from minirag.reranking.interface import Reranker
-from minirag.search.embeddings import FastTextEmbeddings
 from minirag.startup_validation import validate_startup_environment
 from minirag.title_agent import ConversationTitleAgent
 
@@ -70,10 +69,7 @@ def create_app(config: Config, project_root: Path) -> FastAPI:
     index_config = config.get_index_config()
     search_config = config.get_search_config()
 
-    embeddings = FastTextEmbeddings(
-        model_path=data_dir / "models" / index_config.embeddings.model_name,
-        expected_dimension=index_config.embeddings.dimension,
-    )
+    embeddings = build_embeddings(index_config.embeddings, data_dir)
 
     reranker: Reranker | None = None
     if search_config.reranking.enabled:
