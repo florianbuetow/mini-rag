@@ -268,8 +268,7 @@ html, body {
     flex: 1;
 }
 
-.export-btn,
-.theme-btn {
+.export-btn {
     background: none;
     border: 1px solid var(--border-color);
     color: var(--text-secondary);
@@ -280,23 +279,21 @@ html, body {
     position: relative;
 }
 
+/* Theme toggle: compact icon button (sun/moon), consistent with the other top-bar controls */
 .theme-btn {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
-    background: var(--theme-btn-bg);
-    border-color: var(--theme-btn-border);
-    color: var(--theme-btn-text);
-    font-weight: 600;
-}
-
-.theme-btn::before {
-    content: "";
-    width: 8px;
-    height: 8px;
-    border-radius: 999px;
-    background: var(--theme-btn-indicator);
-    box-shadow: 0 0 0 3px var(--theme-btn-ring);
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    background: var(--bg-input);
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 16px;
+    line-height: 1;
 }
 
 .export-btn:hover {
@@ -305,8 +302,8 @@ html, body {
 }
 
 .theme-btn:hover {
-    background: var(--theme-btn-hover-bg);
-    color: var(--theme-btn-text);
+    background: var(--bg-hover);
+    color: var(--text-primary);
 }
 
 .export-menu {
@@ -395,24 +392,61 @@ html, body {
     word-break: break-word;
 }
 
+/* Retrieval/streaming status: a subtle chip that flows directly below the last message,
+   aligned with the message column (not pinned to the viewport). */
 .chat-status {
-    position: sticky;
-    bottom: 0;
-    margin: 8px 0 0;
-    padding: 8px 0;
-    background: var(--bg-primary);
-    color: var(--text-muted);
-    font-size: 12px;
-    line-height: 1.4;
-    z-index: var(--z-sticky);
-}
-
-.chat-status[data-status-type="error"] {
-    color: var(--error-color);
+    max-width: 768px;
+    margin: 4px auto 0;
+    padding: 0 20px;
 }
 
 .chat-status[hidden] {
     display: none;
+}
+
+.chat-status__pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    max-width: 100%;
+    padding: 6px 12px;
+    background: var(--bg-input);
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+    color: var(--text-muted);
+    font-size: 12.5px;
+    line-height: 1.4;
+}
+
+.chat-status__dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--accent);
+    flex-shrink: 0;
+    animation: status-pulse 1.4s var(--ease-out) infinite;
+}
+
+.chat-status__label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.chat-status[data-status-type="error"] .chat-status__pill {
+    background: var(--warning-bg);
+    border-color: var(--warning-border);
+    color: var(--error-color);
+}
+
+.chat-status[data-status-type="error"] .chat-status__dot {
+    background: var(--error-color);
+    animation: none;
+}
+
+@keyframes status-pulse {
+    0%, 100% { opacity: 0.4; transform: scale(0.8); }
+    50% { opacity: 1; transform: scale(1); }
 }
 
 .message-user .message-content {

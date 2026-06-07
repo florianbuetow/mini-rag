@@ -62,9 +62,7 @@
                 </select>
             </div>
             <div class="top-bar-spacer"></div>
-            <button class="theme-btn" id="theme-btn" data-testid="theme-toggle" type="button" aria-label="Switch color theme" aria-pressed="false">
-                Light
-            </button>
+            <button class="theme-btn" id="theme-btn" data-testid="theme-toggle" type="button" aria-label="Switch color theme" aria-pressed="false" title="Toggle theme">&#x2600;&#xFE0E;</button>
             <div style="position: relative;">
                 <button class="settings-btn" id="settings-btn" data-testid="settings-btn" title="Search Settings" aria-label="Search settings">&#9881;</button>
                 <div class="settings-panel" id="settings-panel" data-testid="settings-panel">
@@ -130,9 +128,11 @@
                     });
                     if (themeBtn) {
                         var nextTheme = theme === 'dark' ? 'light' : 'dark';
-                        themeBtn.textContent = nextTheme === 'light' ? 'Light mode' : 'Dark mode';
+                        // Show the icon for the theme a click switches to (sun = light, moon = dark).
+                        themeBtn.textContent = nextTheme === 'light' ? '☀︎' : '☾︎';
                         themeBtn.dataset.currentTheme = theme;
                         themeBtn.setAttribute('aria-label', 'Switch to ' + nextTheme + ' theme');
+                        themeBtn.setAttribute('title', 'Switch to ' + nextTheme + ' theme');
                         themeBtn.setAttribute('aria-pressed', theme === 'light' ? 'true' : 'false');
                     }
                     if (shouldSave) saveTheme(theme);
@@ -623,7 +623,20 @@
         // by screen readers when its content changes while it is display:none.
         chatStatus.dataset.statusType = type || 'info';
         chatStatus.hidden = !text;
-        chatStatus.textContent = text || '';
+        chatStatus.textContent = '';
+        if (text) {
+            const pill = document.createElement('span');
+            pill.className = 'chat-status__pill';
+            const dot = document.createElement('span');
+            dot.className = 'chat-status__dot';
+            dot.setAttribute('aria-hidden', 'true');
+            const label = document.createElement('span');
+            label.className = 'chat-status__label';
+            label.textContent = text;
+            pill.appendChild(dot);
+            pill.appendChild(label);
+            chatStatus.appendChild(pill);
+        }
         document.dispatchEvent(new CustomEvent('minirag:status', {
             detail: { message: text || '', type: type || 'info' }
         }));
