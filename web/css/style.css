@@ -155,6 +155,7 @@ html, body {
 
 .chat-entry {
     padding: 10px 12px;
+    min-height: 38px;
     border-radius: 8px;
     cursor: pointer;
     font-size: 14px;
@@ -199,6 +200,7 @@ html, body {
     cursor: pointer;
     padding: 2px 4px;
     font-size: 14px;
+    line-height: 1;
     border-radius: 4px;
 }
 
@@ -593,7 +595,7 @@ html, body {
     max-width: 768px;
     margin: 0 auto;
     display: flex;
-    align-items: flex-end;
+    align-items: center;
     gap: 8px;
     background: var(--bg-input);
     border: 1px solid var(--border-color);
@@ -635,6 +637,7 @@ html, body {
     display: flex;
     align-items: center;
     justify-content: center;
+    align-self: flex-end;
     flex-shrink: 0;
     font-size: 16px;
 }

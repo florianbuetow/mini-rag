@@ -9,6 +9,7 @@ FastAPI test server on a free port with fake models/corpora/streaming.
 """
 
 import json
+import os
 import shutil
 import tempfile
 import threading
@@ -106,10 +107,22 @@ def clean_chats(request: pytest.FixtureRequest) -> Iterator[None]:
     """Delete all chats before and after each test.
 
     Skipped for deterministic tests (they have their own cleanup).
+
+    DESTRUCTIVE: this deletes every chat on the server at BASE_URL. If that
+    server is a developer's real instance (e.g. started via ``just start``),
+    these tests would wipe real conversations. To prevent that, production
+    cleanup runs only when ``MINIRAG_E2E_ALLOW_DESTRUCTIVE=1`` is set; that flag
+    must point at a throwaway test instance, never real data.
     """
     if _is_deterministic(request):
         yield
         return
+    if os.environ.get("MINIRAG_E2E_ALLOW_DESTRUCTIVE") != "1":
+        pytest.skip(
+            f"Refusing to delete all chats on the live server at {BASE_URL}: "
+            "set MINIRAG_E2E_ALLOW_DESTRUCTIVE=1 only against a throwaway "
+            "test instance to run production-server e2e tests."
+        )
     with httpx.Client(base_url=BASE_URL, timeout=10.0) as client:
         _delete_all_production(client)
         yield

@@ -90,9 +90,17 @@ def _read_chat(chat_file: Path) -> dict[str, object] | None:
 
 
 def _write_chat(chat_file: Path, chat_data: dict[str, object]) -> None:
-    """Write chat data to a JSON file."""
-    with chat_file.open("w", encoding="utf-8") as f:
+    """Write chat data to a JSON file atomically (temp file + rename).
+
+    Writing in place with "w" truncates the target before the new content is
+    written, so a crash or disconnect mid-write leaves a 0-byte, unreadable
+    chat. Writing to a temp file and renaming keeps the existing file intact
+    until the full new content is safely on disk.
+    """
+    temp_file = chat_file.parent / f"{chat_file.name}.tmp"
+    with temp_file.open("w", encoding="utf-8") as f:
         json.dump(chat_data, f, indent=2, ensure_ascii=False)
+    temp_file.replace(chat_file)
 
 
 def _chat_id_from_filename(filename: str) -> str:
