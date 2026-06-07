@@ -47,6 +47,13 @@ dependencies = [
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.uv]
+# Force the security-patched pyjwt despite semgrep's conservative `~=2.12.0` pin
+# (PYSEC-2026-175/177/178/179 are fixed in 2.13.0). pyjwt is a runtime dependency
+# via mcp/strands-agents (both allow >=2.10.1); the cap only comes from the
+# dev-only semgrep tool, which the override safely bypasses.
+override-dependencies = ["pyjwt[crypto]>=2.13.0"]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/minirag"]
 

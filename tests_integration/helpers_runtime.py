@@ -21,6 +21,10 @@ PROJECT_ROOT = Path(__file__).parent.parent
 # Large model patterns to reject
 REJECT_MODEL_PATTERNS = ["32b", "70b", "72b", "110b", "405b"]
 
+# Non-chat model families to reject — embedding and reranker models are exposed by
+# LM Studio's /v1/models but cannot generate chat completion tokens.
+NON_CHAT_MODEL_PATTERNS = ["embed", "rerank"]
+
 # Preferred model patterns in priority order
 PREFERRED_MODEL_PATTERNS = [
     ("qwen", 14),
@@ -236,11 +240,12 @@ def ingest_corpus(base_url: str, corpus: str, data_dir: Path) -> None:
 def is_model_allowed(model_id: str) -> bool:
     """Check if a model ID passes the allowed-model policy.
 
-    Rejects very large models (32b, 70b, etc).
+    Rejects very large models (32b, 70b, etc) and non-chat models
+    (embeddings, rerankers) that cannot stream chat completion tokens.
     Prefers gemma and qwen instruct/chat variants.
     """
     model_lower = model_id.lower()
-    return all(pattern not in model_lower for pattern in REJECT_MODEL_PATTERNS)
+    return all(pattern not in model_lower for pattern in REJECT_MODEL_PATTERNS + NON_CHAT_MODEL_PATTERNS)
 
 
 def get_loaded_models() -> list[str]:
