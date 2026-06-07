@@ -90,6 +90,7 @@ data/input/test/txt/
 .cache/
 Library/
 .omx/
+.impeccable/
 .codex/*
 !.codex/agents/
 !.codex/agents/**
