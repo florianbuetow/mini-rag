@@ -91,6 +91,7 @@ data/input/test/txt/
 Library/
 .omx/
 .impeccable/
+scratch/
 .codex/*
 !.codex/agents/
 !.codex/agents/**
