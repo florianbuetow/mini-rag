@@ -60,16 +60,17 @@ def ingest_files(client: IndexingClient, corpus: str, input_dir: Path, data_dir:
     for i, file_path in enumerate(text_files, start=1):
         relative_to_data = file_path.relative_to(data_dir)
         relative_to_input = file_path.relative_to(input_dir).as_posix()
+        percent = i * 100 // num_files
         try:
             if relative_to_input in already_indexed:
                 skipped_existing += 1
-                logger.info("[%d/%d] Skipping %s (already indexed)", i, num_files, relative_to_input)
+                logger.info("[%d/%d] (%d%%) Skipping %s (already indexed)", i, num_files, percent, relative_to_input)
                 continue
             file_size = file_path.stat().st_size
             file_text = file_path.read_text(encoding="utf-8")
             if not file_text.strip():
                 skipped_empty += 1
-                logger.warning("[%d/%d] Skipping %s (empty content)", i, num_files, relative_to_data)
+                logger.warning("[%d/%d] (%d%%) Skipping %s (empty content)", i, num_files, percent, relative_to_data)
                 continue
             citation = load_citation(file_path, input_dir)
             _document_id, chunk_ids = client.index_document(corpus, file_text, citation=citation)
@@ -77,16 +78,17 @@ def ingest_files(client: IndexingClient, corpus: str, input_dir: Path, data_dir:
             indexed_count += 1
             total_chunks += len(chunk_ids)
             logger.info(
-                "[%d/%d] Indexed %s (%d bytes, %d chunks) — %d indexed this run",
+                "[%d/%d] (%d%%) Indexed %s (%d bytes, %d chunks) — %d indexed this run",
                 i,
                 num_files,
+                percent,
                 relative_to_data,
                 file_size,
                 len(chunk_ids),
                 indexed_count,
             )
         except Exception:
-            logger.exception("[%d/%d] Failed to index %s", i, num_files, relative_to_data)
+            logger.exception("[%d/%d] (%d%%) Failed to index %s", i, num_files, percent, relative_to_data)
             raise
 
     ledger.commit(data_dir, corpus)

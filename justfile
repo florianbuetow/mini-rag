@@ -155,6 +155,71 @@ status:
     fi
     echo ""
 
+# Print MCP server configuration instructions for Claude Code, Claude Desktop, Codex, and Cursor
+[group('lifecycle')]
+mcp-help:
+    #!/usr/bin/env bash
+    MCP_PATH="$(pwd)/mcp/mini-rag.ts"
+    echo ""
+    printf "%b\n" "\033[0;34m=== minirag MCP Server Configuration ===\033[0m"
+    echo ""
+    echo "MCP server script: ${MCP_PATH}"
+    echo "Prerequisites:     Node.js 18+, mini-rag service running (just start)"
+    echo ""
+    printf "%b\n" "\033[0;34mClaude Code (CLI)\033[0m"
+    echo ""
+    echo "  claude mcp add --scope user minirag -- npx tsx ${MCP_PATH}"
+    echo ""
+    echo "  Or add to ~/.claude/settings.json:"
+    echo '  {'
+    echo '    "mcpServers": {'
+    echo '      "minirag": {'
+    echo '        "command": "npx",'
+    printf '        "args": ["tsx", "%s"]\n' "${MCP_PATH}"
+    echo '      }'
+    echo '    }'
+    echo '  }'
+    echo ""
+    printf "%b\n" "\033[0;34mClaude Desktop\033[0m"
+    echo ""
+    echo "  Edit ~/Library/Application Support/Claude/claude_desktop_config.json:"
+    echo '  {'
+    echo '    "mcpServers": {'
+    echo '      "minirag": {'
+    echo '        "command": "npx",'
+    printf '        "args": ["tsx", "%s"]\n' "${MCP_PATH}"
+    echo '      }'
+    echo '    }'
+    echo '  }'
+    echo "  Then restart Claude Desktop."
+    echo ""
+    printf "%b\n" "\033[0;34mCodex CLI / Codex Desktop\033[0m"
+    echo ""
+    echo "  codex mcp add minirag -- npx tsx ${MCP_PATH}"
+    echo ""
+    echo "  Or edit ~/.codex/config.toml:"
+    echo '  [mcp_servers.minirag]'
+    echo '  command = "npx"'
+    printf '  args = ["tsx", "%s"]\n' "${MCP_PATH}"
+    echo ""
+    printf "%b\n" "\033[0;34mCursor\033[0m"
+    echo ""
+    echo "  Edit .cursor/mcp.json (project) or ~/.cursor/mcp.json (global):"
+    echo '  {'
+    echo '    "mcpServers": {'
+    echo '      "minirag": {'
+    echo '        "command": "npx",'
+    printf '        "args": ["tsx", "%s"]\n' "${MCP_PATH}"
+    echo '      }'
+    echo '    }'
+    echo '  }'
+    echo ""
+    printf "%b\n" "\033[0;34mCustom service URL\033[0m"
+    echo ""
+    echo "  Set REST_BASE to point at a non-default host, e.g.:"
+    echo "  REST_BASE=http://localhost:9000 npm start   (from the mcp/ directory)"
+    echo ""
+
 # Convert markdown files to plain text
 [group('tools')]
 md2txt:
