@@ -11,6 +11,12 @@ from minirag.ingestion.citations import load_citation, resolve_input_dir
 
 logger = logging.getLogger(__name__)
 
+# The service surfaces a duplicate citation key as this exact error string. It means
+# a prior run committed the document server-side but was interrupted (transport error
+# or killed client) before the ledger recorded it. Treat it as "already indexed"
+# instead of aborting the whole run on the retry.
+CITATION_KEY_CONFLICT = "UNIQUE constraint failed: document_citations.citation_key"
+
 
 def configure_logging() -> None:
     """Configure script logging."""
@@ -28,9 +34,11 @@ def ingest_files(client: IndexingClient, corpus: str, input_dir: Path, data_dir:
     (``incremental=True``) the index is left intact and files already recorded
     in the ledger are skipped, so only new documents are indexed.
 
-    Fails immediately if any file fails to index. Files indexed before a failure
-    stay recorded in the ledger log, so a re-run skips them rather than failing
-    on the duplicate citation key.
+    Fails immediately if any file fails to index, except for a duplicate citation
+    key: that means a prior interrupted run already committed the document
+    server-side without recording it in the ledger, so this logs a warning, records
+    the file in the ledger, and continues. Files indexed before a hard failure stay
+    recorded in the ledger log, so a re-run skips them.
     """
     text_files = sorted(
         [f for f in input_dir.rglob("*.txt") if not f.is_symlink() and not f.name.startswith("._")],
@@ -56,6 +64,7 @@ def ingest_files(client: IndexingClient, corpus: str, input_dir: Path, data_dir:
     indexed_count = 0
     skipped_empty = 0
     skipped_existing = 0
+    reconciled_existing = 0
     num_files = len(text_files)
     for i, file_path in enumerate(text_files, start=1):
         relative_to_data = file_path.relative_to(data_dir)
@@ -87,14 +96,31 @@ def ingest_files(client: IndexingClient, corpus: str, input_dir: Path, data_dir:
                 len(chunk_ids),
                 indexed_count,
             )
+        except RuntimeError as exc:
+            if CITATION_KEY_CONFLICT not in str(exc):
+                logger.exception("[%d/%d] (%d%%) Failed to index %s", i, num_files, percent, relative_to_data)
+                raise
+            ledger.record_indexed(data_dir, corpus, relative_to_input)
+            reconciled_existing += 1
+            logger.warning(
+                "[%d/%d] (%d%%) %s already indexed server-side (citation key conflict from an "
+                "interrupted run); recorded in ledger and continuing",
+                i,
+                num_files,
+                percent,
+                relative_to_input,
+            )
+            continue
         except Exception:
             logger.exception("[%d/%d] (%d%%) Failed to index %s", i, num_files, percent, relative_to_data)
             raise
 
     ledger.commit(data_dir, corpus)
     logger.info(
-        "Summary: %d indexed, %d skipped (empty), %d skipped (already indexed), %d chunk(s) total",
+        "Summary: %d indexed, %d reconciled (already in index), %d skipped (empty), "
+        "%d skipped (already indexed), %d chunk(s) total",
         indexed_count,
+        reconciled_existing,
         skipped_empty,
         skipped_existing,
         total_chunks,

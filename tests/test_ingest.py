@@ -1,13 +1,14 @@
 """Unit tests for the ingestion script."""
 
 import json
+import logging
 from pathlib import Path
 
 import pytest
 
 from minirag.ingestion import ledger
 from minirag.ingestion.citations import infer_source_type, load_citation, normalize_flat_citation, resolve_input_dir
-from scripts.ingest import ingest_files
+from scripts.ingest import CITATION_KEY_CONFLICT, ingest_files
 
 CORPUS = "testcorpus"
 
@@ -22,11 +23,12 @@ def _make_corpus_input(data_dir: Path) -> Path:
 class FakeIndexingClient:
     """Fake IndexingClient tracking calls and optionally raising."""
 
-    def __init__(self, fail_on: set[str] | None = None) -> None:
+    def __init__(self, fail_on: set[str] | None = None, conflict_on: set[str] | None = None) -> None:
         self.destroyed = False
         self.indexed: list[str] = []
         self.citations: list[dict[str, object] | None] = []
         self._fail_on = fail_on or set()
+        self._conflict_on = conflict_on or set()
 
     def destroy_index(self, corpus: str) -> None:
         del corpus
@@ -34,6 +36,10 @@ class FakeIndexingClient:
 
     def index_document(self, corpus: str, text: str, citation: dict[str, object] | None = None) -> tuple[int, list[int]]:
         del corpus
+        if text.strip() in self._conflict_on:
+            # Mimics the service rejecting a document whose citation_key already exists
+            # (an orphan committed by a prior interrupted run), exactly as base.py surfaces it.
+            raise RuntimeError(CITATION_KEY_CONFLICT)
         if text.strip() in self._fail_on:
             raise RuntimeError(f"simulated failure for: {text.strip()}")
         self.indexed.append(text)
@@ -426,3 +432,39 @@ def test_update_after_crash_skips_files_recorded_before_failure(tmp_path: Path) 
     assert "good" not in client.indexed  # a.txt was skipped
     assert sorted(client.indexed) == ["also good", "bad"]
     assert ledger.load_indexed(tmp_path, CORPUS) == {"a.txt", "b.txt", "c.txt"}
+
+
+def test_update_reconciles_citation_key_conflict_and_continues(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    """A duplicate citation-key error means a prior interrupted run already committed the
+    document server-side; the run records it in the ledger, warns, and continues."""
+    input_dir = _make_corpus_input(tmp_path)
+    (input_dir / "a.txt").write_text("alpha", encoding="utf-8")
+    (input_dir / "b.txt").write_text("orphan", encoding="utf-8")  # already in the index, missing from ledger
+    (input_dir / "c.txt").write_text("gamma", encoding="utf-8")
+
+    client = FakeIndexingClient(conflict_on={"orphan"})
+    with caplog.at_level(logging.WARNING):
+        ingest_files(client=client, corpus=CORPUS, input_dir=input_dir, data_dir=tmp_path, incremental=True)  # type: ignore[arg-type]
+
+    # The conflicting file is not re-indexed, but its neighbours before and after it are.
+    assert client.indexed == ["alpha", "gamma"]
+    # It is recorded in the ledger so a future run skips it instead of colliding again.
+    assert ledger.load_indexed(tmp_path, CORPUS) == {"a.txt", "b.txt", "c.txt"}
+    # The user is warned, by name, about the reconciled file.
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert any("b.txt" in message and "citation key conflict" in message for message in warnings)
+
+
+def test_update_still_aborts_on_non_conflict_runtime_error(tmp_path: Path) -> None:
+    """A RuntimeError that is not a citation-key conflict still aborts the run (fail-fast preserved)."""
+    input_dir = _make_corpus_input(tmp_path)
+    (input_dir / "a.txt").write_text("good", encoding="utf-8")
+    (input_dir / "b.txt").write_text("bad", encoding="utf-8")
+    (input_dir / "c.txt").write_text("also good", encoding="utf-8")
+
+    client = FakeIndexingClient(fail_on={"bad"})
+    with pytest.raises(RuntimeError, match="simulated failure for: bad"):
+        ingest_files(client=client, corpus=CORPUS, input_dir=input_dir, data_dir=tmp_path, incremental=True)  # type: ignore[arg-type]
+
+    assert client.indexed == ["good"]  # c.txt was never reached
+    assert "b.txt" not in ledger.load_indexed(tmp_path, CORPUS)
