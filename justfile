@@ -474,7 +474,11 @@ code-spell:
 code-audit:
     @echo ""
     @printf "%b\n" "\033[0;34m=== Scanning Dependencies for Vulnerabilities ===\033[0m"
-    @uv run pip-audit
+    @# GHSA-rrmf-rvhw-rf47 (CVE-2025-3000): torch <=2.12.0 torch.jit.script memory
+    @# corruption, local-only, has NO patched release upstream, so it cannot be fixed
+    @# by upgrading and is ignored here. All other flagged vulns are patched via
+    @# override-dependencies in pyproject.toml.
+    @uv run pip-audit --ignore-vuln GHSA-rrmf-rvhw-rf47
     @echo ""
     @printf "%b\n" "\033[0;32m✓ No known vulnerabilities found\033[0m"
     @echo ""

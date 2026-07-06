@@ -48,11 +48,26 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.uv]
-# Force the security-patched pyjwt despite semgrep's conservative `~=2.12.0` pin
-# (PYSEC-2026-175/177/178/179 are fixed in 2.13.0). pyjwt is a runtime dependency
-# via mcp/strands-agents (both allow >=2.10.1); the cap only comes from the
-# dev-only semgrep tool, which the override safely bypasses.
-override-dependencies = ["pyjwt[crypto]>=2.13.0"]
+# Force security-patched versions of transitive dependencies that pip-audit
+# (`just code-audit`) flags with known vulnerabilities. Each override pins to the
+# advisory's first fixed release; all are transitive (pulled via fastapi,
+# strands-agents, sentence-transformers, etc.), so an override is the right lever.
+#   pyjwt          PYSEC-2026-175/177/178/179  fixed in 2.13.0 (also clears semgrep's ~=2.12.0 cap)
+#   cryptography   GHSA-537c-gmf6-5ccf         fixed in 48.0.1
+#   msgpack        GHSA-6v7p-g79w-8964         fixed in 1.2.1
+#   pydantic-settings GHSA-4xgf-cpjx-pc3j      fixed in 2.14.2
+#   python-multipart GHSA-v9pg-7xvm-68hf / -5rvq-cxj2-64vf / -6jv3-5f52-599m  fixed by 0.0.31
+#   starlette      PYSEC-2026-249/248, GHSA-wqp7-x3pw-xc5r/-x746-7m8f-x49c   fixed by 1.3.1
+# torch GHSA-rrmf-rvhw-rf47 (CVE-2025-3000) has no patched release (affects <=2.12.0,
+# local-only torch.jit.script memory corruption) and is ignored in the code-audit recipe.
+override-dependencies = [
+    "pyjwt[crypto]>=2.13.0",
+    "cryptography>=48.0.1",
+    "msgpack>=1.2.1",
+    "pydantic-settings>=2.14.2",
+    "python-multipart>=0.0.31",
+    "starlette>=1.3.1",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/minirag"]
@@ -61,7 +76,7 @@ packages = ["src/minirag"]
 line-length = 140
 indent-width = 4
 target-version = "py312"
-exclude = [".git", ".ruff_cache", ".venv", ".vscode", "reports", "stubs"]
+exclude = [".git", ".ruff_cache", ".venv", ".vscode", "node_modules", "reports", "stubs"]
 
 [tool.ruff.lint]
 # Core errors & warnings, Google-style docs, types, bugbear, quotes, imports, naming

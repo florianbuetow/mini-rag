@@ -117,8 +117,7 @@ def ingest_files(client: IndexingClient, corpus: str, input_dir: Path, data_dir:
 
     ledger.commit(data_dir, corpus)
     logger.info(
-        "Summary: %d indexed, %d reconciled (already in index), %d skipped (empty), "
-        "%d skipped (already indexed), %d chunk(s) total",
+        "Summary: %d indexed, %d reconciled (already in index), %d skipped (empty), %d skipped (already indexed), %d chunk(s) total",
         indexed_count,
         reconciled_existing,
         skipped_empty,
