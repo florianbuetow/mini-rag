@@ -26,11 +26,11 @@ def resolve_input_dir(data_dir: Path, corpus: str) -> Path:
     return input_dir
 
 
-_COMMON_FIELDS = {"title", "author", "year", "month", "day", "url", "urldate", "note"}
+_COMMON_FIELDS = {"title", "author", "year", "month", "day", "url", "urldate", "note", "publication_date"}
 
 _SOURCE_DATA_FIELDS: dict[str, set[str]] = {
     "journal": {"journal_name", "journal", "volume", "issue", "number", "pages", "doi"},
-    "arxiv": {"arxiv_id", "journal_name", "journal", "volume", "pages", "doi"},
+    "arxiv": {"arxiv_id", "journal_name", "journal", "volume", "issue", "number", "pages", "doi", "publisher"},
     "book": {"publisher", "edition", "isbn", "chapter", "pages"},
     "youtube": {"platform", "channel", "timestamp", "duration", "howpublished"},
     "blog": {"blog_name", "platform"},

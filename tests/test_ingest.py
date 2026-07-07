@@ -248,6 +248,41 @@ def test_normalize_flat_citation_infers_arxiv_from_url() -> None:
     assert result["source_type"] == "arxiv"
 
 
+def test_normalize_flat_arxiv_citation_accepts_generated_metadata() -> None:
+    """Generated arXiv sidecars should normalize without rejecting known metadata fields."""
+    flat: dict[str, object] = {
+        "cite_key": "tang2023arxiv_1",
+        "title": "AgentBench: Evaluating LLMs as Agents",
+        "author": "Xiao Liu and Hao Yu",
+        "year": 2023,
+        "month": "August",
+        "url": "https://arxiv.org/abs/2308.03688",
+        "urldate": "2026-02-11",
+        "note": "abstract excerpt",
+        "journal": "arXiv preprint",
+        "volume": None,
+        "number": None,
+        "pages": None,
+        "doi": None,
+        "publisher": None,
+        "day": 7,
+        "publication_date": "2023-08-07T16:08:11Z",
+    }
+
+    result = normalize_flat_citation(flat, Path("2308.03688.json"))
+
+    assert result["citation_key"] == "tang2023arxiv_1"
+    assert result["source_type"] == "arxiv"
+    common = result["common"]
+    assert isinstance(common, dict)
+    assert common["publication_date"] == "2023-08-07T16:08:11Z"
+    source_data = result["source_data"]
+    assert isinstance(source_data, dict)
+    assert source_data["journal_name"] == "arXiv preprint"
+    assert source_data["issue"] is None
+    assert source_data["publisher"] is None
+
+
 def test_normalize_flat_citation_infers_youtube_from_url() -> None:
     """Flat citation with youtube URL should infer source_type=youtube."""
     flat: dict[str, object] = {"citation_key": "k1", "title": "T", "url": "https://youtube.com/watch?v=abc"}
