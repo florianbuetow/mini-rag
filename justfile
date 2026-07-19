@@ -140,18 +140,35 @@ stop:
     curl -sS -X POST "http://${SERVICE_HOST}:${SERVICE_PORT}/v1/shutdown" -H "Content-Type: application/json"
     echo ""
 
-# Check service status and show config
+# Check service status and show the UI and API endpoints
 [group('lifecycle')]
 status:
     #!/usr/bin/env bash
     set -e
     echo ""
+    printf "%b\n" "\033[0;34m=== mini-rag Status ===\033[0m"
+    echo ""
     SERVICE_HOST=$(uv run python -c "import yaml; print(yaml.safe_load(open('config.yaml', encoding='utf-8'))['service']['host'])")
     SERVICE_PORT=$(uv run python -c "import yaml; print(yaml.safe_load(open('config.yaml', encoding='utf-8'))['service']['port'])")
-    if curl -fsS "http://${SERVICE_HOST}:${SERVICE_PORT}/v1/health" >/dev/null 2>&1; then
-        curl -fsS "http://${SERVICE_HOST}:${SERVICE_PORT}/v1/info" | uv run python -c "import json,sys; print(json.dumps(json.load(sys.stdin), indent=2))"
+    BASE_URL="http://${SERVICE_HOST}:${SERVICE_PORT}"
+    if curl -fsS "${BASE_URL}/v1/health" >/dev/null 2>&1; then
+        RUNNING=1
+        STATUS_LABEL="\033[0;32m✓ UP\033[0m"
     else
-        echo "service is not running"
+        RUNNING=0
+        STATUS_LABEL="\033[0;31m✗ DOWN\033[0m"
+    fi
+    printf "  %-10s %b\n" "Service:" "$STATUS_LABEL"
+    printf "  %-10s %s\n" "Host:" "${SERVICE_HOST}"
+    printf "  %-10s %s\n" "Port:" "${SERVICE_PORT}"
+    echo ""
+    if [ "$RUNNING" -eq 1 ]; then
+        printf "  %-10s %s\n" "Chat UI:" "${BASE_URL}/"
+        printf "  %-10s %s\n" "API docs:" "${BASE_URL}/docs"
+        printf "  %-10s %s\n" "OpenAPI:" "${BASE_URL}/openapi.json"
+        printf "  %-10s %s\n" "Health:" "${BASE_URL}/v1/health"
+    else
+        printf "%b\n" "\033[0;33m⚠ Service is not running. Start it with: just start\033[0m"
     fi
     echo ""
 
