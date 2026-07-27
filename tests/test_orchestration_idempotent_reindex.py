@@ -1,5 +1,6 @@
 """Regression tests for idempotent document re-indexing."""
 
+from collections import OrderedDict
 from functools import partial
 from pathlib import Path
 from typing import cast
@@ -130,9 +131,10 @@ def test_reindexing_same_citation_evicts_superseded_document_from_cache(tmp_path
 
     first_document_id, first_chunk_ids = orchestration.index_document("one two three four five six", citation, "docs/a.txt")
     orchestration.get_chunk(first_chunk_ids[0])
+    citation_cache = cast(OrderedDict[int, str], vars(orchestration)["_citation_key_cache"])
 
-    assert first_document_id in orchestration._citation_key_cache
+    assert first_document_id in citation_cache
 
     orchestration.index_document("one two three four five six", citation, "docs/a.txt")
 
-    assert first_document_id not in orchestration._citation_key_cache
+    assert first_document_id not in citation_cache

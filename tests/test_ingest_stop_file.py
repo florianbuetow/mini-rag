@@ -69,7 +69,10 @@ def test_stop_file_present_at_startup_exits_three_without_client(tmp_path: Path,
         def get_service_config(self) -> object:
             raise AssertionError("client should not be constructed when STOP exists")
 
-    monkeypatch.setattr(ingest.Config, "from_yaml", lambda _path: FakeConfig())
+    def from_yaml(_path: Path) -> FakeConfig:
+        return FakeConfig()
+
+    monkeypatch.setattr(ingest.Config, "from_yaml", from_yaml)
     monkeypatch.setattr(sys, "argv", ["ingest.py", "--corpus", CORPUS, "--config", str(tmp_path / "config.yaml")])
 
     with pytest.raises(SystemExit) as exc_info:
