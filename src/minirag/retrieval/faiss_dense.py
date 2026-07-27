@@ -27,6 +27,10 @@ class FaissIndex(Protocol):
         """Search for nearest vectors by inner product on unit-normalized vectors (cosine similarity)."""
         ...
 
+    def remove_ids(self, ids: np.ndarray) -> int:
+        """Remove vectors by external IDs."""
+        ...
+
 
 class FaissModule(Protocol):
     """Subset of FAISS module API used by this adapter."""
@@ -117,6 +121,13 @@ class FAISSDense(DenseRetrieval):
         vector_matrix = self._to_normalized_matrix(embedding)
         id_vector = np.array([chunk_id], dtype=np.int64)
         self._index.add_with_ids(vector_matrix, id_vector)
+
+    def remove_ids(self, chunk_ids: list[int]) -> int:
+        """Remove vectors by chunk ID. Return the number removed."""
+        if len(chunk_ids) == 0:
+            return 0
+        id_vector = np.array(chunk_ids, dtype=np.int64)
+        return int(self._index.remove_ids(id_vector))
 
     def persist(self) -> None:
         """Persist the in-memory FAISS index to disk."""

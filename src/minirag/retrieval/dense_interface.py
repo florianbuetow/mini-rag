@@ -13,6 +13,10 @@ class DenseRetrieval(ABC):
         """Index one chunk embedding with its chunk ID."""
 
     @abstractmethod
+    def remove_ids(self, chunk_ids: list[int]) -> int:
+        """Remove vectors by chunk ID. Return the number removed."""
+
+    @abstractmethod
     def search(self, query_embedding: list[float], top_k: int) -> list[ScoredChunk]:
         """Search by query embedding and return scored chunk IDs."""
 
