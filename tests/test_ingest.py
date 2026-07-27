@@ -8,7 +8,7 @@ import pytest
 
 from minirag.ingestion import ledger
 from minirag.ingestion.citations import infer_source_type, load_citation, normalize_flat_citation, resolve_input_dir
-from scripts.ingest import CITATION_KEY_CONFLICT, ingest_files
+from scripts.ingest import ingest_files
 
 CORPUS = "testcorpus"
 
@@ -27,6 +27,7 @@ class FakeIndexingClient:
         self.destroyed = False
         self.indexed: list[str] = []
         self.citations: list[dict[str, object] | None] = []
+        self.source_paths: list[str] = []
         self._fail_on = fail_on or set()
         self._conflict_on = conflict_on or set()
 
@@ -34,16 +35,17 @@ class FakeIndexingClient:
         del corpus
         self.destroyed = True
 
-    def index_document(self, corpus: str, text: str, citation: dict[str, object] | None = None) -> tuple[int, list[int]]:
+    def index_document(
+        self, corpus: str, text: str, citation: dict[str, object] | None = None, source_path: str = ""
+    ) -> tuple[int, list[int]]:
         del corpus
         if text.strip() in self._conflict_on:
-            # Mimics the service rejecting a document whose citation_key already exists
-            # (an orphan committed by a prior interrupted run), exactly as base.py surfaces it.
-            raise RuntimeError(CITATION_KEY_CONFLICT)
+            raise RuntimeError("UNIQUE constraint failed: document_citations.citation_key")
         if text.strip() in self._fail_on:
             raise RuntimeError(f"simulated failure for: {text.strip()}")
         self.indexed.append(text)
         self.citations.append(citation)
+        self.source_paths.append(source_path)
         doc_id = len(self.indexed)
         return (doc_id, [doc_id * 10 + 1])
 
@@ -92,6 +94,7 @@ def test_ingest_successful(tmp_path: Path) -> None:
     assert client.destroyed
     assert len(client.indexed) == 2
     assert len(client.citations) == 2
+    assert client.source_paths == ["a.txt", "b.txt"]
     # Auto-generated citations should have stem as citation_key
     for citation in client.citations:
         assert citation is not None
@@ -443,6 +446,7 @@ def test_update_skips_subdirectory_paths(tmp_path: Path) -> None:
     ingest_files(client=client, corpus=CORPUS, input_dir=input_dir, data_dir=tmp_path, incremental=True)  # type: ignore[arg-type]
 
     assert client.indexed == ["beta"]
+    assert client.source_paths == ["b.txt"]
     assert ledger.load_indexed(tmp_path, CORPUS) == {"topic/a.txt", "b.txt"}
 
 
@@ -469,9 +473,8 @@ def test_update_after_crash_skips_files_recorded_before_failure(tmp_path: Path) 
     assert ledger.load_indexed(tmp_path, CORPUS) == {"a.txt", "b.txt", "c.txt"}
 
 
-def test_update_reconciles_citation_key_conflict_and_continues(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
-    """A duplicate citation-key error means a prior interrupted run already committed the
-    document server-side; the run records it in the ledger, warns, and continues."""
+def test_update_aborts_on_citation_key_conflict(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    """A duplicate citation-key error aborts instead of recording a synthetic ledger entry."""
     input_dir = _make_corpus_input(tmp_path)
     (input_dir / "a.txt").write_text("alpha", encoding="utf-8")
     (input_dir / "b.txt").write_text("orphan", encoding="utf-8")  # already in the index, missing from ledger
@@ -479,15 +482,11 @@ def test_update_reconciles_citation_key_conflict_and_continues(tmp_path: Path, c
 
     client = FakeIndexingClient(conflict_on={"orphan"})
     with caplog.at_level(logging.WARNING):
-        ingest_files(client=client, corpus=CORPUS, input_dir=input_dir, data_dir=tmp_path, incremental=True)  # type: ignore[arg-type]
+        with pytest.raises(RuntimeError, match="UNIQUE constraint failed"):
+            ingest_files(client=client, corpus=CORPUS, input_dir=input_dir, data_dir=tmp_path, incremental=True)  # type: ignore[arg-type]
 
-    # The conflicting file is not re-indexed, but its neighbours before and after it are.
-    assert client.indexed == ["alpha", "gamma"]
-    # It is recorded in the ledger so a future run skips it instead of colliding again.
-    assert ledger.load_indexed(tmp_path, CORPUS) == {"a.txt", "b.txt", "c.txt"}
-    # The user is warned, by name, about the reconciled file.
-    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
-    assert any("b.txt" in message and "citation key conflict" in message for message in warnings)
+    assert client.indexed == ["alpha"]
+    assert ledger.load_indexed(tmp_path, CORPUS) == {"a.txt"}
 
 
 def test_update_still_aborts_on_non_conflict_runtime_error(tmp_path: Path) -> None:
