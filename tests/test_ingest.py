@@ -481,9 +481,8 @@ def test_update_aborts_on_citation_key_conflict(tmp_path: Path, caplog: pytest.L
     (input_dir / "c.txt").write_text("gamma", encoding="utf-8")
 
     client = FakeIndexingClient(conflict_on={"orphan"})
-    with caplog.at_level(logging.WARNING):
-        with pytest.raises(RuntimeError, match="UNIQUE constraint failed"):
-            ingest_files(client=client, corpus=CORPUS, input_dir=input_dir, data_dir=tmp_path, incremental=True)  # type: ignore[arg-type]
+    with caplog.at_level(logging.WARNING), pytest.raises(RuntimeError, match="UNIQUE constraint failed"):
+        ingest_files(client=client, corpus=CORPUS, input_dir=input_dir, data_dir=tmp_path, incremental=True)  # type: ignore[arg-type]
 
     assert client.indexed == ["alpha"]
     assert ledger.load_indexed(tmp_path, CORPUS) == {"a.txt"}

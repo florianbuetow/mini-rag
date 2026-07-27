@@ -52,6 +52,12 @@ def _build_query_response(results: list[SearchResult]) -> QueryResponse:
             citation_key=result.citation_key,
             text=result.text,
             score=result.score,
+            source_path=result.source_path,
+            chunk_index=result.chunk_index,
+            char_start=result.char_start,
+            char_end=result.char_end,
+            line_from=result.line_from,
+            line_to=result.line_to,
         )
         for result in results
     ]

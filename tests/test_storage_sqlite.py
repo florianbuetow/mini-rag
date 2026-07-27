@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from minirag.storage.interface import ChunkWithDocument
 from minirag.storage.sqlite import SQLiteStorage
 
 
@@ -13,12 +14,39 @@ def test_sqlite_storage_crud_and_destroy(tmp_path: Path) -> None:
     database_path = tmp_path / "storage" / "test.db"
     storage = SQLiteStorage(database_path=database_path)
 
-    document_id = storage.insert_document("hello world document")
-    chunk_id = storage.insert_chunk(document_id=document_id, content="hello world")
-    chunk_id_two = storage.insert_chunk(document_id=document_id, content="goodbye world")
+    document_id = storage.insert_document("hello world\ngoodbye world", source_path="docs/hello.txt")
+    chunk_id = storage.insert_chunk(
+        document_id=document_id,
+        content="hello world",
+        chunk_index=0,
+        char_start=0,
+        char_end=11,
+        line_from=1,
+        line_to=1,
+    )
+    chunk_id_two = storage.insert_chunk(
+        document_id=document_id,
+        content="goodbye world",
+        chunk_index=1,
+        char_start=12,
+        char_end=25,
+        line_from=2,
+        line_to=2,
+    )
 
-    assert storage.get_document(document_id) == "hello world document"
-    assert storage.get_chunk(chunk_id) == (document_id, "hello world")
+    assert storage.get_document(document_id) == "hello world\ngoodbye world"
+    assert storage.get_chunk(chunk_id) == ChunkWithDocument(
+        document_id=document_id,
+        content="hello world",
+        source_path="docs/hello.txt",
+        chunk_index=0,
+        char_start=0,
+        char_end=11,
+        line_from=1,
+        line_to=1,
+    )
+    assert storage.get_chunk(chunk_id_two).source_path == "docs/hello.txt"
+    assert storage.get_chunk(chunk_id_two).chunk_index == 1
     assert storage.list_chunks(document_id) == [
         (chunk_id, "hello world"),
         (chunk_id_two, "goodbye world"),
@@ -38,13 +66,16 @@ def test_sqlite_storage_rejects_invalid_values(tmp_path: Path) -> None:
     storage = SQLiteStorage(database_path=tmp_path / "storage" / "invalid.db")
 
     with pytest.raises(ValueError):
-        storage.insert_document("  ")
+        storage.insert_document("  ", source_path="docs/a.txt")
 
     with pytest.raises(ValueError):
-        storage.insert_chunk(document_id=0, content="chunk")
+        storage.insert_document("content", source_path="  ")
 
     with pytest.raises(ValueError):
-        storage.insert_chunk(document_id=1, content="  ")
+        storage.insert_chunk(document_id=0, content="chunk", chunk_index=0, char_start=0, char_end=5, line_from=1, line_to=1)
+
+    with pytest.raises(ValueError):
+        storage.insert_chunk(document_id=1, content="  ", chunk_index=0, char_start=0, char_end=5, line_from=1, line_to=1)
 
     with pytest.raises(ValueError):
         storage.get_document(0)
@@ -56,6 +87,27 @@ def test_sqlite_storage_rejects_invalid_values(tmp_path: Path) -> None:
         storage.list_chunks(0)
 
 
+def test_sqlite_storage_insert_chunk_rejects_invalid_provenance(tmp_path: Path) -> None:
+    """insert_chunk should reject inconsistent span, line, and ordinal values."""
+    storage = SQLiteStorage(database_path=tmp_path / "storage" / "invalid_prov.db")
+    document_id = storage.insert_document("some content", source_path="docs/a.txt")
+
+    with pytest.raises(ValueError, match="chunk_index"):
+        storage.insert_chunk(document_id=document_id, content="c", chunk_index=-1, char_start=0, char_end=1, line_from=1, line_to=1)
+
+    with pytest.raises(ValueError, match="char_start"):
+        storage.insert_chunk(document_id=document_id, content="c", chunk_index=0, char_start=-1, char_end=1, line_from=1, line_to=1)
+
+    with pytest.raises(ValueError, match="char_end"):
+        storage.insert_chunk(document_id=document_id, content="c", chunk_index=0, char_start=5, char_end=5, line_from=1, line_to=1)
+
+    with pytest.raises(ValueError, match="line_from"):
+        storage.insert_chunk(document_id=document_id, content="c", chunk_index=0, char_start=0, char_end=1, line_from=0, line_to=1)
+
+    with pytest.raises(ValueError, match="line_to"):
+        storage.insert_chunk(document_id=document_id, content="c", chunk_index=0, char_start=0, char_end=1, line_from=3, line_to=2)
+
+
 def test_sqlite_storage_list_chunks_returns_empty_for_missing_document(tmp_path: Path) -> None:
     """list_chunks should return empty list when document does not exist."""
     storage = SQLiteStorage(database_path=tmp_path / "storage" / "missing.db")
@@ -65,11 +117,15 @@ def test_sqlite_storage_list_chunks_returns_empty_for_missing_document(tmp_path:
 def test_sqlite_storage_list_chunks_isolated_by_document(tmp_path: Path) -> None:
     """list_chunks should only return chunks for the requested document ID."""
     storage = SQLiteStorage(database_path=tmp_path / "storage" / "isolated.db")
-    document_one = storage.insert_document("doc one")
-    document_two = storage.insert_document("doc two")
+    document_one = storage.insert_document("doc one", source_path="docs/one.txt")
+    document_two = storage.insert_document("doc two", source_path="docs/two.txt")
 
-    chunk_one = storage.insert_chunk(document_id=document_one, content="one-a")
-    chunk_two = storage.insert_chunk(document_id=document_two, content="two-a")
+    chunk_one = storage.insert_chunk(
+        document_id=document_one, content="one-a", chunk_index=0, char_start=0, char_end=5, line_from=1, line_to=1
+    )
+    chunk_two = storage.insert_chunk(
+        document_id=document_two, content="two-a", chunk_index=0, char_start=0, char_end=5, line_from=1, line_to=1
+    )
 
     assert storage.list_chunks(document_one) == [(chunk_one, "one-a")]
     assert storage.list_chunks(document_two) == [(chunk_two, "two-a")]
@@ -79,11 +135,11 @@ def test_sqlite_storage_corpus_stats_tracks_documents_and_chunks(tmp_path: Path)
     """corpus_stats should read stored metadata maintained by SQLite triggers."""
     database_path = tmp_path / "storage" / "stats.db"
     storage = SQLiteStorage(database_path=database_path)
-    document_one = storage.insert_document("doc one")
-    document_two = storage.insert_document("doc two")
-    storage.insert_chunk(document_id=document_one, content="one-a")
-    storage.insert_chunk(document_id=document_one, content="one-b")
-    storage.insert_chunk(document_id=document_two, content="two-a")
+    document_one = storage.insert_document("doc one", source_path="docs/one.txt")
+    document_two = storage.insert_document("doc two", source_path="docs/two.txt")
+    storage.insert_chunk(document_id=document_one, content="one-a", chunk_index=0, char_start=0, char_end=5, line_from=1, line_to=1)
+    storage.insert_chunk(document_id=document_one, content="one-b", chunk_index=1, char_start=6, char_end=11, line_from=1, line_to=1)
+    storage.insert_chunk(document_id=document_two, content="two-a", chunk_index=0, char_start=0, char_end=5, line_from=1, line_to=1)
 
     assert storage.corpus_stats() == (2, 3)
 
@@ -95,10 +151,36 @@ def test_sqlite_storage_corpus_stats_tracks_documents_and_chunks(tmp_path: Path)
     assert reopened.corpus_stats() == (0, 0)
 
 
+def test_sqlite_storage_upgrades_legacy_schema_without_provenance(tmp_path: Path) -> None:
+    """Opening a pre-provenance database should rebuild the schema with the new columns."""
+    database_path = tmp_path / "storage" / "legacy.db"
+    database_path.parent.mkdir(parents=True, exist_ok=True)
+    legacy_connection = sqlite3.connect(str(database_path))
+    legacy_connection.execute("CREATE TABLE documents (document_id INTEGER PRIMARY KEY AUTOINCREMENT, content TEXT NOT NULL)")
+    legacy_connection.execute(
+        "CREATE TABLE chunks (chunk_id INTEGER PRIMARY KEY AUTOINCREMENT, document_id INTEGER NOT NULL, content TEXT NOT NULL, "
+        "FOREIGN KEY (document_id) REFERENCES documents(document_id))"
+    )
+    legacy_connection.execute("INSERT INTO documents(content) VALUES ('legacy doc')")
+    legacy_connection.execute("INSERT INTO chunks(document_id, content) VALUES (1, 'legacy chunk')")
+    legacy_connection.commit()
+    legacy_connection.close()
+
+    storage = SQLiteStorage(database_path=database_path)
+
+    # Legacy rows are dropped with the legacy tables; the corpus requires re-ingestion.
+    assert storage.corpus_stats() == (0, 0)
+    document_id = storage.insert_document("fresh doc", source_path="docs/fresh.txt")
+    chunk_id = storage.insert_chunk(
+        document_id=document_id, content="fresh chunk", chunk_index=0, char_start=0, char_end=11, line_from=1, line_to=1
+    )
+    assert storage.get_chunk(chunk_id).source_path == "docs/fresh.txt"
+
+
 def test_sqlite_storage_insert_and_get_citation(tmp_path: Path) -> None:
     """insert_citation should store and get_citation should retrieve citation data."""
     storage = SQLiteStorage(database_path=tmp_path / "storage" / "citation.db")
-    document_id = storage.insert_document("some document")
+    document_id = storage.insert_document("some document", source_path="docs/some.txt")
 
     citation_json = '{"citation_key": "smith2026", "source_type": "journal"}'
     storage.insert_citation(citation_key="smith2026", document_id=document_id, citation_json=citation_json)
@@ -156,8 +238,8 @@ def test_sqlite_storage_get_citation_rejects_empty_key(tmp_path: Path) -> None:
 def test_sqlite_storage_duplicate_citation_key_raises(tmp_path: Path) -> None:
     """Inserting a duplicate citation_key should raise IntegrityError."""
     storage = SQLiteStorage(database_path=tmp_path / "storage" / "dup_citation.db")
-    doc1 = storage.insert_document("doc one")
-    doc2 = storage.insert_document("doc two")
+    doc1 = storage.insert_document("doc one", source_path="docs/one.txt")
+    doc2 = storage.insert_document("doc two", source_path="docs/two.txt")
 
     storage.insert_citation(citation_key="same_key", document_id=doc1, citation_json='{"k": "v"}')
 
@@ -168,7 +250,7 @@ def test_sqlite_storage_duplicate_citation_key_raises(tmp_path: Path) -> None:
 def test_sqlite_storage_destroy_clears_citations(tmp_path: Path) -> None:
     """destroy should clear citation records."""
     storage = SQLiteStorage(database_path=tmp_path / "storage" / "destroy_citations.db")
-    document_id = storage.insert_document("doc")
+    document_id = storage.insert_document("doc", source_path="docs/doc.txt")
     storage.insert_citation(citation_key="key1", document_id=document_id, citation_json='{"k": "v"}')
 
     assert storage.get_citation("key1") is not None

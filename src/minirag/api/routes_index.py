@@ -57,6 +57,7 @@ async def index_document(request: Request, corpus: str) -> JSONResponse:
             orchestration.index_document,
             parsed_payload.document,
             citation_payload,
+            parsed_payload.source_path,
         )
     except ValueError as exc:
         return error_response(status=400, message=str(exc))

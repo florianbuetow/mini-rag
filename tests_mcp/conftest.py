@@ -108,9 +108,7 @@ def _wait_for_health_or_exit(base_url: str, timeout_s: int, proc: subprocess.Pop
 
     stdout = _read_available(proc.stdout)
     stderr = _read_available(proc.stderr)
-    raise RuntimeError(
-        f"Service at {base_url} did not become healthy within {timeout_s}s.\nstdout: {stdout}\nstderr: {stderr}"
-    )
+    raise RuntimeError(f"Service at {base_url} did not become healthy within {timeout_s}s.\nstdout: {stdout}\nstderr: {stderr}")
 
 
 def _resolve_test_input_source() -> Path:

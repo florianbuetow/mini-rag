@@ -5,10 +5,16 @@ from typing import NamedTuple
 
 
 class ChunkWithDocument(NamedTuple):
-    """Chunk payload paired with owning document ID."""
+    """Chunk payload paired with owning document ID and source provenance."""
 
     document_id: int
     content: str
+    source_path: str
+    chunk_index: int
+    char_start: int
+    char_end: int
+    line_from: int
+    line_to: int
 
 
 class ChunkRecord(NamedTuple):
@@ -61,16 +67,25 @@ class StorageWriter(ABC):
     """Write contract for persisted documents and chunks."""
 
     @abstractmethod
-    def insert_document_with_citation(self, content: str, citation: dict[str, object] | None) -> int:
-        """Store a document and citation atomically and return the document ID."""
+    def insert_document_with_citation(self, content: str, citation: dict[str, object] | None, source_path: str) -> int:
+        """Store a document, its citation, and its source path atomically and return the document ID."""
 
     @abstractmethod
-    def insert_document(self, content: str) -> int:
-        """Store a full document and return its ID."""
+    def insert_document(self, content: str, source_path: str) -> int:
+        """Store a full document with its source path and return its ID."""
 
     @abstractmethod
-    def insert_chunk(self, document_id: int, content: str) -> int:
-        """Store a chunk and return its ID."""
+    def insert_chunk(
+        self,
+        document_id: int,
+        content: str,
+        chunk_index: int,
+        char_start: int,
+        char_end: int,
+        line_from: int,
+        line_to: int,
+    ) -> int:
+        """Store a chunk with its span provenance and return its ID."""
 
     @abstractmethod
     def insert_citation(self, citation_key: str, document_id: int, citation_json: str) -> None:

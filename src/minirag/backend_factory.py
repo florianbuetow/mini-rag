@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Protocol, runtime_checkable
 
 from minirag.config import EmbeddingsConfig, IndexConfig, SearchConfig
-from minirag.ingestion.chunker import chunk_text
+from minirag.ingestion.chunker import ChunkSpan, chunk_text
 from minirag.ingestion.token_chunker import chunk_text_by_tokens
 from minirag.orchestration import Orchestration
 from minirag.reranking.interface import Reranker
@@ -55,7 +55,7 @@ def build_embeddings(embeddings_config: EmbeddingsConfig, data_dir: Path) -> Emb
     )
 
 
-def build_chunker(index_config: IndexConfig) -> Callable[[str], list[str]]:
+def build_chunker(index_config: IndexConfig) -> Callable[[str], list[ChunkSpan]]:
     """Build the chunker matching the active embedding provider's token limits."""
     embeddings = index_config.embeddings
     overlap = index_config.chunking.overlap

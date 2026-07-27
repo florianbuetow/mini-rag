@@ -34,20 +34,22 @@ class FakeStorage:
 
     def __init__(self) -> None:
         self.documents: dict[int, str] = {}
-        self.chunks: dict[int, tuple[int, str]] = {}
+        self.source_paths: dict[int, str] = {}
+        self.chunks: dict[int, tuple[int, str, int, int, int, int, int]] = {}
         self.citations: dict[str, tuple[int, str]] = {}
         self._citation_by_doc: dict[int, str] = {}
         self._next_document_id = 1
         self._next_chunk_id = 1
 
-    def insert_document(self, content: str) -> int:
+    def insert_document(self, content: str, source_path: str) -> int:
         document_id = self._next_document_id
         self._next_document_id = self._next_document_id + 1
         self.documents[document_id] = content
+        self.source_paths[document_id] = source_path
         return document_id
 
-    def insert_document_with_citation(self, content: str, citation: dict[str, object] | None) -> int:
-        document_id = self.insert_document(content)
+    def insert_document_with_citation(self, content: str, citation: dict[str, object] | None, source_path: str) -> int:
+        document_id = self.insert_document(content, source_path)
         if citation is None:
             citation_key = str(document_id)
             auto_citation = {
@@ -66,10 +68,19 @@ class FakeStorage:
         self.insert_citation(citation_key=citation_key, document_id=document_id, citation_json=citation_json)
         return document_id
 
-    def insert_chunk(self, document_id: int, content: str) -> int:
+    def insert_chunk(
+        self,
+        document_id: int,
+        content: str,
+        chunk_index: int,
+        char_start: int,
+        char_end: int,
+        line_from: int,
+        line_to: int,
+    ) -> int:
         chunk_id = self._next_chunk_id
         self._next_chunk_id = self._next_chunk_id + 1
-        self.chunks[chunk_id] = (document_id, content)
+        self.chunks[chunk_id] = (document_id, content, chunk_index, char_start, char_end, line_from, line_to)
         return chunk_id
 
     def insert_citation(self, citation_key: str, document_id: int, citation_json: str) -> None:
@@ -80,8 +91,20 @@ class FakeStorage:
         return self.documents[document_id]
 
     def get_chunk(self, chunk_id: int) -> ChunkWithDocument:
-        document_id, content = self.chunks[chunk_id]
-        return ChunkWithDocument(document_id=document_id, content=content)
+        entry = self.chunks.get(chunk_id)
+        if entry is None:
+            raise ValueError(f"chunk not found: {chunk_id}")
+        document_id, content, chunk_index, char_start, char_end, line_from, line_to = entry
+        return ChunkWithDocument(
+            document_id=document_id,
+            content=content,
+            source_path=self.source_paths[document_id],
+            chunk_index=chunk_index,
+            char_start=char_start,
+            char_end=char_end,
+            line_from=line_from,
+            line_to=line_to,
+        )
 
     def get_citation_key(self, document_id: int) -> str | None:
         return self._citation_by_doc.get(document_id)
@@ -93,9 +116,7 @@ class FakeStorage:
         return entry[1]
 
     def list_chunks(self, document_id: int) -> list[ChunkRecord]:
-        return [
-            ChunkRecord(chunk_id=chunk_id, content=content) for chunk_id, (doc_id, content) in self.chunks.items() if doc_id == document_id
-        ]
+        return [ChunkRecord(chunk_id=chunk_id, content=entry[1]) for chunk_id, entry in self.chunks.items() if entry[0] == document_id]
 
     def corpus_stats(self) -> CorpusStats:
         return CorpusStats(document_count=len(self.documents), chunk_count=len(self.chunks))
@@ -105,6 +126,7 @@ class FakeStorage:
 
     def destroy(self) -> None:
         self.documents = {}
+        self.source_paths = {}
         self.chunks = {}
         self.citations = {}
         self._citation_by_doc = {}
@@ -181,7 +203,7 @@ def test_orchestration_index_and_search() -> None:
     orchestration = make_orchestration()
     text: Final[str] = "one two three four five six"
 
-    document_id, chunk_ids = orchestration.index_document(text, citation=None)
+    document_id, chunk_ids = orchestration.index_document(text, citation=None, source_path="docs/sample.txt")
 
     assert document_id == 1
     assert len(chunk_ids) >= 2
@@ -203,14 +225,14 @@ def test_orchestration_rejects_whitespace_document() -> None:
     orchestration = make_orchestration()
 
     with pytest.raises(ValueError, match="document text must not be empty"):
-        orchestration.index_document("   ", citation=None)
+        orchestration.index_document("   ", citation=None, source_path="docs/sample.txt")
 
 
 def test_orchestration_index_with_citation() -> None:
     """Orchestration should store provided citation."""
     orchestration = make_orchestration()
     citation: dict[str, object] = {"citation_key": "smith2026", "source_type": "journal", "common": {}, "source_data": {}}
-    document_id, _chunk_ids = orchestration.index_document("one two three four five six", citation=citation)
+    document_id, _chunk_ids = orchestration.index_document("one two three four five six", citation=citation, source_path="docs/sample.txt")
 
     results = orchestration.search_dense(query="one", top_k=5)
     assert len(results) >= 1
@@ -221,7 +243,7 @@ def test_orchestration_index_with_citation() -> None:
 def test_orchestration_index_auto_generates_citation() -> None:
     """Orchestration should auto-generate citation when none provided."""
     orchestration = make_orchestration()
-    document_id, _chunk_ids = orchestration.index_document("one two three four five six", citation=None)
+    document_id, _chunk_ids = orchestration.index_document("one two three four five six", citation=None, source_path="docs/sample.txt")
 
     results = orchestration.search_dense(query="one", top_k=5)
     assert len(results) >= 1
@@ -237,7 +259,7 @@ def test_orchestration_get_citation_returns_stored_data() -> None:
         "common": {"title": "The Quantum Discovery", "author": "Dr. Elena Martinez"},
         "source_data": {"topic": "quantum_computing", "institution": "Stanford University"},
     }
-    orchestration.index_document("one two three four five six", citation=citation)
+    orchestration.index_document("one two three four five six", citation=citation, source_path="docs/sample.txt")
 
     result = orchestration.get_citation("martinez2026")
     assert result is not None
@@ -261,7 +283,7 @@ def test_orchestration_get_citation_returns_none_after_destroy() -> None:
     """get_citation should return None after destroy_index clears all data."""
     orchestration = make_orchestration()
     citation: dict[str, object] = {"citation_key": "key1", "source_type": "journal", "common": {}, "source_data": {}}
-    orchestration.index_document("one two three four five six", citation=citation)
+    orchestration.index_document("one two three four five six", citation=citation, source_path="docs/sample.txt")
     assert orchestration.get_citation("key1") is not None
 
     orchestration.destroy_index()
@@ -271,7 +293,7 @@ def test_orchestration_get_citation_returns_none_after_destroy() -> None:
 def test_orchestration_get_citation_auto_generated() -> None:
     """get_citation should return auto-generated citation when none was provided."""
     orchestration = make_orchestration()
-    document_id, _chunk_ids = orchestration.index_document("one two three four five six", citation=None)
+    document_id, _chunk_ids = orchestration.index_document("one two three four five six", citation=None, source_path="docs/sample.txt")
 
     result = orchestration.get_citation(str(document_id))
     assert result is not None
@@ -289,11 +311,28 @@ class FailOnSecondChunkStorage(FakeStorage):
         super().__init__()
         self._chunk_insert_count = 0
 
-    def insert_chunk(self, document_id: int, content: str) -> int:
+    def insert_chunk(
+        self,
+        document_id: int,
+        content: str,
+        chunk_index: int,
+        char_start: int,
+        char_end: int,
+        line_from: int,
+        line_to: int,
+    ) -> int:
         self._chunk_insert_count += 1
         if self._chunk_insert_count == 2:
             raise RuntimeError("simulated storage failure on chunk 2")
-        return super().insert_chunk(document_id=document_id, content=content)
+        return super().insert_chunk(
+            document_id=document_id,
+            content=content,
+            chunk_index=chunk_index,
+            char_start=char_start,
+            char_end=char_end,
+            line_from=line_from,
+            line_to=line_to,
+        )
 
 
 class StaleChunkStorage(FakeStorage):
@@ -333,7 +372,7 @@ def test_orchestration_partial_chunk_failure() -> None:
     )
 
     with pytest.raises(RuntimeError, match="failed to index chunk"):
-        orchestration.index_document("one two three four five six seven eight", citation=None)
+        orchestration.index_document("one two three four five six seven eight", citation=None, source_path="docs/sample.txt")
 
     assert len(storage.chunks) == 1
 
@@ -361,7 +400,7 @@ def test_orchestration_raises_on_stale_chunks() -> None:
         reranker=None,
     )
 
-    orchestration.index_document("one two three four five six seven eight", citation=None)
+    orchestration.index_document("one two three four five six seven eight", citation=None, source_path="docs/sample.txt")
 
     with pytest.raises(RuntimeError, match="missing chunk_id"):
         orchestration.search_dense(query="one", top_k=10)
@@ -370,13 +409,13 @@ def test_orchestration_raises_on_stale_chunks() -> None:
 def test_orchestration_destroy_and_validation() -> None:
     """Destroy should clear backends and invalid inputs should fail."""
     orchestration = make_orchestration()
-    orchestration.index_document("one two three four five", citation=None)
+    orchestration.index_document("one two three four five", citation=None, source_path="docs/sample.txt")
     orchestration.destroy_index()
 
     assert orchestration.search_dense(query="q", top_k=3) == []
 
     with pytest.raises(ValueError):
-        orchestration.index_document("  ", citation=None)
+        orchestration.index_document("  ", citation=None, source_path="docs/sample.txt")
 
     with pytest.raises(ValueError):
         orchestration.search_sparse(query="", top_k=1)
@@ -395,7 +434,7 @@ def test_orchestration_index_rejects_empty_citation_key() -> None:
         "source_data": {},
     }
     with pytest.raises(ValueError, match="non-empty 'citation_key'"):
-        orchestration.index_document("one two three four five six", citation=citation)
+        orchestration.index_document("one two three four five six", citation=citation, source_path="docs/sample.txt")
 
 
 def test_orchestration_index_rejects_missing_citation_key() -> None:
@@ -403,7 +442,7 @@ def test_orchestration_index_rejects_missing_citation_key() -> None:
     orchestration = make_orchestration()
     citation: dict[str, object] = {"source_type": "journal", "common": {}, "source_data": {}}
     with pytest.raises(ValueError, match="non-empty 'citation_key'"):
-        orchestration.index_document("one two three four five six", citation=citation)
+        orchestration.index_document("one two three four five six", citation=citation, source_path="docs/sample.txt")
 
 
 def test_orchestration_index_rejects_empty_source_type() -> None:
@@ -416,7 +455,7 @@ def test_orchestration_index_rejects_empty_source_type() -> None:
         "source_data": {},
     }
     with pytest.raises(ValueError, match="non-empty 'source_type'"):
-        orchestration.index_document("one two three four five six", citation=citation)
+        orchestration.index_document("one two three four five six", citation=citation, source_path="docs/sample.txt")
 
 
 def test_orchestration_index_rejects_missing_source_type() -> None:
@@ -424,7 +463,7 @@ def test_orchestration_index_rejects_missing_source_type() -> None:
     orchestration = make_orchestration()
     citation: dict[str, object] = {"citation_key": "k", "common": {}, "source_data": {}}
     with pytest.raises(ValueError, match="non-empty 'source_type'"):
-        orchestration.index_document("one two three four five six", citation=citation)
+        orchestration.index_document("one two three four five six", citation=citation, source_path="docs/sample.txt")
 
 
 class CorruptCitationStorage(FakeStorage):
@@ -468,14 +507,14 @@ def test_orchestration_citation_cache_cleared_on_destroy() -> None:
     orchestration = make_orchestration()
 
     citation1: dict[str, object] = {"citation_key": "old_key", "source_type": "journal", "common": {}, "source_data": {}}
-    orchestration.index_document("one two three four five six", citation=citation1)
+    orchestration.index_document("one two three four five six", citation=citation1, source_path="docs/sample.txt")
     results1 = orchestration.search_dense(query="one", top_k=5)
     assert results1[0].citation_key == "old_key"
 
     orchestration.destroy_index()
 
     citation2: dict[str, object] = {"citation_key": "new_key", "source_type": "blog", "common": {}, "source_data": {}}
-    orchestration.index_document("one two three four five six", citation=citation2)
+    orchestration.index_document("one two three four five six", citation=citation2, source_path="docs/sample.txt")
     results2 = orchestration.search_dense(query="one", top_k=5)
     assert results2[0].citation_key == "new_key"
 
@@ -511,7 +550,90 @@ def test_orchestration_raises_on_missing_citation_record() -> None:
     )
 
     citation: dict[str, object] = {"citation_key": "key1", "source_type": "journal", "common": {}, "source_data": {}}
-    orchestration.index_document("one two three four five six", citation=citation)
+    orchestration.index_document("one two three four five six", citation=citation, source_path="docs/sample.txt")
 
     with pytest.raises(RuntimeError, match="missing citation"):
         orchestration.search_dense(query="one", top_k=10)
+
+
+def test_orchestration_stores_chunk_provenance() -> None:
+    """index_document persists ordinal, char span, and line range for every chunk."""
+    storage = FakeStorage()
+    search_config = SearchConfig(
+        hybrid=HybridConfig(alpha=0.5),
+        dense=DenseSearchConfig(),
+        sparse=SparseSearchConfig(),
+        reranking=RerankingConfig(
+            enabled=False,
+            model_name="cross-encoder/ms-marco-MiniLM-L12-v2",
+            candidate_multiplier=3,
+        ),
+    )
+    orchestration = Orchestration(
+        chunker=partial(chunk_text, chunk_size=4, overlap=0.5),
+        embeddings=cast(Embeddings, FakeEmbeddings()),
+        storage=cast(Storage, storage),
+        dense=cast(DenseRetrieval, FakeDense()),
+        sparse=cast(SparseRetrieval, FakeSparse()),
+        search_config=search_config,
+        reranker=None,
+    )
+    text = "one two three\nfour five six\nseven eight"
+
+    document_id, chunk_ids = orchestration.index_document(text, citation=None, source_path="docs/sample.txt")
+
+    assert storage.source_paths[document_id] == "docs/sample.txt"
+    assert storage.chunks[chunk_ids[0]] == (document_id, "one two three four", 0, 0, 18, 1, 2)
+    assert [storage.chunks[chunk_id][2] for chunk_id in chunk_ids] == list(range(len(chunk_ids)))
+    for chunk_id in chunk_ids:
+        _, content, _, char_start, char_end, line_from, line_to = storage.chunks[chunk_id]
+        assert text[char_start:char_end].split() == content.split()
+        assert 1 <= line_from <= line_to
+    assert storage.chunks[chunk_ids[-1]][6] == 3
+
+
+def test_orchestration_search_results_carry_provenance() -> None:
+    """Search results expose source path, chunk ordinal, char span, and line range."""
+    orchestration = make_orchestration()
+    text = "one two three\nfour five six\nseven eight"
+    orchestration.index_document(text, citation=None, source_path="docs/sample.txt")
+
+    results = orchestration.search_dense(query="one", top_k=5)
+
+    assert len(results) >= 1
+    first = results[0]
+    assert first.source_path == "docs/sample.txt"
+    assert first.char_end > first.char_start >= 0
+    assert first.line_to >= first.line_from >= 1
+    assert first.chunk_index >= 0
+    assert text[first.char_start : first.char_end].split() == first.text.split()
+
+
+def test_orchestration_get_chunk_returns_provenance_and_citation_key() -> None:
+    """get_chunk returns the stored chunk record plus the document citation key."""
+    orchestration = make_orchestration()
+    text = "one two three\nfour five six\nseven eight"
+    document_id, chunk_ids = orchestration.index_document(text, citation=None, source_path="docs/sample.txt")
+
+    chunk_record, citation_key = orchestration.get_chunk(chunk_ids[0])
+
+    assert citation_key == str(document_id)
+    assert chunk_record.document_id == document_id
+    assert chunk_record.source_path == "docs/sample.txt"
+    assert chunk_record.content == "one two three four"
+    assert (chunk_record.char_start, chunk_record.char_end) == (0, 18)
+    assert (chunk_record.line_from, chunk_record.line_to) == (1, 2)
+
+
+def test_orchestration_get_chunk_missing_raises() -> None:
+    """get_chunk propagates ValueError for an unknown chunk_id."""
+    orchestration = make_orchestration()
+    with pytest.raises(ValueError, match="chunk not found"):
+        orchestration.get_chunk(999)
+
+
+def test_orchestration_index_rejects_empty_source_path() -> None:
+    """index_document rejects a whitespace-only source_path before any storage write."""
+    orchestration = make_orchestration()
+    with pytest.raises(ValueError, match="source_path must not be empty"):
+        orchestration.index_document("one two three", citation=None, source_path="   ")

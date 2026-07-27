@@ -4,6 +4,7 @@ import importlib
 import logging
 import math
 from collections.abc import Iterable
+from dataclasses import replace
 from pathlib import Path
 from typing import Protocol, cast
 
@@ -113,16 +114,7 @@ class CrossEncoderReranker:
         if len(float_scores) != len(results):
             raise RuntimeError(f"reranker score count mismatch: expected={len(results)}, got={len(float_scores)}; model={self._model_name}")
 
-        rescored_results = [
-            SearchResult(
-                chunk_id=result.chunk_id,
-                document_id=result.document_id,
-                citation_key=result.citation_key,
-                text=result.text,
-                score=self._sigmoid(score),
-            )
-            for result, score in zip(results, float_scores, strict=True)
-        ]
+        rescored_results = [replace(result, score=self._sigmoid(score)) for result, score in zip(results, float_scores, strict=True)]
         ranked_results = sorted(rescored_results, key=lambda result: result.score, reverse=True)
         return ranked_results[:top_k]
 

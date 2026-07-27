@@ -354,7 +354,7 @@ class TestIndexDestruction:
     def test_reindex_after_destroy(self, indexing_client, query_client):
         """Re-indexing after destroy should work normally."""
         indexing_client.destroy_index(INTEGRATION_CORPUS)
-        doc_id, chunk_ids = indexing_client.index_document(INTEGRATION_CORPUS, DOCUMENT_1, CITATION_1)
+        doc_id, chunk_ids = indexing_client.index_document(INTEGRATION_CORPUS, DOCUMENT_1, CITATION_1, source_path="docs/document1.txt")
         assert doc_id > 0
         assert len(chunk_ids) == 2
 
@@ -376,7 +376,7 @@ class TestCitationAfterDestruction:
     def test_auto_generated_citation(self, indexing_client, integration_http_client):
         """Indexing without citation should auto-generate one."""
         indexing_client.destroy_index(INTEGRATION_CORPUS)
-        doc_id, _ = indexing_client.index_document(INTEGRATION_CORPUS, DOCUMENT_1, None)
+        doc_id, _ = indexing_client.index_document(INTEGRATION_CORPUS, DOCUMENT_1, None, source_path="docs/document1.txt")
 
         # Auto-generated citation uses document_id as citation_key
         auto_key = str(doc_id)

@@ -83,28 +83,47 @@ def test_indexing_and_query_clients_parse_payloads(monkeypatch: pytest.MonkeyPat
 
     monkeypatch.setattr(BaseClient, "_ensure_healthy", fake_ensure_healthy)
 
+    captured_payloads: dict[str, object] = {}
+    query_result_payload: dict[str, object] = {
+        "chunk_id": 1,
+        "document_id": 1,
+        "citation_key": "k1",
+        "text": "x",
+        "score": 0.9,
+        "source_path": "docs/x.txt",
+        "chunk_index": 2,
+        "char_start": 10,
+        "char_end": 20,
+        "line_from": 3,
+        "line_to": 4,
+    }
+
     def fake_request(self: BaseClient, method: str, path: str, payload: object, require_healthy: bool) -> dict[str, object]:
-        del self, payload, require_healthy
+        del self, require_healthy
         if method == "POST" and path == "/v1/corpus/books/index":
+            captured_payloads["index"] = payload
             return {"document_id": 1, "chunk_ids": [1, 2, 3]}
         if method == "DELETE" and path == "/v1/corpus/books/index":
             return {"message": "index destroyed"}
-        if method == "POST" and path.startswith("/v1/corpus/"):
-            return {"results": [{"chunk_id": 1, "document_id": 1, "citation_key": "k1", "text": "x", "score": 0.9}]}
-        return {"results": [{"chunk_id": 1, "document_id": 1, "citation_key": "k1", "text": "x", "score": 0.9}]}
+        return {"results": [dict(query_result_payload)]}
 
     monkeypatch.setattr(BaseClient, "_request", fake_request)
 
     indexing = IndexingClient(host="127.0.0.1", port=7001, http_client=None)
-    doc_id, chunk_ids = indexing.index_document("books", "hello", citation=None)
+    doc_id, chunk_ids = indexing.index_document("books", "hello", citation=None, source_path="docs/hello.txt")
     assert doc_id == 1
     assert chunk_ids == [1, 2, 3]
+    assert captured_payloads["index"] == {"document": "hello", "source_path": "docs/hello.txt"}
     indexing.destroy_index("books")
 
     query = QueryClient(host="127.0.0.1", port=7001, http_client=None)
     results = query.search_hybrid(corpus="books", query="hello", top_k=2)
     assert len(results) == 1
     assert results[0].text == "x"
+    assert results[0].source_path == "docs/x.txt"
+    assert results[0].chunk_index == 2
+    assert (results[0].char_start, results[0].char_end) == (10, 20)
+    assert (results[0].line_from, results[0].line_to) == (3, 4)
 
 
 def test_base_client_rejects_invalid_connection_params() -> None:
@@ -197,7 +216,7 @@ def test_indexing_client_rejects_empty_corpus() -> None:
     indexing = IndexingClient(host="127.0.0.1", port=7001, http_client=None)
 
     with pytest.raises(ValueError, match="invalid corpus name"):
-        indexing.index_document("", "hello", citation=None)
+        indexing.index_document("", "hello", citation=None, source_path="docs/hello.txt")
 
     with pytest.raises(ValueError, match="invalid corpus name"):
         indexing.destroy_index("")
@@ -236,10 +255,18 @@ def test_indexing_client_rejects_empty_text() -> None:
     indexing = IndexingClient(host="127.0.0.1", port=7001, http_client=None)
 
     with pytest.raises(ValueError, match="text must not be empty"):
-        indexing.index_document("books", "", citation=None)
+        indexing.index_document("books", "", citation=None, source_path="docs/hello.txt")
 
     with pytest.raises(ValueError, match="text must not be empty"):
-        indexing.index_document("books", "   ", citation=None)
+        indexing.index_document("books", "   ", citation=None, source_path="docs/hello.txt")
+
+
+def test_indexing_client_rejects_empty_source_path() -> None:
+    """IndexingClient should reject empty source_path."""
+    indexing = IndexingClient(host="127.0.0.1", port=7001, http_client=None)
+
+    with pytest.raises(ValueError, match="source_path must not be empty"):
+        indexing.index_document("books", "hello", citation=None, source_path="   ")
 
 
 def test_query_client_rejects_empty_query() -> None:

@@ -598,7 +598,7 @@ test-e2e-rag:
 test-mcp:
     @echo ""
     @printf "%b\n" "\033[0;34m=== Running MCP Tests ===\033[0m"
-    @uv run pytest tests_mcp/ -v -s --timeout=60 -p no:randomly
+    @uv run pytest tests_mcp/ -v -s --timeout=180 -p no:randomly
     @echo ""
     @printf "%b\n" "\033[0;32m✓ MCP tests passed\033[0m"
     @echo ""

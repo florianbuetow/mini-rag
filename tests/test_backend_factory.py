@@ -328,7 +328,8 @@ def test_build_chunker_selects_word_chunker_for_fasttext() -> None:
 
     chunks = factory_module.build_chunker(index_config)("one two three four five six")
 
-    assert chunks[0] == "one two three four"
+    assert chunks[0].text == "one two three four"
+    assert (chunks[0].char_start, chunks[0].char_end) == (0, 18)
 
 
 def test_build_chunker_selects_token_chunker_for_lmstudio() -> None:
@@ -354,4 +355,4 @@ def test_build_chunker_selects_token_chunker_for_lmstudio() -> None:
 
     encoding = tiktoken.get_encoding("cl100k_base")
     assert len(chunks) > 1
-    assert all(len(encoding.encode(chunk)) <= 409 for chunk in chunks)
+    assert all(len(encoding.encode(chunk.text)) <= 409 for chunk in chunks)

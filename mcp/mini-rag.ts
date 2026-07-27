@@ -140,6 +140,104 @@ server.tool(
 );
 
 server.tool(
+  "get_chunk",
+  "Get a chunk with its source provenance (source file path, char span, line range) by chunk ID from search results",
+  {
+    corpus: z.string().regex(/^[a-zA-Z][a-zA-Z0-9_-]*$/, "must start with a letter, then alphanumeric, underscore, or dash").describe("Name of the corpus"),
+    chunk_id: z.number().int().positive().describe("Chunk ID from search results"),
+  },
+  async ({ corpus, chunk_id }) => {
+    console.error(`[minirag] get_chunk: corpus=${corpus} chunk_id=${chunk_id}`);
+    try {
+      const healthResponse = await fetch(`${REST_BASE}/v1/health`, {
+        signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS),
+      });
+      if (!healthResponse.ok) {
+        return { content: [{ type: "text", text: `Search system health check failed: HTTP ${healthResponse.status}` }], isError: true };
+      }
+      const healthBodyText = await healthResponse.text();
+      const healthData = parseJsonBody(healthBodyText) as { data?: { status?: string } } | null;
+      if (healthData?.data?.status !== "healthy") {
+        return { content: [{ type: "text", text: "Search system is currently offline." }], isError: true };
+      }
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      return { content: [{ type: "text", text: `Search system is unreachable: ${detail}` }], isError: true };
+    }
+
+    try {
+      const response = await fetch(`${REST_BASE}/v1/corpus/${encodeURIComponent(corpus)}/chunk/${chunk_id}`, {
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+      const bodyText = await response.text();
+      if (!response.ok) {
+        const errorMsg = extractErrorMessage(bodyText, response.status);
+        return { content: [{ type: "text", text: `Chunk lookup failed: ${errorMsg}` }], isError: true };
+      }
+      try {
+        const data = parseJsonBody(bodyText);
+        return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        return { content: [{ type: "text", text: `Chunk lookup failed to parse JSON response: ${detail}` }], isError: true };
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { content: [{ type: "text", text: `Error: ${message}` }], isError: true };
+    }
+  },
+);
+
+server.tool(
+  "get_chunk_source",
+  "Get the exact original text slice a chunk was created from, read from the corpus input folder, by chunk ID",
+  {
+    corpus: z.string().regex(/^[a-zA-Z][a-zA-Z0-9_-]*$/, "must start with a letter, then alphanumeric, underscore, or dash").describe("Name of the corpus"),
+    chunk_id: z.number().int().positive().describe("Chunk ID from search results"),
+  },
+  async ({ corpus, chunk_id }) => {
+    console.error(`[minirag] get_chunk_source: corpus=${corpus} chunk_id=${chunk_id}`);
+    try {
+      const healthResponse = await fetch(`${REST_BASE}/v1/health`, {
+        signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS),
+      });
+      if (!healthResponse.ok) {
+        return { content: [{ type: "text", text: `Search system health check failed: HTTP ${healthResponse.status}` }], isError: true };
+      }
+      const healthBodyText = await healthResponse.text();
+      const healthData = parseJsonBody(healthBodyText) as { data?: { status?: string } } | null;
+      if (healthData?.data?.status !== "healthy") {
+        return { content: [{ type: "text", text: "Search system is currently offline." }], isError: true };
+      }
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      return { content: [{ type: "text", text: `Search system is unreachable: ${detail}` }], isError: true };
+    }
+
+    try {
+      const response = await fetch(`${REST_BASE}/v1/corpus/${encodeURIComponent(corpus)}/chunk/${chunk_id}/source`, {
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+      const bodyText = await response.text();
+      if (!response.ok) {
+        const errorMsg = extractErrorMessage(bodyText, response.status);
+        return { content: [{ type: "text", text: `Chunk source lookup failed: ${errorMsg}` }], isError: true };
+      }
+      try {
+        const data = parseJsonBody(bodyText);
+        return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        return { content: [{ type: "text", text: `Chunk source lookup failed to parse JSON response: ${detail}` }], isError: true };
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { content: [{ type: "text", text: `Error: ${message}` }], isError: true };
+    }
+  },
+);
+
+server.tool(
   "list_corpora",
   "List all available corpora that can be searched",
   {},

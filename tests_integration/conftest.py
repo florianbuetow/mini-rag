@@ -204,8 +204,8 @@ def indexed_documents(indexing_client):
     """
     indexing_client.destroy_index(INTEGRATION_CORPUS)
 
-    doc1_id, doc1_chunks = indexing_client.index_document(INTEGRATION_CORPUS, DOCUMENT_1, CITATION_1)
-    doc2_id, doc2_chunks = indexing_client.index_document(INTEGRATION_CORPUS, DOCUMENT_2, CITATION_2)
+    doc1_id, doc1_chunks = indexing_client.index_document(INTEGRATION_CORPUS, DOCUMENT_1, CITATION_1, source_path="docs/document1.txt")
+    doc2_id, doc2_chunks = indexing_client.index_document(INTEGRATION_CORPUS, DOCUMENT_2, CITATION_2, source_path="docs/document2.txt")
 
     return {
         "doc1": {"id": doc1_id, "chunk_ids": doc1_chunks},

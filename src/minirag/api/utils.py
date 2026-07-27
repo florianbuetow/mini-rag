@@ -1,5 +1,6 @@
 """API app-state guard and accessor helpers."""
 
+from pathlib import Path
 from typing import cast
 
 from fastapi import Request
@@ -31,3 +32,10 @@ def get_config(request: Request) -> Config:
     if not hasattr(request.app.state, "config"):
         raise RuntimeError("config is not initialized on app state")
     return cast(Config, request.app.state.config)
+
+
+def get_data_dir(request: Request) -> Path:
+    """Get resolved data directory from FastAPI app state."""
+    if not hasattr(request.app.state, "data_dir"):
+        raise RuntimeError("data_dir is not initialized on app state")
+    return cast(Path, request.app.state.data_dir)

@@ -1,6 +1,8 @@
 """Query endpoint API models."""
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from typing import Self
+
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 
 class QueryRequest(BaseModel):
@@ -29,7 +31,7 @@ class QueryRequest(BaseModel):
 
 
 class QueryResult(BaseModel):
-    """One query result item with chunk ID, text, and relevance score."""
+    """One query result item with chunk ID, text, relevance score, and source provenance."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -38,6 +40,12 @@ class QueryResult(BaseModel):
     citation_key: str
     text: str
     score: float
+    source_path: str
+    chunk_index: int
+    char_start: int
+    char_end: int
+    line_from: int
+    line_to: int
 
     @field_validator("chunk_id")
     @classmethod
@@ -80,6 +88,47 @@ class QueryResult(BaseModel):
         if value > 1.0:
             raise ValueError("score must be less than or equal to 1.0")
         return value
+
+    @field_validator("source_path")
+    @classmethod
+    def validate_source_path(cls, value: str) -> str:
+        """Require non-empty source_path."""
+        if value.strip() == "":
+            raise ValueError("source_path must not be empty")
+        return value
+
+    @field_validator("chunk_index")
+    @classmethod
+    def validate_chunk_index(cls, value: int) -> int:
+        """Require non-negative chunk_index."""
+        if value < 0:
+            raise ValueError("chunk_index must be greater than or equal to 0")
+        return value
+
+    @field_validator("char_start")
+    @classmethod
+    def validate_char_start(cls, value: int) -> int:
+        """Require non-negative char_start."""
+        if value < 0:
+            raise ValueError("char_start must be greater than or equal to 0")
+        return value
+
+    @field_validator("line_from")
+    @classmethod
+    def validate_line_from(cls, value: int) -> int:
+        """Require 1-based line_from."""
+        if value < 1:
+            raise ValueError("line_from must be greater than or equal to 1")
+        return value
+
+    @model_validator(mode="after")
+    def validate_span_consistency(self) -> Self:
+        """Require a non-empty char span and an ordered line range."""
+        if self.char_end <= self.char_start:
+            raise ValueError("char_end must be greater than char_start")
+        if self.line_to < self.line_from:
+            raise ValueError("line_to must be greater than or equal to line_from")
+        return self
 
 
 class QueryResponse(BaseModel):

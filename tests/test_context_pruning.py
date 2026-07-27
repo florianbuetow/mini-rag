@@ -13,6 +13,12 @@ def _result(chunk_id: int, text: str) -> SearchResult:
         citation_key=f"doc-{chunk_id}",
         text=text,
         score=1.0 / chunk_id,
+        source_path=f"docs/doc-{chunk_id}.txt",
+        chunk_index=0,
+        char_start=0,
+        char_end=len(text),
+        line_from=1,
+        line_to=1,
     )
 
 

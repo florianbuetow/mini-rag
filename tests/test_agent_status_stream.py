@@ -136,7 +136,23 @@ def _message(event: ChatStreamEvent) -> str:
 def test_search_tool_emits_searching_before_retrieval() -> None:
     """The search tool should report that retrieval has started."""
     events: list[ChatStreamEvent] = []
-    agent = _make_agent([SearchResult(chunk_id=1, document_id=1, citation_key="doc", text="alpha", score=0.9)])
+    agent = _make_agent(
+        [
+            SearchResult(
+                chunk_id=1,
+                document_id=1,
+                citation_key="doc",
+                text="alpha",
+                score=0.9,
+                source_path="docs/sample.txt",
+                chunk_index=0,
+                char_start=0,
+                char_end=5,
+                line_from=1,
+                line_to=1,
+            )
+        ]
+    )
 
     _run_tool(agent, events)
 
@@ -148,7 +164,21 @@ def test_search_tool_reports_cached_corpus_scope_metrics_when_available() -> Non
     """Search status should include corpus-wide counts when the manager exposes them."""
     events: list[ChatStreamEvent] = []
     agent = _make_agent(
-        [SearchResult(chunk_id=1, document_id=1, citation_key="doc", text="alpha", score=0.9)],
+        [
+            SearchResult(
+                chunk_id=1,
+                document_id=1,
+                citation_key="doc",
+                text="alpha",
+                score=0.9,
+                source_path="docs/sample.txt",
+                chunk_index=0,
+                char_start=0,
+                char_end=5,
+                line_from=1,
+                line_to=1,
+            )
+        ],
         stats=CorpusStats(document_count=12, chunk_count=34),
     )
 
@@ -162,9 +192,45 @@ def test_search_tool_context_ready_counts_chunks_and_unique_documents() -> None:
     events: list[ChatStreamEvent] = []
     agent = _make_agent(
         [
-            SearchResult(chunk_id=1, document_id=10, citation_key="doc-a", text="alpha", score=0.9),
-            SearchResult(chunk_id=2, document_id=10, citation_key="doc-a", text="beta", score=0.8),
-            SearchResult(chunk_id=3, document_id=20, citation_key="doc-b", text="gamma", score=0.7),
+            SearchResult(
+                chunk_id=1,
+                document_id=10,
+                citation_key="doc-a",
+                text="alpha",
+                score=0.9,
+                source_path="docs/sample.txt",
+                chunk_index=0,
+                char_start=0,
+                char_end=5,
+                line_from=1,
+                line_to=1,
+            ),
+            SearchResult(
+                chunk_id=2,
+                document_id=10,
+                citation_key="doc-a",
+                text="beta",
+                score=0.8,
+                source_path="docs/sample.txt",
+                chunk_index=0,
+                char_start=0,
+                char_end=5,
+                line_from=1,
+                line_to=1,
+            ),
+            SearchResult(
+                chunk_id=3,
+                document_id=20,
+                citation_key="doc-b",
+                text="gamma",
+                score=0.7,
+                source_path="docs/sample.txt",
+                chunk_index=0,
+                char_start=0,
+                char_end=5,
+                line_from=1,
+                line_to=1,
+            ),
         ]
     )
 
@@ -185,8 +251,32 @@ def test_search_tool_reports_exact_hybrid_reranking_candidate_count() -> None:
     events: list[ChatStreamEvent] = []
     agent = _make_agent(
         [
-            SearchResult(chunk_id=1, document_id=10, citation_key="doc-a", text="alpha", score=0.9),
-            SearchResult(chunk_id=2, document_id=20, citation_key="doc-b", text="beta", score=0.8),
+            SearchResult(
+                chunk_id=1,
+                document_id=10,
+                citation_key="doc-a",
+                text="alpha",
+                score=0.9,
+                source_path="docs/sample.txt",
+                chunk_index=0,
+                char_start=0,
+                char_end=5,
+                line_from=1,
+                line_to=1,
+            ),
+            SearchResult(
+                chunk_id=2,
+                document_id=20,
+                citation_key="doc-b",
+                text="beta",
+                score=0.8,
+                source_path="docs/sample.txt",
+                chunk_index=0,
+                char_start=0,
+                char_end=5,
+                line_from=1,
+                line_to=1,
+            ),
         ],
         hybrid_candidate_count=7,
     )
@@ -205,7 +295,21 @@ def test_search_tool_skips_candidate_status_when_hybrid_reranking_is_disabled() 
     """Candidate status is meaningful only when hybrid reranking is active."""
     events: list[ChatStreamEvent] = []
     agent = _make_agent(
-        [SearchResult(chunk_id=1, document_id=10, citation_key="doc-a", text="alpha", score=0.9)],
+        [
+            SearchResult(
+                chunk_id=1,
+                document_id=10,
+                citation_key="doc-a",
+                text="alpha",
+                score=0.9,
+                source_path="docs/sample.txt",
+                chunk_index=0,
+                char_start=0,
+                char_end=5,
+                line_from=1,
+                line_to=1,
+            )
+        ],
         hybrid_candidate_count=7,
         reranking_active=False,
     )
@@ -238,9 +342,45 @@ def test_search_tool_prunes_context_to_token_budget_before_final_metrics() -> No
     events: list[ChatStreamEvent] = []
     agent = _make_agent(
         [
-            SearchResult(chunk_id=1, document_id=10, citation_key="doc-a", text="short", score=0.9),
-            SearchResult(chunk_id=2, document_id=20, citation_key="doc-b", text=" ".join(["large"] * 200), score=0.8),
-            SearchResult(chunk_id=3, document_id=30, citation_key="doc-c", text="small", score=0.7),
+            SearchResult(
+                chunk_id=1,
+                document_id=10,
+                citation_key="doc-a",
+                text="short",
+                score=0.9,
+                source_path="docs/sample.txt",
+                chunk_index=0,
+                char_start=0,
+                char_end=5,
+                line_from=1,
+                line_to=1,
+            ),
+            SearchResult(
+                chunk_id=2,
+                document_id=20,
+                citation_key="doc-b",
+                text=" ".join(["large"] * 200),
+                score=0.8,
+                source_path="docs/sample.txt",
+                chunk_index=0,
+                char_start=0,
+                char_end=5,
+                line_from=1,
+                line_to=1,
+            ),
+            SearchResult(
+                chunk_id=3,
+                document_id=30,
+                citation_key="doc-c",
+                text="small",
+                score=0.7,
+                source_path="docs/sample.txt",
+                chunk_index=0,
+                char_start=0,
+                char_end=5,
+                line_from=1,
+                line_to=1,
+            ),
         ]
     )
 

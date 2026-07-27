@@ -9,14 +9,17 @@ from minirag.corpus import validate_corpus_name
 class IndexingClient(BaseClient):
     """Client for indexing and destroying index data."""
 
-    def index_document(self, corpus: str, text: str, citation: dict[str, object] | None) -> tuple[int, list[int]]:
-        """Index one document and return document_id and chunk_ids."""
+    def index_document(self, corpus: str, text: str, citation: dict[str, object] | None, source_path: str) -> tuple[int, list[int]]:
+        """Index one document with its source path and return document_id and chunk_ids."""
         validate_corpus_name(corpus)
 
         if text.strip() == "":
             raise ValueError("text must not be empty")
 
-        payload: dict[str, object] = {"document": text}
+        if source_path.strip() == "":
+            raise ValueError("source_path must not be empty")
+
+        payload: dict[str, object] = {"document": text, "source_path": source_path}
         if citation is not None:
             payload["citation"] = citation
 

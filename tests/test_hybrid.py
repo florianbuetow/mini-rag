@@ -9,12 +9,60 @@ from minirag.search.types import SearchResult
 def test_merge_hybrid_results_combines_scores() -> None:
     """Hybrid merge should combine dense and sparse scores by alpha."""
     dense = [
-        SearchResult(chunk_id=1, document_id=1, citation_key="k1", text="a", score=1.0),
-        SearchResult(chunk_id=2, document_id=1, citation_key="k1", text="b", score=0.5),
+        SearchResult(
+            chunk_id=1,
+            document_id=1,
+            citation_key="k1",
+            text="a",
+            score=1.0,
+            source_path="docs/sample.txt",
+            chunk_index=0,
+            char_start=0,
+            char_end=5,
+            line_from=1,
+            line_to=1,
+        ),
+        SearchResult(
+            chunk_id=2,
+            document_id=1,
+            citation_key="k1",
+            text="b",
+            score=0.5,
+            source_path="docs/sample.txt",
+            chunk_index=0,
+            char_start=0,
+            char_end=5,
+            line_from=1,
+            line_to=1,
+        ),
     ]
     sparse = [
-        SearchResult(chunk_id=1, document_id=1, citation_key="k1", text="a", score=0.2),
-        SearchResult(chunk_id=3, document_id=2, citation_key="k2", text="c", score=1.0),
+        SearchResult(
+            chunk_id=1,
+            document_id=1,
+            citation_key="k1",
+            text="a",
+            score=0.2,
+            source_path="docs/sample.txt",
+            chunk_index=0,
+            char_start=0,
+            char_end=5,
+            line_from=1,
+            line_to=1,
+        ),
+        SearchResult(
+            chunk_id=3,
+            document_id=2,
+            citation_key="k2",
+            text="c",
+            score=1.0,
+            source_path="docs/sample.txt",
+            chunk_index=0,
+            char_start=0,
+            char_end=5,
+            line_from=1,
+            line_to=1,
+        ),
     ]
 
     merged = merge_hybrid_results(dense_results=dense, sparse_results=sparse, alpha=0.5, top_k=3)
