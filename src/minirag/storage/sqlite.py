@@ -257,6 +257,34 @@ class SQLiteStorage(Storage):
 
         logger.debug("Inserted citation key=%s for document_id=%s", citation_key, document_id)
 
+    def delete_document(self, document_id: int) -> list[int]:
+        """Delete a document, its chunks, and its citation. Return deleted chunk IDs."""
+        if document_id <= 0:
+            raise ValueError("document_id must be greater than 0")
+
+        with self._lock:
+            cursor = self._connection.cursor()
+            try:
+                cursor.execute("BEGIN")
+                cursor.execute(
+                    "SELECT chunk_id FROM chunks WHERE document_id = ? ORDER BY chunk_id",
+                    (document_id,),
+                )
+                chunk_ids = [int(row[0]) for row in cursor.fetchall()]
+                cursor.execute(
+                    "DELETE FROM document_citations WHERE document_id = ?",
+                    (document_id,),
+                )
+                cursor.execute("DELETE FROM chunks WHERE document_id = ?", (document_id,))
+                cursor.execute("DELETE FROM documents WHERE document_id = ?", (document_id,))
+                self._connection.commit()
+            except Exception:
+                self._connection.rollback()
+                raise
+
+        logger.debug("Deleted document ID %s with %d chunks", document_id, len(chunk_ids))
+        return chunk_ids
+
     def get_document(self, document_id: int) -> str:
         """Return document content by ID."""
         if document_id <= 0:
@@ -390,6 +418,28 @@ class SQLiteStorage(Storage):
             raise ValueError(f"citation_json is not text for citation_key: {citation_key}")
 
         return citation_json_value
+
+    def get_document_id(self, citation_key: str) -> int | None:
+        """Return the document ID owning a citation_key, or None if not found."""
+        if citation_key.strip() == "":
+            raise ValueError("citation_key must not be empty")
+
+        with self._lock:
+            cursor = self._connection.cursor()
+            cursor.execute(
+                "SELECT document_id FROM document_citations WHERE citation_key = ?",
+                (citation_key,),
+            )
+            row = cursor.fetchone()
+
+        if row is None:
+            return None
+
+        document_id_value = row[0]
+        if not isinstance(document_id_value, int):
+            raise ValueError(f"document_id is not int for citation_key: {citation_key}")
+
+        return document_id_value
 
     def close(self) -> None:
         """Close the SQLite database connection."""

@@ -52,6 +52,10 @@ class StorageReader(ABC):
     def get_citation(self, citation_key: str) -> str | None:
         """Return raw citation JSON string for a citation_key, or None if not found."""
 
+    @abstractmethod
+    def get_document_id(self, citation_key: str) -> int | None:
+        """Return the document ID owning a citation_key, or None if not found."""
+
 
 class StorageWriter(ABC):
     """Write contract for persisted documents and chunks."""
@@ -71,6 +75,10 @@ class StorageWriter(ABC):
     @abstractmethod
     def insert_citation(self, citation_key: str, document_id: int, citation_json: str) -> None:
         """Store a citation record for a document."""
+
+    @abstractmethod
+    def delete_document(self, document_id: int) -> list[int]:
+        """Delete a document, its chunks, and its citation. Return the deleted chunk IDs."""
 
 
 class StorageLifecycle(ABC):
