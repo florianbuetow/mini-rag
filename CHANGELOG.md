@@ -5,6 +5,34 @@ week by week from the full git history. The format draws on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project is not yet
 tagged, so sections are grouped by ISO week instead of semantic version.
 
+## [2026-W31] - 2026-07-27
+
+### Added
+
+- Clean stop for a running ingest via a `STOP` file, honoured at document boundaries.
+- Chunk retrieval endpoint for fetching a chunk and its source by ID.
+
+### Changed
+
+- Re-indexing an existing document now rebuilds it across storage and both indices.
+- Interrupted ingests repair the affected document on resume instead of skipping it.
+
+### Fixed
+
+- Duplicate citation failures are no longer reported as successful indexing.
+
+## [2026-W28] - 2026-07-07
+
+### Changed
+
+- Reworked the ingest script and citation handling for more reliable indexing.
+
+## [2026-W27] - 2026-06-30
+
+### Added
+
+- MCP configuration help and percentage progress reporting during ingestion.
+
 ## [2026-W23] - 2026-06-06 to 2026-06-07
 
 ### Added
@@ -142,4 +170,7 @@ tagged, so sections are grouped by ISO week instead of semantic version.
 
 - Fixed async/sync mismatch, SQLite thread safety, and the e2e subprocess import error.
 
+[2026-W31]: https://github.com/florianbuetow/mini-rag/commits/main
+[2026-W28]: https://github.com/florianbuetow/mini-rag/commits/main
+[2026-W27]: https://github.com/florianbuetow/mini-rag/commits/main
 [2026-W23]: https://github.com/florianbuetow/mini-rag/commits/main
