@@ -31,7 +31,8 @@ MCP_HOST = "127.0.0.1"
 MCP_PORT = 7097
 MCP_CORPUS = "test"
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-_SERVER_STARTUP_TIMEOUT_S = 30
+# Cold-loading the optional fastText model can exceed the default test timeout.
+_SERVER_STARTUP_TIMEOUT_S = 120
 _COMMAND_TIMEOUT_S = 30
 
 
@@ -75,6 +76,16 @@ def _ensure_service_stopped(base_url: str, timeout_s: int) -> None:
     raise RuntimeError(f"Existing service at {base_url} did not shut down within {timeout_s}s")
 
 
+def _read_available(stream) -> str:
+    """Read buffered subprocess output without waiting for inherited pipes to close."""
+    if stream is None:
+        return ""
+    with suppress(Exception):
+        os.set_blocking(stream.fileno(), False)
+        return stream.read().decode(errors="replace")
+    return ""
+
+
 def _wait_for_health_or_exit(base_url: str, timeout_s: int, proc: subprocess.Popen[bytes]) -> None:
     """Wait for healthy service or fail fast when the process exits."""
     import time
@@ -95,20 +106,20 @@ def _wait_for_health_or_exit(base_url: str, timeout_s: int, proc: subprocess.Pop
             pass
         time.sleep(1.0)
 
-    raise RuntimeError(f"Service at {base_url} did not become healthy within {timeout_s}s")
+    stdout = _read_available(proc.stdout)
+    stderr = _read_available(proc.stderr)
+    raise RuntimeError(
+        f"Service at {base_url} did not become healthy within {timeout_s}s.\nstdout: {stdout}\nstderr: {stderr}"
+    )
 
 
-def _resolve_test_input_source(source_data_dir: Path) -> Path:
-    """Resolve test corpus source directory from data dir or repo fallback."""
-    test_input_src = source_data_dir / "input" / MCP_CORPUS
+def _resolve_test_input_source() -> Path:
+    """Resolve test corpus source directory from repo-local test fixtures."""
+    test_input_src = PROJECT_ROOT / "data" / "input" / MCP_CORPUS
     if test_input_src.exists():
         return test_input_src
 
-    fallback_input_src = PROJECT_ROOT / "data" / "input" / MCP_CORPUS
-    if fallback_input_src.exists():
-        return fallback_input_src
-
-    raise FileNotFoundError(f"test corpus not found: {test_input_src} and {fallback_input_src}")
+    raise FileNotFoundError(f"test corpus not found: {test_input_src}")
 
 
 def _prepare_corpus_input_tree(*, data_dir: Path, test_input_src: Path) -> None:
@@ -186,7 +197,7 @@ def _build_server_env() -> dict[str, str]:
     }
 
 
-def _create_temp_data_dir(project_config: Config, source_data_dir: Path) -> tuple[Path, Path]:
+def _create_temp_data_dir(project_config: Config) -> tuple[Path, Path]:
     """Create temp data dir with model symlink and corpus input tree.
 
     Returns (data_dir, config_path).
@@ -198,14 +209,14 @@ def _create_temp_data_dir(project_config: Config, source_data_dir: Path) -> tupl
     (data_dir / "index").mkdir(parents=True)
 
     model_name = project_config.index.embeddings.model_name
-    model_src = source_data_dir / "models" / model_name
-    if not model_src.exists():
+    model_src = PROJECT_ROOT / "data" / "models" / model_name
+    if not model_src.is_file():
         shutil.rmtree(tmp, ignore_errors=True)
         pytest.skip(f"FastText model not found at {model_src} — run 'just init'")
     os.symlink(model_src, data_dir / "models" / model_name)
 
     try:
-        test_input_src = _resolve_test_input_source(source_data_dir)
+        test_input_src = _resolve_test_input_source()
     except FileNotFoundError as exc:
         shutil.rmtree(tmp, ignore_errors=True)
         pytest.skip(str(exc))
@@ -290,9 +301,8 @@ def mcp_env():
     if not project_config_path.exists():
         pytest.skip(f"Project config not found at {project_config_path}")
     project_config = Config.from_yaml(project_config_path)
-    source_data_dir = project_config.resolve_data_dir(PROJECT_ROOT)
 
-    data_dir, config_path = _create_temp_data_dir(project_config, source_data_dir)
+    data_dir, config_path = _create_temp_data_dir(project_config)
     tmp = str(data_dir)
 
     base_url = f"http://{MCP_HOST}:{MCP_PORT}"
@@ -317,8 +327,7 @@ def mcp_env():
         if mcp_client is not None:
             mcp_client.close()
         if api_proc.poll() is None:
-            api_proc.kill()
-            api_proc.communicate(timeout=5)
+            _shutdown_api_server(base_url, api_proc)
         shutil.rmtree(tmp, ignore_errors=True)
         raise
 
