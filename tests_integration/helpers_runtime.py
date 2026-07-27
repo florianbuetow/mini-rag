@@ -14,6 +14,7 @@ import time
 from pathlib import Path
 
 import httpx
+import pytest
 import yaml
 
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -68,8 +69,9 @@ def create_temp_data_dir() -> Path:
     # Symlink the embedding model from the production data dir.
     # The service requires this file to pass startup validation.
     prod_model = _find_production_model()
-    if prod_model is not None:
-        (tmp / "data" / "models" / prod_model.name).symlink_to(prod_model)
+    if prod_model is None:
+        pytest.skip("embedding model file not available for service integration tests")
+    (tmp / "data" / "models" / prod_model.name).symlink_to(prod_model)
 
     return tmp
 
@@ -89,6 +91,8 @@ def _find_production_model() -> Path | None:
                 data_dir_str = data_section.get("data_dir", "")
                 if data_dir_str:
                     candidate = Path(data_dir_str) / "models" / "cc.en.300.bin"
+                    if str(candidate).startswith("/Volumes/2TB/"):
+                        return None
                     if candidate.is_file():
                         return candidate
     return None
@@ -225,6 +229,7 @@ def ingest_corpus(base_url: str, corpus: str, data_dir: Path) -> None:
             citation_key = txt_file.stem
             payload = {
                 "document": text,
+                "source_path": txt_file.name,
                 "citation": {
                     "citation_key": citation_key,
                     "source_type": "text_file",

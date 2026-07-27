@@ -38,11 +38,13 @@ class SQLiteStorage(Storage):
         """Create required tables when missing."""
         with self._lock:
             cursor = self._connection.cursor()
+            self._drop_legacy_tables_if_needed(cursor)
             cursor.execute(
                 """
                 CREATE TABLE IF NOT EXISTS documents (
                     document_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    content TEXT NOT NULL
+                    content TEXT NOT NULL,
+                    source_path TEXT NOT NULL
                 )
                 """
             )
@@ -52,6 +54,11 @@ class SQLiteStorage(Storage):
                     chunk_id INTEGER PRIMARY KEY AUTOINCREMENT,
                     document_id INTEGER NOT NULL,
                     content TEXT NOT NULL,
+                    chunk_index INTEGER NOT NULL,
+                    char_start INTEGER NOT NULL,
+                    char_end INTEGER NOT NULL,
+                    line_from INTEGER NOT NULL,
+                    line_to INTEGER NOT NULL,
                     FOREIGN KEY (document_id) REFERENCES documents(document_id)
                 )
                 """
@@ -83,6 +90,40 @@ class SQLiteStorage(Storage):
                 """
             )
             self._connection.commit()
+
+    def _drop_legacy_tables_if_needed(self, cursor: sqlite3.Cursor) -> None:
+        """Drop pre-provenance tables so the schema can be rebuilt.
+
+        The database is a derived index rebuilt from the source text files, so a
+        schema upgrade may discard rows; the corpus must be re-ingested afterwards.
+        """
+        chunks_missing_provenance = self._table_missing_column(cursor, table_name="chunks", column_name="char_start")
+        documents_missing_source_path = self._table_missing_column(cursor, table_name="documents", column_name="source_path")
+        legacy = chunks_missing_provenance
+        if not legacy:
+            legacy = documents_missing_source_path
+        if not legacy:
+            return
+
+        logger.warning(
+            "Legacy schema without chunk provenance detected at %s; dropping index tables — re-ingest required",
+            self._database_path,
+        )
+        for table_name in ("document_citations", "chunks", "documents", "corpus_stats"):
+            cursor.execute(f"DROP TABLE IF EXISTS {table_name}")
+        self._connection.commit()
+
+    def _table_missing_column(self, cursor: sqlite3.Cursor, table_name: str, column_name: str) -> bool:
+        """Return True when the table exists but lacks the given column."""
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+            (table_name,),
+        )
+        if cursor.fetchone() is None:
+            return False
+        cursor.execute(f"PRAGMA table_info({table_name})")
+        column_names = {row[1] for row in cursor.fetchall()}
+        return column_name not in column_names
 
     def _initialize_corpus_stats(self, cursor: sqlite3.Cursor) -> None:
         """Initialize missing stats rows, backfilling only during schema setup."""
@@ -150,16 +191,19 @@ class SQLiteStorage(Storage):
             """
         )
 
-    def insert_document_with_citation(self, content: str, citation: dict[str, object] | None) -> int:
-        """Store a document and its citation in one transaction."""
+    def insert_document_with_citation(self, content: str, citation: dict[str, object] | None, source_path: str) -> int:
+        """Store a document, its citation, and its source path in one transaction."""
         if content.strip() == "":
             raise ValueError("document content must not be empty")
+
+        if source_path.strip() == "":
+            raise ValueError("source_path must not be empty")
 
         with self._lock:
             cursor = self._connection.cursor()
             try:
                 cursor.execute("BEGIN")
-                cursor.execute("INSERT INTO documents(content) VALUES (?)", (content,))
+                cursor.execute("INSERT INTO documents(content, source_path) VALUES (?, ?)", (content, source_path))
                 row_id = cursor.lastrowid
                 if row_id is None:
                     raise ValueError("failed to retrieve inserted document ID")
@@ -196,14 +240,17 @@ class SQLiteStorage(Storage):
         logger.debug("Inserted document with ID %s and citation key=%s", document_id, citation_key)
         return document_id
 
-    def insert_document(self, content: str) -> int:
-        """Store a document and return its generated ID."""
+    def insert_document(self, content: str, source_path: str) -> int:
+        """Store a document with its source path and return its generated ID."""
         if content.strip() == "":
             raise ValueError("document content must not be empty")
 
+        if source_path.strip() == "":
+            raise ValueError("source_path must not be empty")
+
         with self._lock:
             cursor = self._connection.cursor()
-            cursor.execute("INSERT INTO documents(content) VALUES (?)", (content,))
+            cursor.execute("INSERT INTO documents(content, source_path) VALUES (?, ?)", (content, source_path))
             self._connection.commit()
 
             row_id = cursor.lastrowid
@@ -213,19 +260,46 @@ class SQLiteStorage(Storage):
         logger.debug("Inserted document with ID %s", row_id)
         return int(row_id)
 
-    def insert_chunk(self, document_id: int, content: str) -> int:
-        """Store a chunk and return its generated ID."""
+    def insert_chunk(
+        self,
+        document_id: int,
+        content: str,
+        chunk_index: int,
+        char_start: int,
+        char_end: int,
+        line_from: int,
+        line_to: int,
+    ) -> int:
+        """Store a chunk with its span provenance and return its generated ID."""
         if document_id <= 0:
             raise ValueError("document_id must be greater than 0")
 
         if content.strip() == "":
             raise ValueError("chunk content must not be empty")
 
+        if chunk_index < 0:
+            raise ValueError("chunk_index must be greater than or equal to 0")
+
+        if char_start < 0:
+            raise ValueError("char_start must be greater than or equal to 0")
+
+        if char_end <= char_start:
+            raise ValueError("char_end must be greater than char_start")
+
+        if line_from < 1:
+            raise ValueError("line_from must be greater than or equal to 1")
+
+        if line_to < line_from:
+            raise ValueError("line_to must be greater than or equal to line_from")
+
         with self._lock:
             cursor = self._connection.cursor()
             cursor.execute(
-                "INSERT INTO chunks(document_id, content) VALUES (?, ?)",
-                (document_id, content),
+                """
+                INSERT INTO chunks(document_id, content, chunk_index, char_start, char_end, line_from, line_to)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (document_id, content, chunk_index, char_start, char_end, line_from, line_to),
             )
             self._connection.commit()
 
@@ -305,14 +379,21 @@ class SQLiteStorage(Storage):
         return content_value
 
     def get_chunk(self, chunk_id: int) -> ChunkWithDocument:
-        """Return chunk content and owning document ID by chunk ID."""
+        """Return chunk content, owning document ID, and source provenance by chunk ID."""
         if chunk_id <= 0:
             raise ValueError("chunk_id must be greater than 0")
 
         with self._lock:
             cursor = self._connection.cursor()
             cursor.execute(
-                "SELECT document_id, content FROM chunks WHERE chunk_id = ?",
+                """
+                SELECT chunks.document_id, chunks.content, documents.source_path,
+                       chunks.chunk_index, chunks.char_start, chunks.char_end,
+                       chunks.line_from, chunks.line_to
+                FROM chunks
+                JOIN documents ON documents.document_id = chunks.document_id
+                WHERE chunks.chunk_id = ?
+                """,
                 (chunk_id,),
             )
             row = cursor.fetchone()
@@ -322,6 +403,8 @@ class SQLiteStorage(Storage):
 
         document_id_value = row[0]
         content_value = row[1]
+        source_path_value = row[2]
+        int_values = row[3:8]
 
         if not isinstance(document_id_value, int):
             raise ValueError(f"chunk document_id is not int for chunk ID: {chunk_id}")
@@ -329,7 +412,23 @@ class SQLiteStorage(Storage):
         if not isinstance(content_value, str):
             raise ValueError(f"chunk content is not text for chunk ID: {chunk_id}")
 
-        return ChunkWithDocument(document_id=document_id_value, content=content_value)
+        if not isinstance(source_path_value, str):
+            raise ValueError(f"document source_path is not text for chunk ID: {chunk_id}")
+
+        for value in int_values:
+            if not isinstance(value, int):
+                raise ValueError(f"chunk provenance value is not int for chunk ID: {chunk_id}")
+
+        return ChunkWithDocument(
+            document_id=document_id_value,
+            content=content_value,
+            source_path=source_path_value,
+            chunk_index=int_values[0],
+            char_start=int_values[1],
+            char_end=int_values[2],
+            line_from=int_values[3],
+            line_to=int_values[4],
+        )
 
     def list_chunks(self, document_id: int) -> list[ChunkRecord]:
         """Return all chunk records for one document."""

@@ -79,16 +79,7 @@ class Orchestration:
             if not isinstance(source_type, str) or source_type.strip() == "":
                 raise ValueError("citation must contain a non-empty 'source_type'")
 
-        # A file already present means a previous run wrote it but did not finish: either it
-        # was interrupted mid-document (chunk rows committed, vectors not yet persisted) or its
-        # ledger entry was lost. Either way its indexed state is unproven, so purge every trace
-        # and index it fresh rather than trusting it. This is what makes a crashed run safe to
-        # re-run: re-indexing a file is idempotent, not an error.
-        if citation is not None:
-            get_document_id = getattr(self._storage, "get_document_id", None)
-            existing_id = get_document_id(str(citation["citation_key"])) if callable(get_document_id) else None
-            if existing_id is not None:
-                self._purge_document(document_id=existing_id)
+        self._purge_existing_citation(citation)
 
         document_id = self._storage.insert_document_with_citation(text, citation, source_path)
 
@@ -127,6 +118,22 @@ class Orchestration:
 
         logger.info("Indexed document_id=%s with %s chunks", document_id, len(chunk_ids))
         return (document_id, chunk_ids)
+
+    def _purge_existing_citation(self, citation: dict[str, object] | None) -> None:
+        """Purge an already-indexed explicit citation before re-indexing it."""
+        # A file already present means a previous run wrote it but did not finish: either it
+        # was interrupted mid-document (chunk rows committed, vectors not yet persisted) or its
+        # ledger entry was lost. Either way its indexed state is unproven, so purge every trace
+        # and index it fresh rather than trusting it. This is what makes a crashed run safe to
+        # re-run: re-indexing a file is idempotent, not an error.
+        if citation is None:
+            return
+
+        existing_id = None
+        if hasattr(self._storage, "get_document_id"):
+            existing_id = self._storage.get_document_id(str(citation["citation_key"]))
+        if existing_id is not None:
+            self._purge_document(document_id=existing_id)
 
     def _purge_document(self, document_id: int) -> None:
         """Remove a document from storage and both retrieval indices."""
