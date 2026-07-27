@@ -131,7 +131,7 @@ start:
 
 # Stop the running service
 [group('lifecycle')]
-stop:
+stop-service:
     #!/usr/bin/env bash
     set -e
     echo ""
@@ -286,6 +286,41 @@ update corpus="":
     CORPUS=$(./scripts/corpus_exists.sh "{{corpus}}")
     uv run scripts/ingest.py --corpus "$CORPUS" --update
     echo ""
+
+# Request a clean stop for all ingests or one corpus
+[group('corpus')]
+stop corpus="":
+    #!/usr/bin/env bash
+    set -e
+    DATA_DIR=$(uv run python -c "import yaml; print(yaml.safe_load(open('config.yaml', encoding='utf-8'))['data']['data_dir'])")
+    if [ -z "{{corpus}}" ]; then
+        STOP_PATH="${DATA_DIR}/STOP"
+    else
+        CORPUS=$(./scripts/corpus_exists.sh "{{corpus}}")
+        STOP_PATH="${DATA_DIR}/storage/${CORPUS}/STOP"
+    fi
+    mkdir -p "$(dirname "$STOP_PATH")"
+    : > "$STOP_PATH"
+    echo "STOP written: $STOP_PATH"
+
+# Remove a clean-stop request for all ingests or one corpus
+[group('corpus')]
+resume corpus="":
+    #!/usr/bin/env bash
+    set -e
+    DATA_DIR=$(uv run python -c "import yaml; print(yaml.safe_load(open('config.yaml', encoding='utf-8'))['data']['data_dir'])")
+    if [ -z "{{corpus}}" ]; then
+        STOP_PATH="${DATA_DIR}/STOP"
+    else
+        CORPUS=$(./scripts/corpus_exists.sh "{{corpus}}")
+        STOP_PATH="${DATA_DIR}/storage/${CORPUS}/STOP"
+    fi
+    if [ -f "$STOP_PATH" ]; then
+        rm "$STOP_PATH"
+        echo "STOP removed: $STOP_PATH"
+    else
+        echo "No STOP file present: $STOP_PATH"
+    fi
 
 # Seed the ingestion ledger from an already-indexed corpus without re-indexing (one-time migration)
 [group('corpus')]

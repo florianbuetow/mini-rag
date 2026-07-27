@@ -11,6 +11,8 @@ from minirag.ingestion.citations import load_citation, resolve_input_dir
 
 logger = logging.getLogger(__name__)
 
+STOP_EXIT_CODE = 3
+
 
 def configure_logging() -> None:
     """Configure script logging."""
@@ -18,6 +20,14 @@ def configure_logging() -> None:
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
+
+
+def _stop_reason(stop_path: Path) -> str:
+    """Return STOP file text, or empty string if the note cannot be read."""
+    try:
+        return stop_path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
 
 
 def ingest_files(client: IndexingClient, corpus: str, input_dir: Path, data_dir: Path, *, incremental: bool = False) -> None:
@@ -60,6 +70,18 @@ def ingest_files(client: IndexingClient, corpus: str, input_dir: Path, data_dir:
         relative_to_data = file_path.relative_to(data_dir)
         relative_to_input = file_path.relative_to(input_dir).as_posix()
         percent = i * 100 // num_files
+        stop_path = ledger.stop_requested(data_dir, corpus)
+        if stop_path is not None:
+            reason = _stop_reason(stop_path)
+            logger.warning(
+                "STOP file found at %s — halting cleanly at [%d/%d] before %s%s",
+                stop_path,
+                i,
+                num_files,
+                relative_to_input,
+                f" (reason: {reason})" if reason else "",
+            )
+            break
         try:
             if relative_to_input in already_indexed:
                 skipped_existing += 1
@@ -124,6 +146,17 @@ def main() -> None:
     config = Config.from_yaml(config_path)
     data_dir = config.resolve_data_dir(project_root)
     input_dir = resolve_input_dir(data_dir, corpus)
+
+    stop_path = ledger.stop_requested(data_dir, corpus)
+    if stop_path is not None:
+        reason = _stop_reason(stop_path)
+        logger.error(
+            "STOP file found at %s — refusing to start ingest for corpus=%s%s",
+            stop_path,
+            corpus,
+            f" (reason: {reason})" if reason else "",
+        )
+        raise SystemExit(STOP_EXIT_CODE)
 
     service_config = config.get_service_config()
     client = IndexingClient(host=service_config.host, port=service_config.port, http_client=None)

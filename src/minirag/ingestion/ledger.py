@@ -45,6 +45,16 @@ def log_path(data_dir: Path, corpus: str) -> Path:
     return _corpus_storage_dir(data_dir, corpus) / "indexed.log"
 
 
+def stop_file_paths(data_dir: Path, corpus: str) -> list[Path]:
+    """Return the global and per-corpus poison-pill paths, in precedence order."""
+    return [data_dir / "STOP", data_dir / "storage" / corpus / "STOP"]
+
+
+def stop_requested(data_dir: Path, corpus: str) -> Path | None:
+    """Return the first existing STOP file, or None."""
+    return next((path for path in stop_file_paths(data_dir, corpus) if path.is_file()), None)
+
+
 def _read_lines(path: Path) -> set[str]:
     """Return the set of non-empty, stripped lines in a file, or empty if absent."""
     if not path.exists():
