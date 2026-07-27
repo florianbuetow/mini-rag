@@ -8,13 +8,14 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from minirag.config import SearchConfig
+from minirag.ingestion.chunker import ChunkSpan
 from minirag.reranking.interface import Reranker
 from minirag.retrieval.dense_interface import DenseRetrieval
 from minirag.retrieval.sparse_interface import SparseRetrieval
 from minirag.search.embeddings_interface import Embeddings
 from minirag.search.hybrid import merge_hybrid_results
 from minirag.search.types import ScoredChunk, SearchResult
-from minirag.storage.interface import CorpusStats, Storage
+from minirag.storage.interface import ChunkWithDocument, CorpusStats, Storage
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +45,7 @@ class Orchestration:
         sparse: SparseRetrieval,
         search_config: SearchConfig,
         reranker: Reranker | None,
-        chunker: Callable[[str], list[str]],
+        chunker: Callable[[str], list[ChunkSpan]],
     ) -> None:
         """Initialize orchestration with all backend dependencies.
 
@@ -61,10 +62,13 @@ class Orchestration:
         self._citation_key_cache: OrderedDict[int, str] = OrderedDict()
         self._citation_key_cache_lock = threading.Lock()
 
-    def index_document(self, text: str, citation: dict[str, object] | None) -> tuple[int, list[int]]:
+    def index_document(self, text: str, citation: dict[str, object] | None, source_path: str) -> tuple[int, list[int]]:
         """Index one document through storage, chunking, embeddings, both indices, and citation storage."""
         if text.strip() == "":
             raise ValueError("document text must not be empty")
+
+        if source_path.strip() == "":
+            raise ValueError("source_path must not be empty")
 
         # Validate citation before any storage writes to fail fast on bad input.
         if citation is not None:
@@ -75,19 +79,40 @@ class Orchestration:
             if not isinstance(source_type, str) or source_type.strip() == "":
                 raise ValueError("citation must contain a non-empty 'source_type'")
 
-        document_id = self._storage.insert_document_with_citation(text, citation)
+        # A file already present means a previous run wrote it but did not finish: either it
+        # was interrupted mid-document (chunk rows committed, vectors not yet persisted) or its
+        # ledger entry was lost. Either way its indexed state is unproven, so purge every trace
+        # and index it fresh rather than trusting it. This is what makes a crashed run safe to
+        # re-run: re-indexing a file is idempotent, not an error.
+        if citation is not None:
+            get_document_id = getattr(self._storage, "get_document_id", None)
+            existing_id = get_document_id(str(citation["citation_key"])) if callable(get_document_id) else None
+            if existing_id is not None:
+                self._purge_document(document_id=existing_id)
 
-        chunks = self._chunker(text)
+        document_id = self._storage.insert_document_with_citation(text, citation, source_path)
+
+        chunk_spans = self._chunker(text)
 
         chunk_ids: list[int] = []
-        for chunk_index, chunk in enumerate(chunks):
+        for chunk_index, chunk_span in enumerate(chunk_spans):
             try:
-                chunk_id = self._storage.insert_chunk(document_id=document_id, content=chunk)
+                line_from = text.count("\n", 0, chunk_span.char_start) + 1
+                line_to = text.count("\n", 0, max(chunk_span.char_end - 1, chunk_span.char_start)) + 1
+                chunk_id = self._storage.insert_chunk(
+                    document_id=document_id,
+                    content=chunk_span.text,
+                    chunk_index=chunk_index,
+                    char_start=chunk_span.char_start,
+                    char_end=chunk_span.char_end,
+                    line_from=line_from,
+                    line_to=line_to,
+                )
                 chunk_ids.append(chunk_id)
 
-                chunk_embedding = self._embeddings.embed([chunk])[0]
+                chunk_embedding = self._embeddings.embed([chunk_span.text])[0]
                 self._dense.index(chunk_id=chunk_id, embedding=chunk_embedding)
-                self._sparse.index(chunk_id=chunk_id, content=chunk)
+                self._sparse.index(chunk_id=chunk_id, content=chunk_span.text)
             except Exception as exc:
                 logger.error(
                     "Failed to index chunk %d of document_id=%s: %s",
@@ -102,6 +127,15 @@ class Orchestration:
 
         logger.info("Indexed document_id=%s with %s chunks", document_id, len(chunk_ids))
         return (document_id, chunk_ids)
+
+    def _purge_document(self, document_id: int) -> None:
+        """Remove a document from storage and both retrieval indices."""
+        chunk_ids = self._storage.delete_document(document_id=document_id)
+        self._dense.remove_ids(chunk_ids)
+        self._sparse.remove_ids(chunk_ids)
+        with self._citation_key_cache_lock:
+            self._citation_key_cache.pop(document_id, None)
+        logger.info("Purged stale document_id=%s (%d chunks) before re-index", document_id, len(chunk_ids))
 
     def destroy_index(self) -> None:
         """Destroy storage and both retrieval indices."""
@@ -142,6 +176,15 @@ class Orchestration:
 
         raise RuntimeError(f"No citation record for document_id={document_id}; data integrity violation")
 
+    def get_chunk(self, chunk_id: int) -> tuple[ChunkWithDocument, str]:
+        """Return the chunk provenance record and its document's citation_key.
+
+        Raises ValueError when the chunk does not exist.
+        """
+        chunk_record = self._storage.get_chunk(chunk_id=chunk_id)
+        citation_key = self._get_citation_key_for_document(chunk_record.document_id)
+        return (chunk_record, citation_key)
+
     def get_citation(self, citation_key: str) -> dict[str, object] | None:
         """Return parsed citation data for a citation_key, or None if not found."""
         citation_json = self._storage.get_citation(citation_key)
@@ -160,11 +203,12 @@ class Orchestration:
         score_log: dict[str, dict[str, float | int]] = {}
         for chunk_id, score in scored_chunk_ids:
             try:
-                document_id, chunk_text_value = self._storage.get_chunk(chunk_id=chunk_id)
+                chunk_record = self._storage.get_chunk(chunk_id=chunk_id)
             except ValueError as exc:
                 logger.error("Data integrity violation during %s resolution: missing chunk_id=%s", source, chunk_id)
                 raise RuntimeError(f"data integrity violation: missing chunk_id={chunk_id}") from exc
 
+            document_id = chunk_record.document_id
             try:
                 citation_key = self._get_citation_key_for_document(document_id)
             except RuntimeError as exc:
@@ -180,8 +224,14 @@ class Orchestration:
                     chunk_id=chunk_id,
                     document_id=document_id,
                     citation_key=citation_key,
-                    text=chunk_text_value,
+                    text=chunk_record.content,
                     score=score,
+                    source_path=chunk_record.source_path,
+                    chunk_index=chunk_record.chunk_index,
+                    char_start=chunk_record.char_start,
+                    char_end=chunk_record.char_end,
+                    line_from=chunk_record.line_from,
+                    line_to=chunk_record.line_to,
                 )
             )
             score_log[str(chunk_id)] = {"score": round(score, 4), "doc_id": document_id}
