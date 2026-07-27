@@ -66,6 +66,10 @@ class TantivyIndexWriter(Protocol):
         """Delete all indexed documents."""
         ...
 
+    def delete_documents_by_term(self, field_name: str, field_value: object) -> int:
+        """Delete indexed documents containing one field term."""
+        ...
+
 
 class TantivyIndex(Protocol):
     """Subset of Tantivy index methods used by this adapter."""
@@ -214,6 +218,15 @@ class TantivySparse(SparseRetrieval):
         if self._writer is None:
             self._writer = self._new_writer()
         self._writer.add_document(document)
+
+    def remove_ids(self, chunk_ids: list[int]) -> None:
+        """Remove indexed chunks by chunk ID."""
+        if len(chunk_ids) == 0:
+            return
+        if self._writer is None:
+            self._writer = self._new_writer()
+        for chunk_id in chunk_ids:
+            self._writer.delete_documents_by_term("chunk_id", chunk_id)
 
     def persist(self) -> None:
         """Commit pending writes and reload the index."""

@@ -13,6 +13,10 @@ class SparseRetrieval(ABC):
         """Index one chunk text with its chunk ID."""
 
     @abstractmethod
+    def remove_ids(self, chunk_ids: list[int]) -> None:
+        """Remove indexed chunks by chunk ID."""
+
+    @abstractmethod
     def search(self, query: str, top_k: int) -> list[ScoredChunk]:
         """Search by query text and return scored chunk IDs."""
 
