@@ -1,6 +1,7 @@
 """Unit tests for orchestration coordination logic."""
 
 import json
+import re
 from functools import partial
 from typing import Any, Final, cast
 
@@ -174,8 +175,8 @@ class FakeSparse:
         self.indexed = {}
 
 
-def make_orchestration() -> Orchestration:
-    """Create orchestration with fake dependencies."""
+def make_orchestration_with_backends() -> tuple[Orchestration, FakeStorage, FakeDense, FakeSparse]:
+    """Create orchestration with fake dependencies, returning the fakes for assertions."""
     search_config = SearchConfig(
         hybrid=HybridConfig(alpha=0.5),
         dense=DenseSearchConfig(),
@@ -187,15 +188,24 @@ def make_orchestration() -> Orchestration:
         ),
     )
 
-    return Orchestration(
+    storage = FakeStorage()
+    dense = FakeDense()
+    sparse = FakeSparse()
+    orchestration = Orchestration(
         chunker=partial(chunk_text, chunk_size=4, overlap=0.5),
         embeddings=cast(Embeddings, FakeEmbeddings()),
-        storage=cast(Storage, FakeStorage()),
-        dense=cast(DenseRetrieval, FakeDense()),
-        sparse=cast(SparseRetrieval, FakeSparse()),
+        storage=cast(Storage, storage),
+        dense=cast(DenseRetrieval, dense),
+        sparse=cast(SparseRetrieval, sparse),
         search_config=search_config,
         reranker=None,
     )
+    return orchestration, storage, dense, sparse
+
+
+def make_orchestration() -> Orchestration:
+    """Create orchestration with fake dependencies."""
+    return make_orchestration_with_backends()[0]
 
 
 def test_orchestration_index_and_search() -> None:
@@ -226,6 +236,41 @@ def test_orchestration_rejects_whitespace_document() -> None:
 
     with pytest.raises(ValueError, match="document text must not be empty"):
         orchestration.index_document("   ", citation=None, source_path="docs/sample.txt")
+
+
+def test_orchestration_rejects_zero_width_space_document() -> None:
+    """A blank video transcript (only zero-width spaces) is rejected before any storage write.
+
+    Regression for indexed video document_id=25639, whose content was 233 zero-width spaces.
+    `str.strip()` does not treat U+200B as whitespace, so the old empty-check let it through;
+    fastText then returned a zero-norm vector and 500'd the whole ingest call.
+    """
+    orchestration, storage, _dense, _sparse = make_orchestration_with_backends()
+    zero_width_transcript = "​​ ​​\n" * 40
+
+    with pytest.raises(ValueError, match="document text must not be empty"):
+        orchestration.index_document(zero_width_transcript, citation=None, source_path="videos/blank.txt")
+
+    assert storage.documents == {}
+    assert storage.chunks == {}
+
+
+def test_orchestration_skips_chunk_without_word_characters() -> None:
+    """A chunk of only zero-width spaces is skipped, not fatal, when the document has real content."""
+    orchestration, storage, dense, _sparse = make_orchestration_with_backends()
+    # With chunk_size=4/overlap=0.5 the trailing "​​ ​​" forms its own
+    # word-less chunk that must be skipped rather than aborting the document.
+    text = "one two three four ​​ ​​"
+
+    document_id, chunk_ids = orchestration.index_document(text, citation=None, source_path="videos/mixed.txt")
+
+    assert document_id == 1
+    assert len(chunk_ids) >= 1
+    # Every indexed chunk has embeddable content, and the skipped chunk was never indexed.
+    for chunk_id in chunk_ids:
+        content = storage.chunks[chunk_id][1]
+        assert re.search(r"\w", content) is not None
+    assert set(dense.indexed.keys()) == set(chunk_ids)
 
 
 def test_orchestration_index_with_citation() -> None:

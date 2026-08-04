@@ -267,6 +267,12 @@ ingest corpus="":
         exit 1
     fi
     CORPUS=$(./scripts/corpus_exists.sh "{{corpus}}")
+    printf "Full ingest destroys the existing index and ledger for corpus '%s' before re-ingesting. Continue? [y/N] " "$CORPUS"
+    read CONFIRM
+    if [ "$CONFIRM" != "y" ] && [ "$CONFIRM" != "Y" ]; then
+        echo "Aborted."
+        exit 0
+    fi
     uv run scripts/ingest.py --corpus "$CORPUS"
     echo ""
 
