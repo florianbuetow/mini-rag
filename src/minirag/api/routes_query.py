@@ -10,7 +10,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
-from minirag.api.models.query import QueryRequest, QueryResponse, QueryResult
+from minirag.api.models.query import HybridQueryRequest, QueryRequest, QueryResponse, QueryResult
 from minirag.api.responses import error_response, success_response
 from minirag.api.utils import ensure_healthy, get_corpus_manager
 from minirag.orchestration import Orchestration
@@ -29,7 +29,10 @@ class QuerySearchFn(Protocol):
         ...
 
 
-async def _parse_query_request(request: Request) -> QueryRequest | JSONResponse:
+SearchFnGetter = Callable[[Orchestration, QueryRequest], QuerySearchFn]
+
+
+async def _parse_query_request(request: Request, model: type[QueryRequest] = QueryRequest) -> QueryRequest | JSONResponse:
     """Parse and validate query request body."""
     try:
         body_object = await request.json()
@@ -37,7 +40,7 @@ async def _parse_query_request(request: Request) -> QueryRequest | JSONResponse:
         return error_response(status=400, message=str(exc))
 
     try:
-        return QueryRequest.model_validate(body_object)
+        return model.model_validate(body_object)
     except ValidationError as exc:
         logger.debug("Validation error on query request: %s", exc)
         return error_response(status=422, message=str(exc))
@@ -68,14 +71,15 @@ async def _run_query(
     request: Request,
     corpus: str,
     search_name: str,
-    search_fn_getter: Callable[[Orchestration], QuerySearchFn],
+    search_fn_getter: SearchFnGetter,
+    request_model: type[QueryRequest] = QueryRequest,
 ) -> JSONResponse:
     """Shared query handler for dense, sparse, and hybrid search."""
     guard_response = ensure_healthy(request)
     if guard_response is not None:
         return guard_response
 
-    parsed_payload = await _parse_query_request(request)
+    parsed_payload = await _parse_query_request(request, model=request_model)
     if isinstance(parsed_payload, JSONResponse):
         return parsed_payload
 
@@ -91,7 +95,7 @@ async def _run_query(
         logger.exception("Failed to load corpus for %s search, corpus=%s", search_name, corpus)
         return error_response(status=500, message=str(exc))
 
-    search_fn = search_fn_getter(orchestration)
+    search_fn = search_fn_getter(orchestration, parsed_payload)
     try:
         results = await asyncio.to_thread(
             search_fn,
@@ -118,7 +122,7 @@ async def query_dense(request: Request, corpus: str) -> JSONResponse:
         request=request,
         corpus=corpus,
         search_name="dense",
-        search_fn_getter=lambda orchestration: orchestration.search_dense,
+        search_fn_getter=lambda orchestration, _request: orchestration.search_dense,
     )
 
 
@@ -129,15 +133,16 @@ async def query_sparse(request: Request, corpus: str) -> JSONResponse:
         request=request,
         corpus=corpus,
         search_name="sparse",
-        search_fn_getter=lambda orchestration: orchestration.search_sparse,
+        search_fn_getter=lambda orchestration, _request: orchestration.search_sparse,
     )
 
 
-def _hybrid_search_fn(orchestration: Orchestration) -> QuerySearchFn:
-    """Wrap search_hybrid into a QuerySearchFn by binding alpha and use_reranking to None."""
+def _hybrid_search_fn(orchestration: Orchestration, request: QueryRequest) -> QuerySearchFn:
+    """Wrap search_hybrid with the request alpha and no reranking override."""
+    alpha = request.alpha if isinstance(request, HybridQueryRequest) else None
 
     def _search(*, query: str, top_k: int) -> list[SearchResult]:
-        return orchestration.search_hybrid(query=query, top_k=top_k, alpha=None, use_reranking=None)
+        return orchestration.search_hybrid(query=query, top_k=top_k, alpha=alpha, use_reranking=None)
 
     return _search
 
@@ -150,4 +155,5 @@ async def query_hybrid(request: Request, corpus: str) -> JSONResponse:
         corpus=corpus,
         search_name="hybrid",
         search_fn_getter=_hybrid_search_fn,
+        request_model=HybridQueryRequest,
     )

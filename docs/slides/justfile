@@ -1,0 +1,126 @@
+# Presentation Slide Deck — Marp + Xebia Theme
+#
+# Justfile rules (keep in sync with project root):
+#   1. Use `printf` for colored output, never `echo`
+#   2. Empty `@echo ""` lines before and after each target
+#   3. `help` is the default target
+#   4. Help groups match file ordering
+#   5. Composite targets fail fast (set -e)
+#   6. Every target ends with a clear status message
+#   7. Color codes: blue=header, yellow=group, green=success, red=failure
+
+DECK_DIR := "."
+PID_FILE := DECK_DIR / ".marp-server.pid"
+PORT := "8088"
+SLIDE_FILE := "slides.md"
+PDF_FILE := "slides.pdf"
+SYNC_KEY := "kamino451"
+
+# Default recipe: show available commands
+_default:
+    @just help
+    @just status
+
+# Display available commands
+help:
+    @echo ""
+    @clear
+    @echo ""
+    @printf "\033[0;34m=== presentation slide deck ===\033[0m\n"
+    @echo ""
+    @printf "\033[0;33mSetup:\033[0m\n"
+    @printf "  %-38s %s\n" "init" "Install npm dependencies"
+    @echo ""
+    @printf "\033[0;33mServer:\033[0m\n"
+    @printf "  %-38s %s\n" "start" "Start the Marp slide server"
+    @printf "  %-38s %s\n" "stop" "Stop the Marp slide server"
+    @printf "  %-38s %s\n" "status" "Check if the slide server is running"
+    @echo ""
+    @printf "\033[0;33mPresent:\033[0m\n"
+    @printf "  %-38s %s\n" "present" "Start server, open audience + presenter views"
+    @echo ""
+    @printf "\033[0;33mExport:\033[0m\n"
+    @printf "  %-38s %s\n" "pdf" "Export the slide deck to a PDF"
+    @echo ""
+
+# Install npm dependencies
+init:
+    @echo ""
+    @printf "\033[0;34m=== Installing Dependencies ===\033[0m\n"
+    cd {{DECK_DIR}} && npm install
+    @printf "\033[0;32m✓ Dependencies installed\033[0m\n"
+    @echo ""
+
+# Start the Marp slide server
+start:
+    #!/usr/bin/env bash
+    set -e
+    echo ""
+    test -d {{DECK_DIR}}/node_modules || just init
+    if [ -f {{PID_FILE}} ] && kill -0 $(cat {{PID_FILE}}) 2>/dev/null; then
+        printf "\033[0;33mMarp server already running (PID $(cat {{PID_FILE}}))\033[0m\n"
+    else
+        PORT={{PORT}} nohup {{DECK_DIR}}/node_modules/.bin/marp --theme-set {{DECK_DIR}}/theme.css --server {{DECK_DIR}} > {{DECK_DIR}}/marp-server.log 2>&1 &
+        echo $! > {{PID_FILE}}
+        printf "\033[0;32m✓ Marp server started on http://localhost:{{PORT}} (PID $(cat {{PID_FILE}}))\033[0m\n"
+    fi
+    open "http://localhost:{{PORT}}"
+    echo ""
+
+# Check if the slide server is running
+status:
+    #!/usr/bin/env bash
+    echo ""
+    if [ -f {{PID_FILE}} ] && kill -0 $(cat {{PID_FILE}}) 2>/dev/null; then
+        printf "\033[0;32m✓ Marp server is running (PID $(cat {{PID_FILE}})) on http://localhost:{{PORT}}\033[0m\n"
+    else
+        printf "\033[0;33m✗ Marp server is not running\033[0m\n"
+    fi
+    echo ""
+
+# Start server and open audience + presenter views in two browser tabs
+present:
+    #!/usr/bin/env bash
+    set -e
+    echo ""
+    test -d {{DECK_DIR}}/node_modules || just init
+    if [ -f {{PID_FILE}} ] && kill -0 $(cat {{PID_FILE}}) 2>/dev/null; then
+        printf "\033[0;33mMarp server already running (PID $(cat {{PID_FILE}}))\033[0m\n"
+    else
+        PORT={{PORT}} nohup {{DECK_DIR}}/node_modules/.bin/marp --theme-set {{DECK_DIR}}/theme.css --server {{DECK_DIR}} > {{DECK_DIR}}/marp-server.log 2>&1 &
+        echo $! > {{PID_FILE}}
+        printf "\033[0;32m✓ Marp server started on http://localhost:{{PORT}} (PID $(cat {{PID_FILE}}))\033[0m\n"
+        sleep 1
+    fi
+    AUDIENCE_URL="http://localhost:{{PORT}}/{{SLIDE_FILE}}?sync={{SYNC_KEY}}"
+    PRESENTER_URL="http://localhost:{{PORT}}/{{SLIDE_FILE}}?sync={{SYNC_KEY}}&view=presenter"
+    open "$AUDIENCE_URL"
+    sleep 1
+    open "$PRESENTER_URL"
+    printf "\033[0;32m✓ Audience view:  %s\033[0m\n"  "$AUDIENCE_URL"
+    printf "\033[0;32m✓ Presenter view: %s\033[0m\n" "$PRESENTER_URL"
+    echo ""
+
+# Stop the Marp slide server
+stop:
+    #!/usr/bin/env bash
+    echo ""
+    if [ -f {{PID_FILE}} ] && kill -0 $(cat {{PID_FILE}}) 2>/dev/null; then
+        kill $(cat {{PID_FILE}}) && rm -f {{PID_FILE}}
+        printf "\033[0;32m✓ Marp server stopped\033[0m\n"
+    else
+        rm -f {{PID_FILE}}
+        printf "\033[0;33mMarp server not running\033[0m\n"
+    fi
+    echo ""
+
+# Export the slide deck to a PDF
+pdf:
+    #!/usr/bin/env bash
+    set -e
+    echo ""
+    printf "\033[0;34m=== Exporting Slides to PDF ===\033[0m\n"
+    test -d {{DECK_DIR}}/node_modules || just init
+    {{DECK_DIR}}/node_modules/.bin/marp --theme-set {{DECK_DIR}}/theme.css --allow-local-files {{DECK_DIR}}/{{SLIDE_FILE}} -o {{DECK_DIR}}/{{PDF_FILE}}
+    printf "\033[0;32m✓ PDF exported to {{DECK_DIR}}/{{PDF_FILE}}\033[0m\n"
+    echo ""

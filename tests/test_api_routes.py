@@ -44,6 +44,7 @@ class FakeOrchestration:
         self.citations: dict[str, dict[str, object]] = {}
         self.chunks: dict[int, tuple[ChunkWithDocument, str]] = {}
         self.last_source_path: str | None = None
+        self.last_hybrid_alpha: float | None = None
 
     def index_document(self, text: str, citation: dict[str, object] | None, source_path: str) -> tuple[int, list[int]]:
         del text, citation
@@ -102,7 +103,8 @@ class FakeOrchestration:
         ]
 
     def search_hybrid(self, query: str, top_k: int, alpha: float | None, use_reranking: bool | None) -> list[SearchResult]:
-        del query, top_k, alpha, use_reranking
+        del query, top_k, use_reranking
+        self.last_hybrid_alpha = alpha
         return [
             SearchResult(
                 chunk_id=3,
@@ -194,6 +196,17 @@ def test_index_and_query_routes() -> None:
 
     hybrid_response = client.post(f"/v1/corpus/{CORPUS}/query/hybrid", json={"query": "hello", "top_k": 3})
     assert hybrid_response.status_code == 200
+
+
+def test_hybrid_query_accepts_alpha_override() -> None:
+    """Hybrid query should forward an explicit alpha override to orchestration."""
+    orchestration = FakeOrchestration()
+    client = make_test_client(orchestration)
+
+    response = client.post(f"/v1/corpus/{CORPUS}/query/hybrid", json={"query": "hello", "top_k": 3, "alpha": 0.25})
+
+    assert response.status_code == 200
+    assert orchestration.last_hybrid_alpha == 0.25
 
 
 def test_shutdown_and_guarded_routes(monkeypatch: Any) -> None:

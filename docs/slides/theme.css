@@ -1,0 +1,501 @@
+/* @theme xebia-theme */
+@import 'default';
+
+/* Main Colors */
+:root {
+    --tranquil-velvet: #6c1d5f;
+    --dark: rgb(74, 30, 71);
+    --white: #ffffff;
+    --light: hwb(228 97% 1%);
+}
+
+/* Secondary Colors */
+:root {
+    --dawn: #9da6b2;
+    --dusk: #5c5062;
+}
+
+/* Neutral Colors */
+:root {
+    --almost-black: #222222;
+    --dark-grey: #5a5a5a;
+    --regular-grey: #a1a1a1;
+    --light-grey: #dedede;
+    --off-white: #f4f4f4;
+}
+
+/* Call to Action Colors */
+:root {
+    --cta-orange: #ff6200;
+    --cta-green: #06a99c;
+}
+
+/* Spacing scale ---------------------------------------------------------- */
+:root {
+    --space-xs: 0.5rem;
+    --space-sm: 0.75rem;
+    --space-md: 1.25rem;
+    --space-lg: 2rem;
+}
+
+section {
+    background-color: var(--white);
+    justify-content: center;
+    text-align: center;
+    font-size: 24px;
+    /* Base font size for slides */
+    line-height: 1.3;
+    /* Unitless value means it's multiplied by the font size */
+    position: relative;
+    /* ensure children with absolute positioning stay inside */
+}
+
+section pre,
+section pre code {
+    text-align: left;
+}
+
+/* ----------------------------------------------------------------------- */
+/* Centered flow diagram                                                   */
+/* A framed monospace ASCII flow whose lines are centered inside the box.  */
+/* NOTE: the `section pre { text-align: left }` rule ABOVE targets every    */
+/* <pre> directly, so a wrapper div's `text-align: center` can only reach   */
+/* the <pre> by inheritance — and a direct rule always beats an inherited   */
+/* value. That is why centering via the wrapper silently fails. These       */
+/* selectors re-target <pre>/<code> DIRECTLY (specificity 0,1,2 > 0,0,2)    */
+/* so the center wins.                                                      */
+/* ----------------------------------------------------------------------- */
+section .flow-diagram {
+    width: max-content;
+    max-width: 90%;
+    margin: 0 auto;
+    background: #f6f8fa;
+    border: 1px solid #d1d9e0;
+    border-radius: 6px;
+    padding: 22px 28px;
+}
+
+section .flow-diagram pre,
+section .flow-diagram pre code {
+    text-align: center;
+    background: transparent;
+    border: 0;
+    margin: 0;
+    padding: 0;
+    color: #1f2328;
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    font-size: 0.6em;
+    line-height: 1.18;
+    white-space: pre;
+}
+
+/* ----------------------------------------------------------------------- */
+/* Quote block                                                             */
+/* Replicates Marp's default <pre> code-block look (font, size, border,    */
+/* background, color) for a <div class="quote-block">. Needed inside       */
+/* .column layouts, where Marp strips inline styles off content-wrapping   */
+/* tags. Only elements tagged .quote-block are affected — no other code    */
+/* block is touched. Selector is section-scoped to beat the theme cascade. */
+/* ----------------------------------------------------------------------- */
+section .quote-block {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    font-size: 0.85em;
+    line-height: 1.15;
+    color: #1f2328;
+    background: #f6f8fa;
+    border: 1px solid #d1d9e0;
+    border-radius: 6px;
+    padding: 16px;
+    text-align: left;
+    max-width: 100%;
+    box-sizing: border-box;
+    overflow-wrap: anywhere;
+}
+
+section .quote-block p {
+    margin: 0.7em 0 0 0;
+}
+
+/* Numbers for ordered list should be justified with the list item */
+section ol,
+section ul {
+    list-style-position: inside;
+    padding-left: 0;
+    text-align: left;
+    width: fit-content;
+    margin: 0 auto;
+
+    & li::marker {
+        color: var(--cta-green);
+    }
+}
+
+
+/* For center-aligned grid layout */
+.center-grid {
+    display: grid;
+    place-items: center;
+    height: 100%;
+    width: 100%;
+
+    /* Uncomment for troubleshooting */
+    /* border: 5px solid var(--dark-grey); */
+}
+
+.profile-grid {
+    display: grid;
+    place-items: center;
+    height: 50%;
+    width: 100%;
+
+    /* Uncomment for troubleshooting */
+    /* border: 5px solid var(--dark-grey); */
+}
+
+.columns {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+    align-items: start;
+    justify-content: center;
+    width: 90%;
+    margin: 0 auto;
+
+    /* Uncomment for troubleshooting */
+    /* border: 5px solid var(--cta-green); */
+}
+
+.bold-with-color {
+    font-weight: bold;
+    color: var(--tranquil-velvet);
+}
+
+.column {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    text-align: left;
+    justify-content: flex-start;
+    height: 100%;
+
+    /* Uncomment for troubleshooting */
+    /* border: 5px solid var(--cta-green); */
+}
+
+.source-link {
+    position: absolute;
+    inset-block-end: calc(var(--space-md) + 1rem);
+    /* Avoid overlap with footer */
+    inset-inline-start: var(--space-md);
+    font-size: 0.6em;
+    color: var(--dark-grey);
+    text-align: start;
+}
+
+.source-link a {
+    color: var(--dark-grey);
+    text-decoration: underline;
+}
+
+.speaker_profile_columns {
+    display: grid;
+    grid-template-columns: 1fr 2fr;
+    gap: 2rem;
+    align-items: center;
+    justify-content: center;
+    width: 80%;
+
+    /* Uncomment for troubleshooting */
+    /* border: 5px solid var(--tranquil-velvet); */
+}
+
+.speaker_profile_column {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    text-align: left;
+
+    /* Uncomment for troubleshooting */
+    /* border: 5px solid var(--cta-green); */
+}
+
+.references {
+    display: grid;
+    margin: 0 10% 0 10%;
+    /* top | right | bottom | left */
+    width: auto;
+    text-align: left;
+    justify-items: start;
+}
+
+/* White text for overlay on dark backgrounds */
+.white-text {
+    color: white;
+    font-weight: bold;
+    text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.8);
+    font-size: 1.2em;
+    position: relative;
+    z-index: 10;
+}
+
+/* Black text for overlay on dark backgrounds */
+.black-text {
+    color: rgb(0, 0, 0);
+    font-weight: bold;
+    text-shadow: 1px 1px 3px rgba(255, 255, 255, 0.8);
+    font-size: 1.2em;
+    position: relative;
+    z-index: 10;
+}
+
+/* Tree content styling */
+.tree-content {
+    display: flex;
+    justify-content: flex-start;
+    align-items: flex-start;
+    width: 100%;
+    padding: var(--space-md);
+    font-family: monospace;
+    font-size: 0.8em;
+    line-height: 1.2;
+    text-align: left;
+}
+
+.tree-content pre {
+    display: block;
+    text-align: left;
+    width: 100%;
+    margin: 0;
+    font-family: monospace;
+    font-size: 0.8em;
+    line-height: 1.5;
+    white-space: pre;
+    border-left: 2px solid var(--);
+    padding-left: var(--space-md);
+    overflow-x: auto;
+}
+
+.smaller-content {
+    font-size: 0.7em;
+    line-height: 1em;
+}
+
+.compact-list {
+    font-size: 0.75em;
+    line-height: 1.2;
+    margin: 0.5em 0;
+}
+
+.compact-list li {
+    margin-bottom: 0.3em;
+}
+
+.compact-list li ul {
+    margin-left: var(--space-md);
+    padding-left: var(--space-md);
+}
+
+h1 {
+    color: var(--dark);
+    font-size: 2.5em;
+    /* 60px relative to 24px base */
+}
+
+h2 {
+    color: var(--dark);
+    font-size: 2em;
+    /* 48px relative to 24px base */
+}
+
+h3 {
+    color: var(--dark);
+    font-size: 1.5em;
+    /* 36px relative to 24px base */
+}
+
+h4 {
+    color: var(--dark);
+    font-size: 1.2em;
+    /* 29px relative to 24px base */
+}
+
+.centered-screen-cap {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 97%;
+    margin: 0;
+    box-shadow: 0 4px 20px rgba(245, 244, 244, 1);
+}
+
+.centered-video {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 97%;
+    margin: 0;
+    box-shadow: 0 4px 20px rgba(245, 244, 244, 1);
+}
+
+.centered-video video {
+    width: 100%;
+    display: block;
+}
+
+.centered-left-justified-block {
+    width: 600px;
+    margin: 0 auto;
+    text-align: left;
+    font-size: 0.8em;
+    border-radius: 4px;
+    padding: 1.2em 1.5em;
+    background: white;
+    box-sizing: border-box;
+    border: 1px solid #6c1d5f;
+
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+    transition: box-shadow 0.3s ease, transform 0.3s ease;
+    cursor: pointer;
+    position: relative;
+
+    &:hover {
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4);
+        transform: scale(1.02);
+    }
+
+}
+
+.table-container {
+    max-height: calc(80vh - var(--space-md));
+    overflow-y: auto;
+    margin: var(--space-md) auto;
+    padding-bottom: var(--space-md);
+    /* Prevent overlap with footer */
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.table-container table {
+    font-size: 0.9em;
+    line-height: 1.0;
+}
+
+.table-container table td,
+.table-container table th {
+    padding: 0.2em;
+}
+
+.table-container table th {
+    background-color: var(--dark);
+    color: var(--white);
+    font-weight: "bold";
+    padding: .8em 0em .8em 0em;
+}
+
+.table-container table td:first-child {
+    background-color: var(--dark);
+    color: var(--white);
+    text-align: center
+}
+
+.strikethrough {
+    text-decoration: line-through;
+}
+
+.models-table {
+    max-height: calc(80vh - var(--space-md));
+    overflow-y: auto;
+    margin: var(--space-md) auto;
+    padding-bottom: var(--space-md);
+    /* Prevent overlap with footer */
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.models-table table {
+    font-size: 0.9em;
+    line-height: 1.0;
+}
+
+.models-table table td,
+.models-table table th {
+    padding: 0.2em;
+}
+
+/* ----------------------------------------------------------------------- */
+/* Claude Code blocks                                                      */
+/* A ```claude fenced block renders like the Claude Code CLI: a warm-dark  */
+/* terminal panel with a coral "Claude Code" label. Purely additive —      */
+/* only blocks tagged `claude` are affected; bash/go/yaml/etc. are not.    */
+/* ----------------------------------------------------------------------- */
+section pre:has(code.language-claude) {
+    background: #262624;
+    border: 1px solid #3a3733;
+    border-radius: 8px;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
+    padding: 1em 1.1em;
+}
+
+section pre code.language-claude {
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    color: #e6e4df;
+    font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', ui-monospace, monospace;
+}
+
+section pre code.language-claude::before {
+    content: " ▐▛███▜▌\A▝▜█████▛▘\A  ▘▘ ▝▝";
+    display: block;
+    white-space: pre;
+    margin-bottom: 0.7em;
+    color: #d97757;
+    line-height: 1;
+    letter-spacing: 0;
+}
+
+/* ----------------------------------------------------------------------- */
+/* Claude Code welcome screen                                              */
+/* Faithful reproduction of the CLI startup banner (logo + version/model/  */
+/* cwd). Colors taken from the real terminal: coral logo, bold-white       */
+/* title, dim-gray detail. line-height:1 keeps the block-glyph logo solid. */
+/* ----------------------------------------------------------------------- */
+.cc-screen {
+    width: fit-content;
+    margin: 1em auto 0;
+    padding: 1.1em 1.4em;
+    background: #262624;
+    border: 1px solid #3a3733;
+    border-radius: 8px;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
+    text-align: left;
+}
+
+.cc-welcome {
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    border: 0;
+    color: #e6e4df;
+    font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', ui-monospace, monospace;
+    font-size: 1em;
+    line-height: 1;
+    letter-spacing: 0;
+    white-space: pre;
+    text-align: left;
+}
+
+.cc-welcome .cc-logo {
+    color: #d97757;
+}
+
+.cc-welcome .cc-title {
+    color: #ffffff;
+    font-weight: 700;
+}
+
+.cc-welcome .cc-dim {
+    color: #949494;
+}

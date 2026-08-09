@@ -21,6 +21,7 @@ Under the hood, MiniRAG uses Facebook's FastText for local embeddings, FAISS for
 |----------|-------------|
 | [Specification](docs/SPECIFICATION.md) | Full technical specification |
 | [Data Flow](docs/SPECIFICATION-DATA-FLOW.md) | Indexing and search data flow |
+| [How to Search](HOW_TO_SEARCH.md) | Search workflows using the Justfile |
 | [MCP Server](mcp/README.md) | MCP server setup and client configuration |
 
 ## Design Principles
@@ -90,6 +91,7 @@ Reranking is disabled by default. To enable it, set `search.reranking.enabled: t
 | `just update <corpus>` | Incrementally index only new text files (skips already-indexed) |
 | `just backfill-ledger <corpus>` | Seed the ledger from an existing index without re-indexing (one-time migration) |
 | `just search <corpus>` | Interactive search query loop for a corpus |
+| `just hybrid-search <corpus> "<query>" [alpha] [k]` | Run one hybrid search through the REST API and print the JSON response |
 | `just delete <corpus>` | Delete a corpus index and storage |
 | `just evaluate <corpus>` | Evaluate retrieval quality using Q&A pairs |
 | `just inspect <corpus>` | Inspect document chunks for a corpus |
@@ -106,6 +108,26 @@ Corpus names must start with a letter and contain only alphanumeric characters, 
 5. Run `just search <corpus>` to query the corpus interactively
 
 Both `md2txt` and `ingest` scan subdirectories recursively and skip symbolic links.
+
+### One-Shot Hybrid Search
+
+With the service running, query an indexed corpus without entering the interactive search loop:
+
+```bash
+just hybrid-search books "how do I design reliable agents?"
+```
+
+The target expects the corpus name followed by the quoted query string. Optional positional
+arguments set the hybrid weighting and result count:
+
+```bash
+just hybrid-search books "how do I design reliable agents?" 0.25 5
+```
+
+`alpha` must be between `0.0` (pure sparse/BM25) and `1.0` (pure dense/semantic). When omitted,
+the service's configured hybrid alpha is used. `k` defaults to `10`. The command prints the same
+JSON response envelope used by the REST API and MCP search tool. Set `REST_BASE` to query a
+service running at a non-default URL.
 
 To add documents later without rebuilding the whole corpus, drop new files into the `txt/` folder and run `just update <corpus>`. It indexes only files not already recorded in the corpus ingestion ledger (`data/storage/<corpus>/indexed.txt`), leaving the existing index untouched. `just ingest` (full rebuild) and `just delete` reset the ledger; `just update` and `just backfill-ledger` maintain it. For a corpus that was indexed before the ledger existed, run `just backfill-ledger <corpus>` once to seed the ledger from the current index, then use `just update` for additions.
 
@@ -150,7 +172,7 @@ Each corpus gets its own set of backends, persisted under `data/storage/<corpus>
 The `alpha` parameter under `search.hybrid` controls the dense/sparse balance:
 
 - `0.0` — Pure sparse (BM25 only)
-- `0.5` — Equal weight (default)
+- configured value — Used when no per-query alpha override is supplied
 - `1.0` — Pure dense (semantic only)
 
 ## Development

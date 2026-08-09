@@ -17,6 +17,7 @@ help:
     @printf "%b\n" "\033[0;34mCorpus commands usage:\033[0m"
     @echo "  just ingest <corpus>              Ingest text files into a corpus"
     @echo "  just search <corpus>              Interactive search on a corpus"
+    @echo "  just hybrid-search <corpus> <query> [alpha] [k]"
     @echo "  just evaluate <corpus>            Evaluate retrieval quality"
     @echo "  just delete <corpus>              Delete a corpus index"
     @echo "  just citation <corpus> <key>...   Fetch citation metadata"
@@ -27,6 +28,7 @@ help:
     @printf "%b\n" "\033[0;34mExamples:\033[0m"
     @echo "  just ingest test"
     @echo "  just search llmevals"
+    @echo "  just hybrid-search test \"quantum computing\" [alpha] [k]"
     @echo "  just citation test my_doc_key"
     @echo "  just inspect test 1"
     @echo ""
@@ -396,6 +398,11 @@ search corpus="":
     CORPUS=$(./scripts/corpus_exists.sh "{{corpus}}")
     uv run scripts/search.py --corpus "$CORPUS"
     echo ""
+
+# Run a one-shot hybrid search through the local REST API
+[group('corpus')]
+hybrid-search corpus query alpha="" k="10":
+    @uv run scripts/hybrid_search.py {{quote(corpus)}} {{quote(query)}} --alpha {{quote(alpha)}} --k {{quote(k)}}
 
 # Fetch citation metadata for one or more citation keys
 [group('corpus')]

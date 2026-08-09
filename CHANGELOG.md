@@ -5,6 +5,19 @@ week by week from the full git history. The format draws on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project is not yet
 tagged, so sections are grouped by ISO week instead of semantic version.
 
+## [2026-W32] - 2026-08-03 to 2026-08-09
+
+### Added
+
+- Hybrid search script for command-line query execution with lexical, semantic, and hybrid modes.
+- Comprehensive documentation on search workflows via the Justfile (HOW_TO_SEARCH.md).
+- Showcase and usage examples for search features.
+
+### Changed
+
+- Query API model and routes for improved query parameter handling and flexibility.
+- Test suite updated with hybrid search script tests.
+
 ## [2026-W31] - 2026-07-27
 
 ### Added

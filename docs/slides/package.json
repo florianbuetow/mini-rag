@@ -1,0 +1,9 @@
+{
+  "name": "guard-presentation-marp",
+  "private": true,
+  "type": "module",
+  "description": "Slide deck for 'Yes, you are absolutely right!' — built with Marp + Xebia theme",
+  "dependencies": {
+    "@marp-team/marp-cli": "^4.3.1"
+  }
+}

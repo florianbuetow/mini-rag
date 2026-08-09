@@ -30,6 +30,20 @@ class QueryRequest(BaseModel):
         return value
 
 
+class HybridQueryRequest(QueryRequest):
+    """Request model for hybrid search with an optional dense-weight override."""
+
+    alpha: float | None = None
+
+    @field_validator("alpha")
+    @classmethod
+    def validate_alpha(cls, value: float | None) -> float | None:
+        """Require alpha to be within the hybrid weighting range when provided."""
+        if value is not None and not 0.0 <= value <= 1.0:
+            raise ValueError("alpha must be between 0.0 and 1.0")
+        return value
+
+
 class QueryResult(BaseModel):
     """One query result item with chunk ID, text, relevance score, and source provenance."""
 
