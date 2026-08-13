@@ -2,7 +2,6 @@
 
 import json
 import logging
-import re
 import threading
 from collections import OrderedDict
 from collections.abc import Callable
@@ -10,6 +9,7 @@ from dataclasses import dataclass
 
 from minirag.config import SearchConfig
 from minirag.ingestion.chunker import ChunkSpan
+from minirag.ingestion.content_validation import has_ingestible_text
 from minirag.reranking.interface import Reranker
 from minirag.retrieval.dense_interface import DenseRetrieval
 from minirag.retrieval.sparse_interface import SparseRetrieval
@@ -21,12 +21,6 @@ from minirag.storage.interface import ChunkWithDocument, CorpusStats, Storage
 logger = logging.getLogger(__name__)
 
 _CITATION_KEY_CACHE_MAX = 1024
-
-# A document (or chunk) with no word character carries no embeddable content. fastText
-# returns an all-zero vector for such input, which the normalizer rejects. `\w` excludes
-# whitespace, zero-width spaces (U+200B), and punctuation, so this catches blank video
-# transcripts (only zero-width spaces) that `str.strip()` leaves looking non-empty.
-_WORD_CHARACTER = re.compile(r"\w")
 
 
 @dataclass(frozen=True)
@@ -71,7 +65,7 @@ class Orchestration:
 
     def index_document(self, text: str, citation: dict[str, object] | None, source_path: str) -> tuple[int, list[int]]:
         """Index one document through storage, chunking, embeddings, both indices, and citation storage."""
-        if _WORD_CHARACTER.search(text) is None:
+        if not has_ingestible_text(text):
             raise ValueError("document text must not be empty")
 
         if source_path.strip() == "":
@@ -97,7 +91,7 @@ class Orchestration:
             # Defense in depth: a single chunk of only zero-width spaces or punctuation would
             # embed to a zero vector and abort the whole document. Skip it instead. The
             # document-level guard above guarantees at least one chunk still has word content.
-            if _WORD_CHARACTER.search(chunk_span.text) is None:
+            if not has_ingestible_text(chunk_span.text):
                 logger.warning(
                     "Skipping chunk %d of document_id=%s: no embeddable content",
                     chunk_index,

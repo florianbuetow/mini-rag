@@ -129,6 +129,22 @@ def test_ingest_skips_empty_files(tmp_path: Path) -> None:
 
     assert client.destroyed
     assert len(client.indexed) == 2
+    assert client.source_paths == ["a.txt", "d.txt"]
+
+
+def test_ingest_skips_files_without_word_content(tmp_path: Path) -> None:
+    """Files with only punctuation or zero-width spaces should not call the index API."""
+    (tmp_path / "a.txt").write_text("real content", encoding="utf-8")
+    (tmp_path / "b.txt").write_text("----\n...\n", encoding="utf-8")
+    (tmp_path / "c.txt").write_text("\u200b\u200b \u200b\u200b\n" * 40, encoding="utf-8")
+
+    client = FakeIndexingClient()
+    ingest_files(client=client, corpus=CORPUS, input_dir=tmp_path, data_dir=tmp_path)  # type: ignore[arg-type]
+
+    assert client.destroyed
+    assert client.indexed == ["real content"]
+    assert client.source_paths == ["a.txt"]
+    assert ledger.load_indexed(tmp_path, CORPUS) == {"a.txt"}
 
 
 def test_load_citation_from_json_file(tmp_path: Path) -> None:

@@ -8,6 +8,7 @@ from minirag.clients.indexing import IndexingClient
 from minirag.config import Config
 from minirag.ingestion import ledger
 from minirag.ingestion.citations import load_citation, resolve_input_dir
+from minirag.ingestion.content_validation import has_ingestible_text
 
 logger = logging.getLogger(__name__)
 
@@ -89,9 +90,9 @@ def ingest_files(client: IndexingClient, corpus: str, input_dir: Path, data_dir:
                 continue
             file_size = file_path.stat().st_size
             file_text = file_path.read_text(encoding="utf-8")
-            if not file_text.strip():
+            if not has_ingestible_text(file_text):
                 skipped_empty += 1
-                logger.warning("[%d/%d] (%d%%) Skipping %s (empty content)", i, num_files, percent, relative_to_data)
+                logger.warning("[%d/%d] (%d%%) Skipping %s (no ingestible content)", i, num_files, percent, relative_to_data)
                 continue
             citation = load_citation(file_path, input_dir)
             _document_id, chunk_ids = client.index_document(corpus, file_text, citation=citation, source_path=relative_to_input)
