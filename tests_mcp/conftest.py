@@ -253,6 +253,29 @@ def _populate_corpus(config_path: Path) -> None:
     )
     assert ingest_result.returncode == 0, f"ingest failed:\nstdout: {ingest_result.stdout}\nstderr: {ingest_result.stderr}"
 
+    description_source = config_path.parent / "corpus-description.md"
+    description_source.write_text("# MCP Test Corpus\n\nQuantum computing fixture corpus.\n", encoding="utf-8")
+    description_result = subprocess.run(
+        [
+            "uv",
+            "run",
+            "scripts/ingest_corpus_description.py",
+            "--corpus",
+            MCP_CORPUS,
+            "--file",
+            str(description_source),
+            "--config",
+            str(config_path),
+        ],
+        cwd=str(PROJECT_ROOT),
+        capture_output=True,
+        text=True,
+        timeout=_COMMAND_TIMEOUT_S,
+    )
+    assert description_result.returncode == 0, (
+        f"description ingest failed:\nstdout: {description_result.stdout}\nstderr: {description_result.stderr}"
+    )
+
 
 def _start_mcp_client(base_url: str) -> McpClient:
     """Start the MCP server subprocess and initialize the client."""

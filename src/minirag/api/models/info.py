@@ -27,3 +27,21 @@ class ShutdownResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     message: str
+
+
+class CorporaResponse(BaseModel):
+    """Corpus list and parallel description map."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    corpora: list[str]
+    descriptions: dict[str, str]
+
+
+class CorpusDescriptionResponse(BaseModel):
+    """Resolved description for one corpus."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    corpus: str
+    description: str

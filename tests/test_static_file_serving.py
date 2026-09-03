@@ -33,6 +33,15 @@ class FakeCorpusManager:
     def list_corpora(self) -> list[str]:
         return ["test"]
 
+    def corpus_description(self, corpus: str) -> str:
+        if corpus != "test":
+            raise FileNotFoundError(f"Corpus not found: {corpus}")
+        return "No description available."
+
+    def corpus_descriptions(self, corpora: list[str] | None = None) -> dict[str, str]:
+        names = self.list_corpora() if corpora is None else corpora
+        return {name: self.corpus_description(name) for name in names}
+
 
 def _make_app_with_static(web_dir: Path) -> FastAPI:
     """Create app with static file serving from the given web directory.

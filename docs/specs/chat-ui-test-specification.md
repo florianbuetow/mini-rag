@@ -12,6 +12,9 @@
 | AC-2.2: Corpus list sorted alphabetically | TS-4 (verified within) |
 | AC-2.3: Default to first corpus | TS-5: Default corpus selection |
 | AC-2.4: Switch corpus mid-conversation | TS-6: Switch corpus mid-conversation |
+| AC-2.5: Selected corpus description displayed | TS-26: Corpus description displayed |
+| AC-2.6: Missing description placeholder displayed | TS-27: Missing corpus description |
+| AC-2.7: Description Markdown is sanitized | TS-28: Unsafe corpus description Markdown |
 | AC-3.1: Sidebar lists previous chats | TS-7: Sidebar displays chat list |
 | AC-3.2: Chat entry shows name, is clickable | TS-7 (verified within) |
 | AC-3.3: Sorted by most recent | TS-7 (verified within) |
@@ -44,6 +47,8 @@
 | EC: No existing chats | TS-23: Empty sidebar state |
 | EC: SSE stream error | TS-24: Handle streaming error |
 | EC: Long messages scrollable | TS-25: Chat area scrolls |
+| EC: Corpus description unavailable | TS-27: Missing corpus description |
+| EC: Unsafe Markdown in corpus description | TS-28: Unsafe corpus description Markdown |
 
 ## Test Scenarios
 
@@ -108,6 +113,39 @@ Scenario: User switches corpus during a conversation
   When the user selects "beta" from the corpus dropdown
   And sends a new message
   Then the request to /v1/chat/completions uses corpus "beta"
+```
+
+**TS-26: Corpus description displayed**
+
+```
+Scenario: Selected corpus description is visible
+  Given the Chat UI is loaded
+  And GET /v1/corpora returns corpus "alpha" with description "# Alpha\nReference notes."
+  When the user opens the corpus information action
+  Then the description panel shows "Alpha"
+  And the description panel shows "Reference notes."
+```
+
+**TS-27: Missing corpus description**
+
+```
+Scenario: Missing corpus description uses placeholder
+  Given the Chat UI is loaded
+  And GET /v1/corpora returns corpus "alpha" with description "No description available."
+  When the user opens the corpus information action
+  Then the description panel shows "No description available."
+```
+
+**TS-28: Unsafe corpus description Markdown**
+
+```
+Scenario: Corpus description Markdown is sanitized
+  Given the Chat UI is loaded
+  And GET /v1/corpora returns corpus "alpha" with a script or event-handler payload in its description
+  When the user opens the corpus information action
+  Then the description panel renders safe Markdown content
+  And no script runs
+  And no event-handler attribute remains in the rendered description HTML
 ```
 
 ### Sidebar — Chat List

@@ -16,6 +16,7 @@ help:
     @echo ""
     @printf "%b\n" "\033[0;34mCorpus commands usage:\033[0m"
     @echo "  just ingest <corpus>              Ingest text files into a corpus"
+    @echo "  just describe-corpus <corpus> [markdown-file]"
     @echo "  just search <corpus>              Interactive search on a corpus"
     @echo "  just hybrid-search <corpus> <query> [alpha] [k]"
     @echo "  just evaluate <corpus>            Evaluate retrieval quality"
@@ -27,6 +28,8 @@ help:
     @echo ""
     @printf "%b\n" "\033[0;34mExamples:\033[0m"
     @echo "  just ingest test"
+    @echo "  just describe-corpus test"
+    @echo "  just describe-corpus test ./corpus-description.md"
     @echo "  just search llmevals"
     @echo "  just hybrid-search test \"quantum computing\" [alpha] [k]"
     @echo "  just citation test my_doc_key"
@@ -295,6 +298,18 @@ update corpus="":
     uv run scripts/ingest.py --corpus "$CORPUS" --update
     echo ""
 
+# Show a corpus description, or ingest one from a Markdown file
+[group('corpus')]
+describe-corpus corpus description_file="":
+    #!/usr/bin/env bash
+    set -e
+    DESCRIPTION_FILE={{quote(description_file)}}
+    if [ -n "$DESCRIPTION_FILE" ]; then
+        uv run scripts/ingest_corpus_description.py --corpus {{quote(corpus)}} --file "$DESCRIPTION_FILE"
+    else
+        uv run scripts/ingest_corpus_description.py --corpus {{quote(corpus)}}
+    fi
+
 # Request a clean stop for all ingests or one corpus
 [group('corpus')]
 stop corpus="":
@@ -341,7 +356,7 @@ backfill-ledger corpus="":
     uv run scripts/backfill_ledger.py --corpus "$CORPUS"
     echo ""
 
-# Delete a corpus index and storage
+# Delete corpus index contents while preserving corpus metadata
 [group('corpus')]
 delete corpus="":
     #!/usr/bin/env bash

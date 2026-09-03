@@ -9,7 +9,13 @@ from fastapi import APIRouter, BackgroundTasks, Request
 from fastapi.responses import JSONResponse
 
 from minirag.agent import LM_STUDIO_BASE_URL
-from minirag.api.models.info import HealthResponse, InfoResponse, ShutdownResponse
+from minirag.api.models.info import (
+    CorporaResponse,
+    CorpusDescriptionResponse,
+    HealthResponse,
+    InfoResponse,
+    ShutdownResponse,
+)
 from minirag.api.responses import error_response, success_response
 from minirag.api.utils import ensure_healthy, get_config, get_corpus_manager
 
@@ -85,11 +91,40 @@ async def list_models(request: Request) -> JSONResponse:
 
 @router.get("/corpora")
 async def list_corpora(request: Request) -> JSONResponse:
-    """Return the list of available corpora."""
+    """Return available corpora and their descriptions."""
     guard_response = ensure_healthy(request)
     if guard_response is not None:
         return guard_response
 
     corpus_manager = get_corpus_manager(request)
-    corpora = corpus_manager.list_corpora()
-    return success_response(status=200, data={"corpora": corpora})
+    try:
+        corpora = corpus_manager.list_corpora()
+        descriptions = corpus_manager.corpus_descriptions(corpora)
+    except (OSError, UnicodeError):
+        logger.exception("Failed to read corpus descriptions")
+        return error_response(status=500, message="Failed to list corpus descriptions")
+
+    response = CorporaResponse(corpora=corpora, descriptions=descriptions)
+    return success_response(status=200, data=response.model_dump())
+
+
+@router.get("/corpus/{corpus}/description")
+async def corpus_description(request: Request, corpus: str) -> JSONResponse:
+    """Return the resolved description for one loaded corpus."""
+    guard_response = ensure_healthy(request)
+    if guard_response is not None:
+        return guard_response
+
+    corpus_manager = get_corpus_manager(request)
+    try:
+        description = corpus_manager.corpus_description(corpus)
+    except FileNotFoundError as exc:
+        return error_response(status=404, message=str(exc))
+    except (OSError, UnicodeError):
+        logger.exception("Failed to read description for corpus %s", corpus)
+        return error_response(status=500, message="Failed to read corpus description")
+    except ValueError as exc:
+        return error_response(status=400, message=str(exc))
+
+    response = CorpusDescriptionResponse(corpus=corpus, description=description)
+    return success_response(status=200, data=response.model_dump())

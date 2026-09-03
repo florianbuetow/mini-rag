@@ -26,6 +26,9 @@
 | TS-4: Corpus selector loads corpora | `test_corpus_selector_loads_corpora` | `tests_e2e/test_chat_ui.py` |
 | TS-5: Default corpus selection | `test_corpus_selector_defaults_to_first` | `tests_e2e/test_chat_ui.py` |
 | TS-6: Switch corpus mid-conversation | `test_corpus_switch_mid_conversation` | `tests_e2e/test_chat_ui.py` |
+| TS-26: Corpus description displayed | `test_corpus_description_panel_renders_sanitized_markdown` | `tests_e2e/test_chat_ui_corpus_descriptions.py` |
+| TS-27: Missing corpus description | `test_corpus_description_panel_renders_sanitized_markdown` | `tests_e2e/test_chat_ui_corpus_descriptions.py` |
+| TS-28: Unsafe corpus description Markdown | `test_corpus_description_panel_renders_sanitized_markdown` | `tests_e2e/test_chat_ui_corpus_descriptions.py` |
 | TS-7: Sidebar displays chat list | `test_sidebar_displays_chat_list` | `tests_e2e/test_chat_ui.py` |
 | TS-8: Load chat from sidebar | `test_sidebar_load_chat` | `tests_e2e/test_chat_ui.py` |
 | TS-9: Rename chat inline | `test_sidebar_rename_chat` | `tests_e2e/test_chat_ui.py` |
@@ -81,6 +84,24 @@
 - **Setup (Given):** Navigate to page. Start a conversation.
 - **Action (When):** Select a different corpus.
 - **Assertion (Then):** The corpus dropdown shows the new selection.
+
+### TS-26: Corpus description displayed
+
+- **Setup (Given):** Navigate to `http://localhost:9191/` with `GET /v1/corpora` returning at least one corpus and a Markdown description in `data.descriptions`.
+- **Action (When):** Open the corpus information action for the selected corpus.
+- **Assertion (Then):** The description surface renders the selected corpus description as Markdown.
+
+### TS-27: Missing corpus description
+
+- **Setup (Given):** Navigate to `http://localhost:9191/` with `GET /v1/corpora` returning `No description available.` for the selected corpus.
+- **Action (When):** Open the corpus information action.
+- **Assertion (Then):** The description surface shows `No description available.`.
+
+### TS-28: Unsafe corpus description Markdown
+
+- **Setup (Given):** Navigate to `http://localhost:9191/` with `GET /v1/corpora` returning Markdown that includes a script tag or event-handler attribute.
+- **Action (When):** Open the corpus information action.
+- **Assertion (Then):** The rendered description contains safe Markdown output only; script tags and event-handler attributes are absent, and no injected script executes.
 
 ### TS-7: Sidebar displays chat list
 

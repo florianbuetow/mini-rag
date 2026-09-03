@@ -21,6 +21,9 @@ Acceptance Criteria:
   AC-2.2: The corpus list is sorted alphabetically.
   AC-2.3: The default selection is the first corpus in the alphabetical list.
   AC-2.4: The user can switch corpora mid-conversation.
+  AC-2.5: The UI provides an information action for the selected corpus and displays the selected corpus description from `data.descriptions` in the `GET /v1/corpora` response.
+  AC-2.6: If the selected corpus has no stored description, the UI displays `No description available.`.
+  AC-2.7: Corpus descriptions are rendered as sanitized Markdown; raw HTML, scripts, and event handlers cannot execute.
 
 US-3: As a user, I want to see my previous chats in a sidebar, so that I can resume any past conversation.
 
@@ -80,12 +83,14 @@ Acceptance Criteria:
 - **Technical:** The UI must visually resemble ChatGPT's layout: sidebar on the left, chat area on the right, input at the bottom.
 - **Technical:** SSE streaming is consumed using the browser `fetch` API with streaming body reading (not the `EventSource` API, since `POST` is required).
 - **Technical:** The model list is fetched from `http://127.0.0.1:1234/v1/models` (LM Studio).
-- **Technical:** The corpus list and chat CRUD use the mini-rag API endpoints.
+- **Technical:** The corpus list, corpus descriptions, and chat CRUD use the mini-rag API endpoints.
 
 ## Edge Cases
 
 - **LM Studio unreachable:** The model dropdown shows an error state or empty list with a message indicating models could not be loaded. The UI remains functional for browsing existing chats.
 - **No corpora available:** The corpus dropdown shows an empty state with a message. Chat creation is disabled until a corpus is available.
+- **Corpus description unavailable:** The corpus information surface shows `No description available.` for the selected corpus.
+- **Unsafe Markdown in corpus description:** The rendered description is sanitized before insertion into the DOM.
 - **No existing chats:** The sidebar shows an empty state (e.g., "No conversations yet").
 - **SSE stream error mid-response:** The UI displays the partial response received so far and shows an error indicator. The conversation is still saved with whatever was received.
 - **Very long messages:** Messages that exceed the visible area are scrollable. The chat area auto-scrolls to the latest message during streaming.

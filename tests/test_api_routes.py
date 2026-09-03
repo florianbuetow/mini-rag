@@ -142,6 +142,16 @@ class FakeCorpusManager:
     def list_corpora(self) -> list[str]:
         return list(self._corpora)
 
+    def corpus_description(self, corpus: str) -> str:
+        validate_corpus_name(corpus)
+        if corpus not in self._corpora:
+            raise FileNotFoundError(f"Corpus not found: {corpus}")
+        return "No description available."
+
+    def corpus_descriptions(self, corpora: list[str] | None = None) -> dict[str, str]:
+        names = self.list_corpora() if corpora is None else corpora
+        return {name: self.corpus_description(name) for name in names}
+
 
 def make_test_client(orchestration: FakeOrchestration | None = None, data_dir: Path | None = None) -> TestClient:
     """Create FastAPI app with routers and fake state dependencies."""
@@ -175,6 +185,7 @@ def test_info_and_health_routes() -> None:
     corpora_response = client.get("/v1/corpora")
     assert corpora_response.status_code == 200
     assert corpora_response.json()["data"]["corpora"] == ["test"]
+    assert corpora_response.json()["data"]["descriptions"] == {"test": "No description available."}
 
 
 def test_index_and_query_routes() -> None:
@@ -278,6 +289,14 @@ class ErrorCorpusManager:
         raise self._error
 
     def list_corpora(self) -> list[str]:
+        raise self._error
+
+    def corpus_description(self, corpus: str) -> str:
+        del corpus
+        raise self._error
+
+    def corpus_descriptions(self, corpora: list[str] | None = None) -> dict[str, str]:
+        del corpora
         raise self._error
 
 

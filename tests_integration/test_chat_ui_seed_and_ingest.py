@@ -106,6 +106,9 @@ class TestCorporaEndpoint:
         assert resp.status_code == 200
         data = resp.json()
         corpora = data.get("data", {}).get("corpora", [])
+        descriptions = data.get("data", {}).get("descriptions", {})
         assert corpora == sorted(corpora), f"Corpora not sorted: {corpora}"
         assert "knowledgebase" in corpora, f"knowledgebase not in corpora: {corpora}"
         assert "llmevals" in corpora, f"llmevals not in corpora: {corpora}"
+        assert set(descriptions) == set(corpora)
+        assert all(isinstance(description, str) for description in descriptions.values())

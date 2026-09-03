@@ -404,7 +404,7 @@ Returns the complete service configuration. This endpoint is always available, r
 
 #### GET /v1/corpora
 
-Returns the list of available corpora discovered on disk.
+Returns the list of available corpora discovered on disk and a parallel description map.
 
 **Request:** No body.
 
@@ -414,10 +414,36 @@ Returns the list of available corpora discovered on disk.
 {
   "status": 200,
   "data": {
-    "corpora": ["books", "notes"]
+    "corpora": ["books", "notes"],
+    "descriptions": {
+      "books": "# Books\nReference material.",
+      "notes": "No description available."
+    }
   }
 }
 ```
+
+The `corpora` array remains sorted alphabetically. The `descriptions` object contains exactly one string value for each corpus in `corpora`; clients that only read `data.corpora` remain compatible. Missing description files use the exact placeholder `No description available.`. Description read failures return HTTP 500 instead of silently using the placeholder.
+
+#### GET /v1/corpus/{corpus}/description
+
+Returns the resolved Markdown description for one loaded corpus.
+
+**Request:** No body.
+
+**Response:**
+
+```json
+{
+  "status": 200,
+  "data": {
+    "corpus": "books",
+    "description": "# Books\nReference material."
+  }
+}
+```
+
+A valid loaded corpus without `description.md` returns HTTP 200 with `No description available.`. An invalid corpus name returns HTTP 400. A valid but unknown corpus returns HTTP 404. An unreadable, non-file, symlinked, or invalid UTF-8 stored description returns HTTP 500.
 
 #### POST /v1/shutdown
 
@@ -587,7 +613,7 @@ All API request and response payloads are defined as Pydantic models in `api/mod
 - `api/models/index.py` — `IndexRequest` (document field, optional citation dict), `IndexResponse` (document_id, chunks_indexed, chunk_ids).
 - `api/models/query.py` — `QueryRequest` (query string, top_k as positive integer), `QueryResponse` (results list), `QueryResult` (chunk_id, document_id, citation_key, text, score).
 - `api/models/citation.py` — `CitationResponse` (citation_key, source_type, common, source_data).
-- `api/models/info.py` — `HealthResponse`, `InfoResponse`, `ShutdownResponse`.
+- `api/models/info.py` — `HealthResponse`, `InfoResponse`, `CorporaResponse`, `CorpusDescriptionResponse`, `ShutdownResponse`.
 
 FastAPI uses these models to automatically validate incoming JSON. Invalid payloads are rejected with HTTP 422 and the Pydantic validation error message is included in the error response envelope.
 
@@ -616,6 +642,7 @@ The service maintains a formal app state stored on `app.state.app_status`. The p
 - POST /v1/corpus/{corpus}/query/hybrid
 - GET /v1/corpus/{corpus}/citation/{citation_key}
 - GET /v1/corpora
+- GET /v1/corpus/{corpus}/description
 - POST /v1/shutdown
 
 **Unguarded endpoints** — these are always available regardless of app state:
@@ -682,6 +709,18 @@ An index `idx_citations_document_id` exists on `document_citations(document_id)`
 The SQLite database file is stored at `{data_dir}/storage/{corpus}/{db_filename}`.
 
 Document and chunk IDs are assigned automatically by SQLite's autoincrement mechanism. ID assignment is fully internal to the service and transparent to clients.
+
+### 6.3 Corpus Description Metadata
+
+Each loaded corpus can have one optional Markdown description stored at `{data_dir}/storage/{corpus}/description.md`. With no file argument the command prints the current description; providing a file installs or replaces it:
+
+```bash
+just describe-corpus <corpus> [markdown-file]
+```
+
+When provided, the source description must be a regular, non-symlink UTF-8 `.md` file, must contain non-whitespace text, and must be at most 64 KiB. Ingestion requires an existing corpus storage directory and writes the canonical file atomically, so readers observe either the old complete description or the new complete description.
+
+Corpus descriptions are not documents. They are never passed through document ingestion, chunking, embeddings, FAISS, Tantivy, SQLite document/chunk tables, or the ingestion ledger. Index rebuilds and `just delete <corpus>` clear search data and ledger state but preserve `description.md` with the corpus storage directory.
 
 ## 7. Dense Retrieval (Vector Search)
 
@@ -929,8 +968,9 @@ Retrieval interfaces return `list[ScoredChunk]` (chunk_id, score). The orchestra
 | `just stop` | Shut down the running service by calling the `/v1/shutdown` endpoint |
 | `just status` | Check if the service is running by hitting `/v1/health`. If running, display the full configuration from `/v1/info`. If not, display "service is not running" |
 | `just ingest` | Destroy the existing index, then ingest all `.txt` files from `{data_dir}/input/{corpus}/txt/` via the `IndexingClient`. Shows progress per file. Fails hard on any error |
+| `just describe-corpus` | Show the current corpus description, or store/replace it from a validated Markdown file without indexing it |
 | `just md2txt` | Convert `{data_dir}/input/{corpus}/md/` files to `.txt` and copy `.json` sidecars to `{data_dir}/input/{corpus}/txt/` |
-| `just delete` | Destroy the corpus index by calling `DELETE /v1/corpus/{corpus}/index` |
+| `just delete` | Destroy corpus index contents and ledger state by calling `DELETE /v1/corpus/{corpus}/index`; corpus metadata such as `description.md` is preserved |
 | `just search` | Interactive search loop for a corpus |
 | `just evaluate` | Evaluate retrieval quality for a corpus |
 | `just citation` | Fetch citation metadata for one or more citation keys in a corpus |
@@ -1010,7 +1050,7 @@ The `mcp/` directory contains a Model Context Protocol server (`mini-rag.ts`) th
 
 - `search` — performs hybrid search (dense + sparse) against a corpus and returns results with citation keys.
 - `get_citation` — retrieves full citation metadata by corpus and citation key.
-- `list_corpora` — lists available corpora on disk.
+- `list_corpora` — returns the machine-readable API JSON envelope with a `data.corpora` array and parallel `data.descriptions` object keyed by corpus name.
 
 The MCP server communicates with the mini-rag service over HTTP (same host/port as configured in `config.yaml`). It includes health checking before each operation and returns structured JSON results.
 

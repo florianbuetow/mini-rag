@@ -45,6 +45,11 @@ FAKE_MODELS: list[dict[str, str]] = [
 ]
 
 FAKE_CORPORA: list[str] = ["alpha", "beta", "gamma"]
+FAKE_CORPUS_DESCRIPTIONS: dict[str, str] = {
+    "alpha": "# Alpha\nPrimary deterministic corpus with [reference link](https://example.com).",
+    "beta": "No description available.",
+    "gamma": '# Gamma\n<script>window.__corpusDescriptionXss = true</script><img src=x onerror="window.__corpusDescriptionXss = true">',
+}
 
 FAKE_STREAM_CHUNKS: list[str] = ["Hello", " from", " the", " deterministic", " agent."]
 
@@ -208,7 +213,7 @@ def _build_fake_info_router() -> APIRouter:
         guard = ensure_healthy(request)
         if guard is not None:
             return guard
-        return success_response(status=200, data={"corpora": FAKE_CORPORA})
+        return success_response(status=200, data={"corpora": FAKE_CORPORA, "descriptions": FAKE_CORPUS_DESCRIPTIONS})
 
     return router
 
@@ -299,6 +304,13 @@ class _FakeCorpusManager:
 
     def corpus_exists(self, name: str) -> bool:
         return name in FAKE_CORPORA
+
+    def corpus_description(self, name: str) -> str:
+        return FAKE_CORPUS_DESCRIPTIONS.get(name, "No description available.")
+
+    def corpus_descriptions(self, corpora: list[str] | None = None) -> dict[str, str]:
+        names = self.list_corpora() if corpora is None else corpora
+        return {name: self.corpus_description(name) for name in names}
 
 
 class _FakeConfig:

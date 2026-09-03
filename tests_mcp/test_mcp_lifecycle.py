@@ -27,11 +27,23 @@ class TestMcpLifecycle:
         assert "get_citation" in tool_names, f"Expected 'get_citation' in {tool_names}"
         assert "get_chunk" in tool_names, f"Expected 'get_chunk' in {tool_names}"
         assert "get_chunk_source" in tool_names, f"Expected 'get_chunk_source' in {tool_names}"
+        assert "list_corpora" in tool_names, f"Expected 'list_corpora' in {tool_names}"
 
         for tool in tools:
             assert "name" in tool
             assert "description" in tool
             assert "inputSchema" in tool
+
+    def test_02_list_corpora_returns_description_map(self, mcp_env: McpEnv) -> None:
+        result = mcp_env.mcp_client.call_tool("list_corpora", {})
+        assert "isError" not in result or result["isError"] is not True
+
+        content = result["content"]
+        assert len(content) > 0
+        data = json.loads(content[0]["text"])
+        assert data["status"] == 200
+        assert mcp_env.corpus in data["data"]["corpora"]
+        assert data["data"]["descriptions"][mcp_env.corpus] == "# MCP Test Corpus\n\nQuantum computing fixture corpus.\n"
 
     def test_02_search_returns_results(self, mcp_env: McpEnv) -> None:
         result = mcp_env.mcp_client.call_tool(

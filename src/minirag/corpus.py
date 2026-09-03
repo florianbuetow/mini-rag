@@ -148,12 +148,38 @@ class CorpusManager:
             self._stats_cache[corpus] = stats
             return stats
 
+    def corpus_exists(self, corpus: str) -> bool:
+        """Return whether a valid corpus has storage on disk."""
+        validate_corpus_name(corpus)
+        storage_dir = self._data_dir / "storage" / corpus
+        return storage_dir.is_dir() and not storage_dir.is_symlink()
+
     def list_corpora(self) -> list[str]:
         """Return sorted list of corpus names that have storage on disk."""
         storage_dir = self._data_dir / "storage"
         if not storage_dir.is_dir():
             return []
-        return sorted(entry.name for entry in storage_dir.iterdir() if entry.is_dir() and _CORPUS_NAME_PATTERN.match(entry.name))
+        return sorted(
+            entry.name
+            for entry in storage_dir.iterdir()
+            if entry.is_dir() and not entry.is_symlink() and _CORPUS_NAME_PATTERN.match(entry.name)
+        )
+
+    def corpus_description(self, corpus: str) -> str:
+        """Return the corpus description or the standard missing-description text."""
+        if not self.corpus_exists(corpus):
+            raise FileNotFoundError(f"Corpus not found: {corpus}")
+
+        from minirag.corpus_description import read_corpus_description
+
+        return read_corpus_description(self._data_dir, corpus)
+
+    def corpus_descriptions(self, corpora: list[str] | None = None) -> dict[str, str]:
+        """Return descriptions for the given corpora, or every loaded corpus."""
+        from minirag.corpus_description import read_corpus_descriptions
+
+        names = self.list_corpora() if corpora is None else corpora
+        return read_corpus_descriptions(self._data_dir, names)
 
     def _create_orchestration(self, corpus: str) -> Orchestration:
         """Build backends for a corpus using the configured factory."""

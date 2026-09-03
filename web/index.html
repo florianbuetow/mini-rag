@@ -60,6 +60,13 @@
                 <select id="corpus-selector" data-testid="corpus-selector">
                     <option value="">Loading corpora...</option>
                 </select>
+                <div class="corpus-info-wrap">
+                    <button class="corpus-info-btn" id="corpus-info-btn" data-testid="corpus-info-btn" type="button" aria-label="Show corpus information" aria-expanded="false" aria-controls="corpus-info-panel" title="Corpus information" disabled>i</button>
+                    <div class="corpus-info-panel" id="corpus-info-panel" data-testid="corpus-info-panel" role="region" aria-label="Corpus information" hidden>
+                        <div class="corpus-info-title" id="corpus-info-title" data-testid="corpus-info-title"></div>
+                        <div class="corpus-info-content" id="corpus-info-content" data-testid="corpus-info-content"></div>
+                    </div>
+                </div>
             </div>
             <div class="top-bar-spacer"></div>
             <button class="theme-btn" id="theme-btn" data-testid="theme-toggle" type="button" aria-label="Switch color theme" aria-pressed="false" title="Toggle theme">&#x2600;&#xFE0E;</button>
@@ -221,6 +228,11 @@
         return safe;
     }
 
+    function renderDescriptionMarkdown(text) {
+        var html = marked.parse(text || 'No description available.');
+        return DOMPurify.sanitize(html, { ADD_ATTR: ['target'], FORBID_TAGS: ['script', 'img'] });
+    }
+
     // --- State ---
     let currentChatId = null;
     let currentMessages = [];
@@ -228,6 +240,7 @@
     let isCreatingChat = false;
     const SEARCH_SETTINGS_STORAGE_KEY = 'minirag_search_settings';
     let searchSettings = { search_mode: 'hybrid', top_k: 50, alpha: 0.5, reranking: true };
+    let corpusDescriptions = {};
 
     // --- DOM refs ---
     const sidebar = document.getElementById('sidebar');
@@ -239,6 +252,10 @@
     const newChatBtn = document.getElementById('new-chat-btn');
     const modelSelector = document.getElementById('model-selector');
     const corpusSelector = document.getElementById('corpus-selector');
+    const corpusInfoBtn = document.getElementById('corpus-info-btn');
+    const corpusInfoPanel = document.getElementById('corpus-info-panel');
+    const corpusInfoTitle = document.getElementById('corpus-info-title');
+    const corpusInfoContent = document.getElementById('corpus-info-content');
     const chatArea = document.getElementById('chat-area');
     const messagesDiv = document.getElementById('messages');
     const chatStatus = document.getElementById('chat-status');
@@ -445,10 +462,12 @@
         try {
             const data = await apiGet('/v1/corpora');
             const corpora = data.data.corpora || [];
+            corpusDescriptions = data.data.descriptions || {};
             corpusSelector.innerHTML = '';
 
             if (corpora.length === 0) {
                 corpusSelector.innerHTML = '<option value="">No corpora available</option>';
+                updateCorpusInfoPanel();
                 return;
             }
 
@@ -458,9 +477,35 @@
                 opt.textContent = name;
                 corpusSelector.appendChild(opt);
             });
+            updateCorpusInfoPanel();
         } catch (e) {
+            corpusDescriptions = {};
             corpusSelector.innerHTML = '<option value="">Error loading corpora</option>';
+            updateCorpusInfoPanel('Corpus information unavailable.');
         }
+    }
+
+    function selectedCorpusDescription() {
+        const corpus = corpusSelector.value;
+        if (!corpus) return 'No description available.';
+        return corpusDescriptions[corpus] || 'No description available.';
+    }
+
+    function updateCorpusInfoPanel(errorText) {
+        if (!corpusInfoPanel || !corpusInfoBtn || !corpusInfoTitle || !corpusInfoContent) return;
+        const hasCorpus = !!corpusSelector.value;
+        corpusInfoBtn.disabled = !hasCorpus && !errorText;
+        corpusInfoTitle.textContent = errorText ? 'Corpus' : (corpusSelector.value || 'Corpus');
+        corpusInfoContent.innerHTML = renderDescriptionMarkdown(errorText || selectedCorpusDescription());
+        if (!hasCorpus && !errorText) {
+            closeCorpusInfoPanel();
+        }
+    }
+
+    function closeCorpusInfoPanel() {
+        if (!corpusInfoPanel || !corpusInfoBtn) return;
+        corpusInfoPanel.hidden = true;
+        corpusInfoBtn.setAttribute('aria-expanded', 'false');
     }
 
     // --- Load chat list ---
@@ -570,6 +615,7 @@
             // Restore model, corpus, and search settings
             if (chat.model) modelSelector.value = chat.model;
             if (chat.corpus) corpusSelector.value = chat.corpus;
+            updateCorpusInfoPanel();
             if (chat.search_settings) {
                 applySettingsToUI(chat.search_settings);
             }
@@ -1153,6 +1199,7 @@
         e.stopPropagation();
         settingsPanel.classList.toggle('visible');
         exportMenu.classList.remove('visible');
+        closeCorpusInfoPanel();
     });
 
     settingsPanel.addEventListener('click', function(e) {
@@ -1171,6 +1218,21 @@
         e.stopPropagation();
         exportMenu.classList.toggle('visible');
         settingsPanel.classList.remove('visible');
+        closeCorpusInfoPanel();
+    });
+
+    corpusInfoBtn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        if (corpusInfoBtn.disabled) return;
+        const expanded = corpusInfoBtn.getAttribute('aria-expanded') === 'true';
+        corpusInfoPanel.hidden = expanded;
+        corpusInfoBtn.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+        settingsPanel.classList.remove('visible');
+        exportMenu.classList.remove('visible');
+    });
+
+    corpusInfoPanel.addEventListener('click', function(e) {
+        e.stopPropagation();
     });
 
     exportMd.addEventListener('click', exportAsMarkdown);
@@ -1179,6 +1241,7 @@
     document.addEventListener('click', function() {
         exportMenu.classList.remove('visible');
         settingsPanel.classList.remove('visible');
+        closeCorpusInfoPanel();
     });
 
     // --- Sidebar drawer (mobile only; the CSS keeps the sidebar persistent on desktop) ---
@@ -1219,6 +1282,9 @@
         if (e.key === 'Escape' && isSidebarOpen()) {
             closeSidebar();
             if (sidebarToggle) sidebarToggle.focus();
+        } else if (e.key === 'Escape' && corpusInfoPanel && !corpusInfoPanel.hidden) {
+            closeCorpusInfoPanel();
+            if (corpusInfoBtn) corpusInfoBtn.focus();
         }
     });
 
@@ -1237,7 +1303,11 @@
     }
 
     modelSelector.addEventListener('change', updateNewChatBtnState);
-    corpusSelector.addEventListener('change', updateNewChatBtnState);
+    corpusSelector.addEventListener('change', function() {
+        updateNewChatBtnState();
+        updateCorpusInfoPanel();
+        closeCorpusInfoPanel();
+    });
 
     // --- Init ---
     async function init() {

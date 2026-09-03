@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from minirag.corpus import CorpusManager, validate_corpus_name
+from minirag.corpus_description import NO_DESCRIPTION_AVAILABLE, description_path
 from minirag.storage.interface import CorpusStats
 
 
@@ -230,6 +231,57 @@ class TestCorpusManager:
         (storage_dir / "alpha").mkdir()
         (storage_dir / "123bad").mkdir()
         (storage_dir / "has space").mkdir()
+        (storage_dir / "link").symlink_to(storage_dir / "alpha")
         (storage_dir / "not_a_dir.txt").write_text("x", encoding="utf-8")
 
         assert manager.list_corpora() == ["alpha", "beta"]
+
+    def test_corpus_exists_uses_valid_storage_dirs(self, manager: CorpusManager, tmp_path: Path) -> None:
+        storage_dir = tmp_path / "storage"
+        storage_dir.mkdir()
+        (storage_dir / "books").mkdir()
+        (storage_dir / "link").symlink_to(storage_dir / "books")
+
+        assert manager.corpus_exists("books") is True
+        assert manager.corpus_exists("missing") is False
+        assert manager.corpus_exists("link") is False
+        with pytest.raises(ValueError, match="invalid corpus name"):
+            manager.corpus_exists("123bad")
+
+    def test_corpus_description_requires_existing_corpus(self, manager: CorpusManager) -> None:
+        with pytest.raises(FileNotFoundError, match="Corpus not found"):
+            manager.corpus_description("books")
+
+    def test_corpus_description_returns_placeholder_for_loaded_corpus(self, manager: CorpusManager, tmp_path: Path) -> None:
+        (tmp_path / "storage" / "books").mkdir(parents=True)
+
+        assert manager.corpus_description("books") == NO_DESCRIPTION_AVAILABLE
+
+    def test_corpus_description_reflects_disk_without_cache(self, manager: CorpusManager, tmp_path: Path) -> None:
+        (tmp_path / "storage" / "books").mkdir(parents=True)
+        path = description_path(tmp_path, "books")
+        path.write_text("one", encoding="utf-8")
+
+        assert manager.corpus_description("books") == "one"
+
+        path.write_text("two", encoding="utf-8")
+        assert manager.corpus_description("books") == "two"
+
+    def test_corpus_descriptions_returns_complete_map(self, manager: CorpusManager, tmp_path: Path) -> None:
+        storage_dir = tmp_path / "storage"
+        (storage_dir / "alpha").mkdir(parents=True)
+        (storage_dir / "beta").mkdir()
+        description_path(tmp_path, "beta").write_text("# Beta\n", encoding="utf-8")
+
+        assert manager.corpus_descriptions() == {
+            "alpha": NO_DESCRIPTION_AVAILABLE,
+            "beta": "# Beta\n",
+        }
+
+    def test_destroy_preserves_corpus_description(self, manager: CorpusManager, tmp_path: Path) -> None:
+        (tmp_path / "storage" / "books").mkdir(parents=True)
+        description_path(tmp_path, "books").write_text("# Books", encoding="utf-8")
+
+        manager.destroy("books")
+
+        assert manager.corpus_description("books") == "# Books"

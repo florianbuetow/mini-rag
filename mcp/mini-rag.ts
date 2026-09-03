@@ -29,6 +29,10 @@ function extractErrorMessage(text: string, status: number): string {
   return `HTTP ${status}`;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 const server = new McpServer({
   name: "minirag",
   version: "0.1.0",
@@ -269,18 +273,33 @@ server.tool(
         const errorMsg = extractErrorMessage(bodyText, response.status);
         return { content: [{ type: "text", text: `Failed to list corpora: ${errorMsg}` }], isError: true };
       }
-      let data: { data?: { corpora?: string[] } } | null = null;
+      let data: unknown = null;
       try {
-        data = parseJsonBody(bodyText) as { data?: { corpora?: string[] } } | null;
+        data = parseJsonBody(bodyText);
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
         return { content: [{ type: "text", text: `Failed to parse corpora response: ${detail}` }], isError: true };
       }
-      const corpora = data?.data?.corpora ?? [];
-      if (corpora.length === 0) {
-        return { content: [{ type: "text", text: "No corpora available. Ingest documents first using `just ingest <corpus>`." }] };
+
+      if (!isRecord(data) || !isRecord(data.data)) {
+        return { content: [{ type: "text", text: "Invalid corpora response: expected response envelope with data object" }], isError: true };
       }
-      return { content: [{ type: "text", text: `Available corpora:\n${corpora.map((c: string) => `  - ${c}`).join("\n")}` }] };
+
+      const corpora = data.data.corpora;
+      const descriptions = data.data.descriptions;
+      if (!Array.isArray(corpora) || !corpora.every((name) => typeof name === "string")) {
+        return { content: [{ type: "text", text: "Invalid corpora response: expected data.corpora to be a string array" }], isError: true };
+      }
+      if (!isRecord(descriptions)) {
+        return { content: [{ type: "text", text: "Invalid corpora response: expected data.descriptions to be an object" }], isError: true };
+      }
+      for (const corpus of corpora) {
+        if (typeof descriptions[corpus] !== "string") {
+          return { content: [{ type: "text", text: `Invalid corpora response: missing string description for corpus ${corpus}` }], isError: true };
+        }
+      }
+
+      return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return { content: [{ type: "text", text: `Error: ${message}` }], isError: true };

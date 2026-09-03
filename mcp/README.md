@@ -51,7 +51,21 @@ Get citation/source metadata for a document by its citation key.
 
 ### `list_corpora`
 
-List all available corpora that can be searched. Takes no parameters.
+List all available corpora that can be searched. Takes no parameters. Returns the mini-rag API JSON envelope with `data.corpora` and a parallel `data.descriptions` object keyed by corpus name.
+
+Example successful text content:
+
+```json
+{
+  "status": 200,
+  "data": {
+    "corpora": ["books"],
+    "descriptions": {
+      "books": "# Books\nReference material."
+    }
+  }
+}
+```
 
 ## MCP Client Configuration
 

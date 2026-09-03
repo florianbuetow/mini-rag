@@ -52,6 +52,7 @@ MiniRAG is a lightweight, text-based search and indexing system. To reduce compl
 │   │   └── evals/          # Q&A pairs for retrieval evaluation
 │   ├── models/             # FastText embedding model
 │   ├── storage/<corpus>/   # SQLite document/chunk store
+│   │   └── description.md  # Optional corpus description, not indexed
 │   └── index/<corpus>/
 │       ├── faiss/          # Dense vector index
 │       └── tantivy/        # Sparse lexical index
@@ -89,10 +90,11 @@ Reranking is disabled by default. To enable it, set `search.reranking.enabled: t
 | `just md2txt` | Convert markdown files to plain text |
 | `just ingest <corpus>` | Delete and re-ingest all text files for a corpus |
 | `just update <corpus>` | Incrementally index only new text files (skips already-indexed) |
+| `just describe-corpus <corpus> [markdown-file]` | Show a corpus description, or store Markdown information without indexing it |
 | `just backfill-ledger <corpus>` | Seed the ledger from an existing index without re-indexing (one-time migration) |
 | `just search <corpus>` | Interactive search query loop for a corpus |
 | `just hybrid-search <corpus> "<query>" [alpha] [k]` | Run one hybrid search through the REST API and print the JSON response |
-| `just delete <corpus>` | Delete a corpus index and storage |
+| `just delete <corpus>` | Delete corpus index contents and ledger state, preserving `description.md` |
 | `just evaluate <corpus>` | Evaluate retrieval quality using Q&A pairs |
 | `just inspect <corpus>` | Inspect document chunks for a corpus |
 | `just destroy` | Remove virtual environment |
@@ -108,6 +110,19 @@ Corpus names must start with a letter and contain only alphanumeric characters, 
 5. Run `just search <corpus>` to query the corpus interactively
 
 Both `md2txt` and `ingest` scan subdirectories recursively and skip symbolic links.
+
+### Corpus Descriptions
+
+Show the current description for a loaded corpus, or provide a Markdown file to store a new description:
+
+```bash
+just describe-corpus books
+just describe-corpus books ./corpus-description.md
+```
+
+When provided, the source file must be a regular UTF-8 `.md` file, must contain non-whitespace content, and must be at most 64 KiB. MiniRAG stores the text at `data/storage/<corpus>/description.md` next to the corpus storage files. The description is metadata: it is not chunked, embedded, indexed in FAISS or Tantivy, or recorded in the ingestion ledger.
+
+Missing descriptions resolve to `No description available.` in the API, UI, and MCP corpus listing. Re-running the command atomically replaces the previous description. `just delete <corpus>` clears the index and ingestion ledger but preserves the corpus storage directory and `description.md`, so descriptions survive index rebuilds.
 
 ### One-Shot Hybrid Search
 
@@ -149,7 +164,8 @@ All endpoints accept/return JSON. Data operations are scoped to a corpus via `/v
 |--------|----------|-------------|
 | GET | `/v1/health` | Health check |
 | GET | `/v1/info` | Full service configuration |
-| GET | `/v1/corpora` | List available corpora |
+| GET | `/v1/corpora` | List available corpora with descriptions |
+| GET | `/v1/corpus/{corpus}/description` | Return one corpus description |
 | POST | `/v1/shutdown` | Graceful shutdown |
 | POST | `/v1/corpus/{corpus}/index` | Index a single document |
 | DELETE | `/v1/corpus/{corpus}/index` | Delete the corpus index |
