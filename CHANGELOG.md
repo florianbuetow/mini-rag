@@ -5,6 +5,28 @@ week by week from the full git history. The format draws on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project is not yet
 tagged, so sections are grouped by ISO week instead of semantic version.
 
+## [2026-W36] - 2026-09-03
+
+### Added
+
+- Corpus descriptions stored beside corpus storage, surfaced in REST, UI, and MCP.
+- Justfile command to ingest a corpus description file.
+
+### Changed
+
+- `list_corpora` now returns each corpus together with its description.
+- Chat UI shows the description of the selected corpus.
+
+## [2026-W33] - 2026-08-13
+
+### Added
+
+- Content validation before documents are persisted during ingest.
+
+### Changed
+
+- Simplified ingest orchestration by removing redundant dispatch code.
+
 ## [2026-W32] - 2026-08-03 to 2026-08-09
 
 ### Added
