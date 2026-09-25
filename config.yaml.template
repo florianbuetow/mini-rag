@@ -20,10 +20,15 @@ index:
     db_filename: "minirag.db"
 
   faiss:
+    # Exact: IndexFlatIP (or Flat). Approximate: IVF<nlist>,Flat, e.g. IVF64,Flat.
+    # Changing the index type requires rebuilding the corpus index.
     index_type: "IndexFlatIP"
+    # Number of IVF partitions searched; unused for exact Flat indexes.
     nprobe: 1
 
   tantivy:
+    # ISO language code or full language name; used by the optional stemmer.
+    # Changing language/stemming requires rebuilding the corpus index.
     language: "en"
     stemming: true
 

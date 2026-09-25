@@ -10,6 +10,14 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from minirag.api.routes_chat_completions import router as completions_router
+from minirag.config import (
+    ContextPruningConfig,
+    DenseSearchConfig,
+    HybridConfig,
+    RerankingConfig,
+    SearchConfig,
+    SparseSearchConfig,
+)
 
 pytestmark = [
     pytest.mark.integration,
@@ -17,8 +25,20 @@ pytestmark = [
 
 
 class FakeConfig:
+    def __init__(self) -> None:
+        self._search_config = SearchConfig(
+            hybrid=HybridConfig(alpha=0.73),
+            dense=DenseSearchConfig(),
+            sparse=SparseSearchConfig(),
+            reranking=RerankingConfig(enabled=False, model_name="test-reranker", candidate_multiplier=3),
+            context_pruning=ContextPruningConfig(),
+        )
+
     def model_dump(self) -> dict[str, object]:
         return {"service": {"host": "127.0.0.1", "port": 9191}}
+
+    def get_search_config(self) -> SearchConfig:
+        return self._search_config
 
 
 class FakeCorpusManager:
@@ -33,6 +53,7 @@ class MockStreamAgent:
         self.events = events if events is not None else []
         self.error = error
         self.received_messages: list[dict[str, str]] = []
+        self.received_search_settings: dict[str, object] = {}
 
     def stream(
         self,
@@ -45,8 +66,14 @@ class MockStreamAgent:
         reranking: bool,
         cancellation_event: threading.Event | None = None,
     ) -> Generator[object, None, None]:
-        del model, corpus, search_mode, top_k, alpha, reranking, cancellation_event
+        del model, corpus, cancellation_event
         self.received_messages = list(messages)
+        self.received_search_settings = {
+            "search_mode": search_mode,
+            "top_k": top_k,
+            "alpha": alpha,
+            "reranking": reranking,
+        }
         if self.error is not None:
             raise self.error
         yield from self.events
@@ -133,6 +160,12 @@ def test_mocked_status_token_and_done_events_are_emitted_correctly() -> None:
     _assert_status(events[3]["data"], "")
     assert events[4] == {"event": "done", "data": {}}
     assert agent.received_messages == [{"role": "user", "content": "hello"}]
+    assert agent.received_search_settings == {
+        "search_mode": "hybrid",
+        "top_k": 50,
+        "alpha": 0.73,
+        "reranking": False,
+    }
 
 
 def test_mocked_hybrid_reranking_candidate_status_is_public_status_only() -> None:

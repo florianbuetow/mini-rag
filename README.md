@@ -178,10 +178,16 @@ All endpoints accept/return JSON. Data operations are scoped to a corpus via `/v
 MiniRAG uses three backend components, each accessible through an abstraction interface:
 
 - **SQLite** — Document and chunk persistence
-- **FAISS** — Dense vector index using `IndexFlatIP` with unit-normalized embeddings (cosine similarity, scores in [0, 1])
-- **Tantivy** — Sparse lexical index with BM25 scoring, stemming, and tokenization (scores normalized to [0, 1])
+- **FAISS** — Configurable exact (`IndexFlatIP` or `Flat`) or approximate (`IVF<nlist>,Flat`) vector search over unit-normalized embeddings (cosine similarity, returned scores clamped to [0, 1]).
+- **Tantivy** — Sparse lexical index with BM25 scoring, lowercase tokenization, and optional language-specific stemming for both documents and queries (scores normalized to [0, 1]).
 
 Each corpus gets its own set of backends, persisted under `data/storage/<corpus>/` and `data/index/<corpus>/`. Backends are created lazily on first access.
+
+`index.faiss.index_type` selects the index. For example, `IVF64,Flat` groups vectors into 64 partitions; `index.faiss.nprobe` controls how many partitions each query searches. Increasing `nprobe` trades search speed for recall. Index types outside the supported Flat and IVF-Flat families are rejected. IVF training happens during persistence once enough vectors have accumulated to meet FAISS's recommended minimum training points per centroid; until then, pending vectors are persisted and searched exactly, so small corpora remain searchable.
+
+`index.tantivy.language` accepts language codes or full names, such as `en`/`english`, `fr`/`french`, and `de`/`german`. `stemming: true` applies that language's stemmer; `false` keeps lowercase token matching without stemming. Unsupported languages are rejected.
+
+Changing the FAISS index type or Tantivy language/stemming requires a full corpus rebuild. Existing Tantivy indexes created before tokenizer settings were persisted also require a rebuild. Incompatible indexes fail explicitly on normal reads; the existing `just ingest <corpus>` full-rebuild flow can reset them. This rebuild deletes indexed documents and re-ingests the corpus input files. Changing only `nprobe` does not require rebuilding.
 
 ### Hybrid Search Tuning
 
@@ -190,6 +196,8 @@ The `alpha` parameter under `search.hybrid` controls the dense/sparse balance:
 - `0.0` — Pure sparse (BM25 only)
 - configured value — Used when no per-query alpha override is supplied
 - `1.0` — Pure dense (semantic only)
+
+Hybrid query and chat-completion requests inherit `search.hybrid.alpha` when the request omits it. Chat completions also inherit `search.reranking.enabled`. New chats store these configured defaults, merged with any explicitly supplied search settings; explicit request values continue to override configuration.
 
 ## Development
 

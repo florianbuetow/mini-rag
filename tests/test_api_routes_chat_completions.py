@@ -27,11 +27,30 @@ class FakeServiceConfig:
 
 
 class FakeConfig:
+    class SearchConfig:
+        class Hybrid:
+            def __init__(self, alpha: float) -> None:
+                self.alpha = alpha
+
+        class Reranking:
+            def __init__(self, enabled: bool) -> None:
+                self.enabled = enabled
+
+        def __init__(self, alpha: float, reranking_enabled: bool) -> None:
+            self.hybrid = self.Hybrid(alpha)
+            self.reranking = self.Reranking(reranking_enabled)
+
+    def __init__(self, *, alpha: float = 0.5, reranking_enabled: bool = True) -> None:
+        self._search = self.SearchConfig(alpha, reranking_enabled)
+
     def model_dump(self):
         return {"service": {"host": "127.0.0.1", "port": 9191}}
 
     def get_service_config(self):
         return FakeServiceConfig(reload=False)
+
+    def get_search_config(self):
+        return self._search
 
 
 class FakeCorpusManager:
@@ -221,6 +240,7 @@ def _make_app(
     agent: object | None = None,
     corpus_manager: FakeCorpusManager | None = None,
     status: str = "healthy",
+    config: FakeConfig | None = None,
 ) -> FastAPI:
     """Create app with chat completions route.
 
@@ -230,7 +250,7 @@ def _make_app(
 
     app = FastAPI()
     app.state.app_status = status
-    app.state.config = FakeConfig()
+    app.state.config = config or FakeConfig()
     app.state.corpus_manager = corpus_manager or FakeCorpusManager()
     app.state.agent = agent or FakeAgent()
     app.add_exception_handler(Exception, unhandled_exception_handler)
@@ -583,9 +603,9 @@ def test_search_settings_passed_to_agent():
 
 
 def test_search_settings_default_when_omitted():
-    """When search settings are omitted, defaults should be used."""
+    """Omitted configured settings should use the active search configuration."""
     agent = FakeAgent()
-    client = TestClient(_make_app(agent=agent))
+    client = TestClient(_make_app(agent=agent, config=FakeConfig(alpha=0.73, reranking_enabled=False)))
 
     with client.stream("POST", "/v1/chat/completions", json=VALID_REQUEST) as resp:
         list(resp.iter_lines())
@@ -593,8 +613,21 @@ def test_search_settings_default_when_omitted():
     assert agent.received_search_settings is not None
     assert agent.received_search_settings["search_mode"] == "hybrid"
     assert agent.received_search_settings["top_k"] == 50
-    assert agent.received_search_settings["alpha"] == 0.5
-    assert agent.received_search_settings["reranking"] is True
+    assert agent.received_search_settings["alpha"] == 0.73
+    assert agent.received_search_settings["reranking"] is False
+
+
+def test_search_settings_explicit_overrides_config():
+    """Explicit request settings should override the active search configuration."""
+    agent = FakeAgent()
+    client = TestClient(_make_app(agent=agent, config=FakeConfig(alpha=0.73, reranking_enabled=True)))
+
+    with client.stream("POST", "/v1/chat/completions", json=REQUEST_WITH_SEARCH_SETTINGS) as resp:
+        list(resp.iter_lines())
+
+    assert agent.received_search_settings is not None
+    assert agent.received_search_settings["alpha"] == 0.3
+    assert agent.received_search_settings["reranking"] is False
 
 
 def test_search_mode_sparse_accepted():

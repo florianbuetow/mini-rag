@@ -5,6 +5,7 @@ import json
 from typing import Any
 
 import httpx
+import pytest
 
 import scripts.hybrid_search as hybrid_search
 
@@ -37,7 +38,7 @@ class FakeClient:
         return response
 
 
-def test_run_search_preserves_api_envelope_and_sends_alpha(monkeypatch: Any) -> None:
+def test_run_search_preserves_api_envelope_and_sends_alpha(monkeypatch: pytest.MonkeyPatch) -> None:
     """The script should print the same envelope and pass optional alpha to REST."""
     fake_client = FakeClient(
         [
@@ -45,7 +46,11 @@ def test_run_search_preserves_api_envelope_and_sends_alpha(monkeypatch: Any) -> 
             httpx.Response(200, json={"status": 200, "data": {"results": []}}),
         ]
     )
-    monkeypatch.setattr(hybrid_search.httpx, "Client", lambda **_kwargs: fake_client)
+
+    def fake_client_factory(**_kwargs: object) -> FakeClient:
+        return fake_client
+
+    monkeypatch.setattr(hybrid_search.httpx, "Client", fake_client_factory)
     args = argparse.Namespace(corpus="test", query="hello world", alpha=0.25, top_k=7)
 
     result = hybrid_search.run_search(args)
@@ -55,7 +60,7 @@ def test_run_search_preserves_api_envelope_and_sends_alpha(monkeypatch: Any) -> 
     assert json.loads(fake_client.requests[1].content) == {"query": "hello world", "top_k": 7, "alpha": 0.25}
 
 
-def test_run_search_omits_alpha_when_defaulted(monkeypatch: Any) -> None:
+def test_run_search_omits_alpha_when_defaulted(monkeypatch: pytest.MonkeyPatch) -> None:
     """The default alpha should remain service-configured like the MCP tool."""
     fake_client = FakeClient(
         [
@@ -63,7 +68,11 @@ def test_run_search_omits_alpha_when_defaulted(monkeypatch: Any) -> None:
             httpx.Response(200, json={"status": 200, "data": {"results": []}}),
         ]
     )
-    monkeypatch.setattr(hybrid_search.httpx, "Client", lambda **_kwargs: fake_client)
+
+    def fake_client_factory(**_kwargs: object) -> FakeClient:
+        return fake_client
+
+    monkeypatch.setattr(hybrid_search.httpx, "Client", fake_client_factory)
     args = argparse.Namespace(corpus="test", query="hello", alpha=None, top_k=10)
 
     hybrid_search.run_search(args)

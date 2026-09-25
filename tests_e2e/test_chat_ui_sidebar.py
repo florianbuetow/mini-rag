@@ -54,6 +54,66 @@ class TestNewChat:
         assert "corpus" in payload, f"Payload missing 'corpus': {payload}"
         assert payload["model"] != "", "Model should not be empty"
         assert payload["corpus"] != "", "Corpus should not be empty"
+        assert "search_settings" not in payload
+        assert page.locator("[data-testid='alpha-slider']").input_value() == "0.73"
+        assert not page.locator("[data-testid='reranking-toggle']").is_checked()
+
+    def test_partial_first_chat_override_preserves_configured_defaults(self, page) -> None:
+        """Changing one setting should retain configured values for untouched fields."""
+        wait_for_selectors_loaded(page)
+        requests_log: list[dict] = []
+
+        def on_request(request) -> None:
+            if "/v1/chats" in request.url and request.method == "POST" and request.post_data:
+                requests_log.append(json.loads(request.post_data))
+
+        page.on("request", on_request)
+        page.locator("[data-testid='settings-btn']").click()
+        page.locator("[data-testid='top-k']").fill("5")
+        page.locator("[data-testid='top-k']").dispatch_event("change")
+        page.locator("[data-testid='new-chat']").click()
+        page.wait_for_timeout(1000)
+
+        assert requests_log[0]["search_settings"] == {
+            "search_mode": "hybrid",
+            "top_k": 5,
+            "alpha": 0.73,
+            "reranking": False,
+        }
+
+    def test_new_chat_preserves_explicit_stored_search_settings(self, page) -> None:
+        """Stored user settings should override server defaults for a new chat."""
+        explicit_settings = {"search_mode": "dense", "top_k": 23, "alpha": 0.3, "reranking": True}
+        page.evaluate("settings => localStorage.setItem('minirag_search_settings', JSON.stringify(settings))", explicit_settings)
+        page.reload()
+        wait_for_selectors_loaded(page)
+        requests_log: list[dict] = []
+
+        def on_request(request) -> None:
+            if "/v1/chats" in request.url and request.method == "POST" and request.post_data:
+                requests_log.append(json.loads(request.post_data))
+
+        page.on("request", on_request)
+        page.locator("[data-testid='new-chat']").click()
+        page.wait_for_timeout(1000)
+
+        assert requests_log[0]["search_settings"] == explicit_settings
+
+    def test_completion_uses_server_resolved_new_chat_defaults(self, page) -> None:
+        """Completion requests should use settings returned by new-chat creation."""
+        wait_for_selectors_loaded(page)
+        create_new_chat(page)
+        completion_requests: list[dict] = []
+
+        def on_request(request) -> None:
+            if "/v1/chat/completions" in request.url and request.method == "POST" and request.post_data:
+                completion_requests.append(json.loads(request.post_data))
+
+        page.on("request", on_request)
+        send_message_and_wait(page, "configured defaults")
+
+        assert completion_requests[0]["alpha"] == 0.73
+        assert completion_requests[0]["reranking"] is False
 
     def test_new_chat_clears_transcript_and_adds_sidebar_entry(self, page) -> None:
         """Test 6: New chat clears transcript and inserts a sidebar entry."""

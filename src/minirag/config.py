@@ -5,6 +5,8 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from minirag.retrieval.faiss_dense import normalize_faiss_index_type
+
 
 class ServiceConfig(BaseModel):
     """Service process settings."""
@@ -235,10 +237,8 @@ class FAISSConfig(BaseModel):
     @field_validator("index_type")
     @classmethod
     def validate_index_type(cls, value: str) -> str:
-        """Ensure FAISS index type is non-empty text."""
-        if value.strip() == "":
-            raise ValueError("index.faiss.index_type must not be empty")
-        return value
+        """Accept only index families supported by the dense adapter."""
+        return normalize_faiss_index_type(value)
 
     @field_validator("nprobe")
     @classmethod

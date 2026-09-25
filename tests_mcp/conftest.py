@@ -207,7 +207,8 @@ def _create_temp_data_dir(project_config: Config) -> tuple[Path, Path]:
     (data_dir / "index").mkdir(parents=True)
 
     model_name = project_config.index.embeddings.model_name
-    model_src = PROJECT_ROOT / "data" / "models" / model_name
+    configured_data_dir = project_config.resolve_data_dir(PROJECT_ROOT)
+    model_src = configured_data_dir / "models" / model_name
     if not model_src.is_file():
         shutil.rmtree(tmp, ignore_errors=True)
         pytest.skip(f"FastText model not found at {model_src} — run 'just init'")

@@ -93,6 +93,7 @@ def initialize_backends(data_dir: Path, corpus: str, config: Config) -> tuple[Em
     dense = FAISSDense(
         dimension=index_config.embeddings.dimension,
         index_dir=data_dir / "index" / corpus / "faiss",
+        index_type=index_config.faiss.index_type,
         nprobe=index_config.faiss.nprobe,
     )
 

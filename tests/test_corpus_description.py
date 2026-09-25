@@ -60,7 +60,10 @@ def test_cli_without_file_prints_current_description(
             del project_root
             return data_dir
 
-    monkeypatch.setattr(description_cli.Config, "from_yaml", staticmethod(lambda _path: FakeConfig()))
+    def fake_from_yaml(_path: Path) -> FakeConfig:
+        return FakeConfig()
+
+    monkeypatch.setattr(description_cli.Config, "from_yaml", staticmethod(fake_from_yaml))
     monkeypatch.setattr(sys, "argv", ["describe-corpus", "--corpus", "books"])
 
     description_cli.main()

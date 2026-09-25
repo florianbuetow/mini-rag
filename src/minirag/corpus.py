@@ -2,6 +2,7 @@
 
 import logging
 import re
+import shutil
 import threading
 from pathlib import Path
 from typing import Protocol
@@ -9,6 +10,7 @@ from typing import Protocol
 from minirag.config import IndexConfig, SearchConfig
 from minirag.orchestration import Orchestration
 from minirag.reranking.interface import Reranker
+from minirag.retrieval.errors import IndexConfigurationError
 from minirag.search.embeddings_interface import Embeddings
 from minirag.storage.interface import CorpusStats
 
@@ -85,7 +87,7 @@ class CorpusManager:
             orch = self._cache.pop(corpus, None)
             self._stats_cache.pop(corpus, None)
             if orch is None:
-                orch = self._create_orchestration(corpus)
+                orch = self._orchestration_for_destroy(corpus)
 
         destroy_error: Exception | None = None
         try:
@@ -110,6 +112,20 @@ class CorpusManager:
             raise destroy_error
         if close_error is not None:
             raise close_error
+
+    def _orchestration_for_destroy(self, corpus: str) -> Orchestration:
+        """Allow an explicit reset to rebuild indexes with incompatible settings."""
+        try:
+            return self._create_orchestration(corpus)
+        except IndexConfigurationError:
+            index_dir = self._data_dir / "index" / corpus
+            # Only derived indexes are removed here; normal destroy clears SQLite.
+            # Refuse links so a reset cannot remove files outside this corpus.
+            if index_dir.parent.is_symlink() or index_dir.is_symlink():
+                raise ValueError("cannot reset a corpus index through a symbolic link") from None
+            if index_dir.exists():
+                shutil.rmtree(index_dir)
+            return self._create_orchestration(corpus)
 
     def close_all(self) -> None:
         """Close all cached storage connections and clear the cache.
@@ -174,12 +190,11 @@ class CorpusManager:
 
         return read_corpus_description(self._data_dir, corpus)
 
-    def corpus_descriptions(self, corpora: list[str] | None = None) -> dict[str, str]:
-        """Return descriptions for the given corpora, or every loaded corpus."""
+    def corpus_descriptions(self, corpora: list[str]) -> dict[str, str]:
+        """Return descriptions for the given corpora."""
         from minirag.corpus_description import read_corpus_descriptions
 
-        names = self.list_corpora() if corpora is None else corpora
-        return read_corpus_descriptions(self._data_dir, names)
+        return read_corpus_descriptions(self._data_dir, corpora)
 
     def _create_orchestration(self, corpus: str) -> Orchestration:
         """Build backends for a corpus using the configured factory."""

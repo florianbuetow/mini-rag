@@ -55,8 +55,8 @@ class ChatCompletionRequest(BaseModel):
     corpus: str
     search_mode: str = "hybrid"
     top_k: int = 50
-    alpha: float = 0.5
-    reranking: bool = True
+    alpha: float | None = None
+    reranking: bool | None = None
 
     @field_validator("messages")
     @classmethod
@@ -101,9 +101,9 @@ class ChatCompletionRequest(BaseModel):
 
     @field_validator("alpha")
     @classmethod
-    def validate_alpha(cls, value: float) -> float:
+    def validate_alpha(cls, value: float | None) -> float | None:
         """Ensure alpha is in [0.0, 1.0]."""
-        if value < 0.0 or value > 1.0:
+        if value is not None and (value < 0.0 or value > 1.0):
             raise ValueError("alpha must be between 0.0 and 1.0")
         return value
 
@@ -285,6 +285,9 @@ async def chat_completions(request: Request, body: ChatCompletionRequest) -> Str
         return error_response(status=422, message=f"corpus not found: {body.corpus}")
 
     agent = request.app.state.agent
+    search_config = request.app.state.config.get_search_config()
+    alpha = body.alpha if body.alpha is not None else search_config.hybrid.alpha
+    reranking = body.reranking if body.reranking is not None else search_config.reranking.enabled
     messages = [{"role": m.role, "content": m.content} for m in body.messages]
     cancellation_event = threading.Event()
 
@@ -296,8 +299,8 @@ async def chat_completions(request: Request, body: ChatCompletionRequest) -> Str
             body.corpus,
             search_mode=body.search_mode,
             top_k=body.top_k,
-            alpha=body.alpha,
-            reranking=body.reranking,
+            alpha=alpha,
+            reranking=reranking,
             cancellation_event=cancellation_event,
         ),
         media_type="text/event-stream",

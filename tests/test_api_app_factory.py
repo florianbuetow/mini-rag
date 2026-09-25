@@ -23,6 +23,7 @@ class FakeIndexConfig:
         db_filename = "minirag.db"
 
     class Faiss:
+        index_type = "IndexFlatIP"
         nprobe = 1
 
     class Tantivy:

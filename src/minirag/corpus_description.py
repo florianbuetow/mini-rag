@@ -3,12 +3,13 @@
 import os
 import tempfile
 from pathlib import Path
+from typing import Final
 
 from minirag.corpus import validate_corpus_name
 
-DESCRIPTION_FILENAME = "description.md"
-NO_DESCRIPTION_AVAILABLE = "No description available."
-MAX_DESCRIPTION_BYTES = 64 * 1024
+DESCRIPTION_FILENAME: Final[str] = "description.md"
+NO_DESCRIPTION_AVAILABLE: Final[str] = "No description available."
+MAX_DESCRIPTION_BYTES: Final[int] = 64 * 1024
 
 
 class CorpusDescriptionError(OSError):

@@ -30,6 +30,7 @@ class FakeIndexConfig:
         db_filename = "minirag.db"
 
     class Faiss:
+        index_type = "IVF4,Flat"
         nprobe = 7
 
     class Tantivy:
@@ -62,9 +63,10 @@ class FakeStorage:
 class FakeDense:
     """Fake dense backend that tracks close calls."""
 
-    def __init__(self, dimension: int, index_dir: Path, nprobe: int) -> None:
+    def __init__(self, dimension: int, index_dir: Path, index_type: str, nprobe: int) -> None:
         self.dimension = dimension
         self.index_dir = index_dir
+        self.index_type = index_type
         self.nprobe = nprobe
         self.closed = False
 
@@ -120,6 +122,7 @@ def test_build_orchestration_happy_path_constructs_expected_paths(monkeypatch: p
 
     assert storage.database_path == data_dir / "storage" / "books" / "minirag.db"
     assert dense.dimension == 300
+    assert dense.index_type == "IVF4,Flat"
     assert dense.nprobe == 7
     assert dense.index_dir == data_dir / "index" / "books" / "faiss"
     assert sparse.index_dir == data_dir / "index" / "books" / "tantivy"
@@ -133,8 +136,8 @@ def test_build_orchestration_closes_storage_when_faiss_init_fails(monkeypatch: p
     created_storage: list[FakeStorage] = []
 
     class FailingDense:
-        def __init__(self, dimension: int, index_dir: Path, nprobe: int) -> None:
-            del dimension, index_dir, nprobe
+        def __init__(self, dimension: int, index_dir: Path, index_type: str, nprobe: int) -> None:
+            del dimension, index_dir, index_type, nprobe
             raise RuntimeError("faiss failed")
 
     def fake_storage(database_path: Path) -> FakeStorage:
@@ -176,8 +179,8 @@ def test_build_orchestration_closes_storage_and_closes_dense_when_tantivy_init_f
         created_storage.append(storage)
         return storage
 
-    def fake_dense(dimension: int, index_dir: Path, nprobe: int) -> FakeDense:
-        dense = FakeDense(dimension=dimension, index_dir=index_dir, nprobe=nprobe)
+    def fake_dense(dimension: int, index_dir: Path, index_type: str, nprobe: int) -> FakeDense:
+        dense = FakeDense(dimension=dimension, index_dir=index_dir, index_type=index_type, nprobe=nprobe)
         created_dense.append(dense)
         return dense
 
@@ -214,8 +217,8 @@ def test_build_orchestration_raises_exception_group_when_faiss_init_and_storage_
             raise RuntimeError("storage close failed")
 
     class FailingDense:
-        def __init__(self, dimension: int, index_dir: Path, nprobe: int) -> None:
-            del dimension, index_dir, nprobe
+        def __init__(self, dimension: int, index_dir: Path, index_type: str, nprobe: int) -> None:
+            del dimension, index_dir, index_type, nprobe
             raise RuntimeError("faiss failed")
 
     monkeypatch.setattr(factory_module, "SQLiteStorage", FailingStorage)
@@ -249,8 +252,8 @@ def test_build_orchestration_raises_exception_group_when_tantivy_init_and_cleanu
             raise RuntimeError("storage close failed")
 
     class FailingDenseClose:
-        def __init__(self, dimension: int, index_dir: Path, nprobe: int) -> None:
-            del dimension, index_dir, nprobe
+        def __init__(self, dimension: int, index_dir: Path, index_type: str, nprobe: int) -> None:
+            del dimension, index_dir, index_type, nprobe
 
         def close(self) -> None:
             raise RuntimeError("dense close failed")

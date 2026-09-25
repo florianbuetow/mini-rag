@@ -96,9 +96,9 @@ class TestSearchSettingsPersistence:
     def test_search_settings_defaults(self, page) -> None:
         assert page.locator("[data-testid='search-mode']").input_value() == "hybrid"
         assert page.locator("[data-testid='top-k']").input_value() == "50"
-        assert page.locator("[data-testid='alpha-slider']").input_value() == "0.5"
-        assert page.locator("[data-testid='alpha-value']").text_content() == "0.5"
-        assert page.locator("[data-testid='reranking-toggle']").is_checked()
+        assert page.locator("[data-testid='alpha-slider']").input_value() == "0.73"
+        assert page.locator("[data-testid='alpha-value']").text_content() == "0.73"
+        assert not page.locator("[data-testid='reranking-toggle']").is_checked()
 
     def test_search_settings_persist_after_reload(self, page) -> None:
         page.locator("[data-testid='settings-btn']").click()

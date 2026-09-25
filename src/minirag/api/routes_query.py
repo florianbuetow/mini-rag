@@ -29,10 +29,10 @@ class QuerySearchFn(Protocol):
         ...
 
 
-SearchFnGetter = Callable[[Orchestration, QueryRequest], QuerySearchFn]
+type SearchFnGetter = Callable[[Orchestration, QueryRequest], QuerySearchFn]
 
 
-async def _parse_query_request(request: Request, model: type[QueryRequest] = QueryRequest) -> QueryRequest | JSONResponse:
+async def _parse_query_request(request: Request, model: type[QueryRequest]) -> QueryRequest | JSONResponse:
     """Parse and validate query request body."""
     try:
         body_object = await request.json()
@@ -72,7 +72,7 @@ async def _run_query(
     corpus: str,
     search_name: str,
     search_fn_getter: SearchFnGetter,
-    request_model: type[QueryRequest] = QueryRequest,
+    request_model: type[QueryRequest],
 ) -> JSONResponse:
     """Shared query handler for dense, sparse, and hybrid search."""
     guard_response = ensure_healthy(request)
@@ -123,6 +123,7 @@ async def query_dense(request: Request, corpus: str) -> JSONResponse:
         corpus=corpus,
         search_name="dense",
         search_fn_getter=lambda orchestration, _request: orchestration.search_dense,
+        request_model=QueryRequest,
     )
 
 
@@ -134,6 +135,7 @@ async def query_sparse(request: Request, corpus: str) -> JSONResponse:
         corpus=corpus,
         search_name="sparse",
         search_fn_getter=lambda orchestration, _request: orchestration.search_sparse,
+        request_model=QueryRequest,
     )
 
 

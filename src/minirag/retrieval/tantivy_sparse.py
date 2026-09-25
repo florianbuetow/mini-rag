@@ -1,14 +1,58 @@
 """Tantivy sparse retrieval implementation."""
 
 import importlib
+import json
 import logging
 from pathlib import Path
 from typing import Protocol, cast
 
+from minirag.retrieval.errors import IndexConfigurationError
 from minirag.retrieval.sparse_interface import SparseRetrieval
 from minirag.search.types import ScoredChunk
 
 logger = logging.getLogger(__name__)
+
+_TOKENIZER_NAME = "minirag"
+_SETTINGS_FILENAME = "minirag-tantivy-settings.json"
+_SETTINGS_VERSION = 1
+_LANGUAGE_ALIASES = {
+    "ar": "Arabic",
+    "arabic": "Arabic",
+    "da": "Danish",
+    "danish": "Danish",
+    "nl": "Dutch",
+    "dutch": "Dutch",
+    "en": "English",
+    "english": "English",
+    "fi": "Finnish",
+    "finnish": "Finnish",
+    "fr": "French",
+    "french": "French",
+    "de": "German",
+    "german": "German",
+    "el": "Greek",
+    "greek": "Greek",
+    "hu": "Hungarian",
+    "hungarian": "Hungarian",
+    "it": "Italian",
+    "italian": "Italian",
+    "no": "Norwegian",
+    "norwegian": "Norwegian",
+    "pt": "Portuguese",
+    "portuguese": "Portuguese",
+    "ro": "Romanian",
+    "romanian": "Romanian",
+    "ru": "Russian",
+    "russian": "Russian",
+    "es": "Spanish",
+    "spanish": "Spanish",
+    "sv": "Swedish",
+    "swedish": "Swedish",
+    "ta": "Tamil",
+    "tamil": "Tamil",
+    "tr": "Turkish",
+    "turkish": "Turkish",
+}
 
 
 class TantivyDocument(Protocol):
@@ -90,6 +134,10 @@ class TantivyIndex(Protocol):
         """Reload index readers."""
         ...
 
+    def register_tokenizer(self, name: str, analyzer: object) -> None:
+        """Register a text analyzer for schema fields and query parsing."""
+        ...
+
 
 class TantivySchemaBuilder(Protocol):
     """Subset of Tantivy schema builder methods used by this adapter."""
@@ -98,7 +146,7 @@ class TantivySchemaBuilder(Protocol):
         """Add integer field to schema."""
         ...
 
-    def add_text_field(self, name: str, stored: bool) -> object:
+    def add_text_field(self, name: str, stored: bool, tokenizer_name: str) -> object:
         """Add text field to schema."""
         ...
 
@@ -139,6 +187,50 @@ class TantivyIndexClass(Protocol):
         ...
 
 
+class TantivyTokenizerClass(Protocol):
+    """Subset of Tantivy tokenizer constructors used by this adapter."""
+
+    def simple(self) -> object:
+        """Create a simple tokenizer."""
+        ...
+
+
+class TantivyFilterClass(Protocol):
+    """Subset of Tantivy token filters used by this adapter."""
+
+    def lowercase(self) -> object:
+        """Create a lowercase token filter."""
+        ...
+
+    def remove_long(self, length_limit: int) -> object:
+        """Create a long-token removal filter."""
+        ...
+
+    def stemmer(self, language: str) -> object:
+        """Create a language-specific stemming filter."""
+        ...
+
+
+class TantivyTextAnalyzerBuilder(Protocol):
+    """Subset of Tantivy text analyzer builder methods used by this adapter."""
+
+    def filter(self, token_filter: object) -> "TantivyTextAnalyzerBuilder":
+        """Append a token filter."""
+        ...
+
+    def build(self) -> object:
+        """Build the text analyzer."""
+        ...
+
+
+class TantivyTextAnalyzerBuilderClass(Protocol):
+    """Constructor for Tantivy text analyzer builders."""
+
+    def __call__(self, tokenizer: object) -> TantivyTextAnalyzerBuilder:
+        """Instantiate a text analyzer builder."""
+        ...
+
+
 class TantivySparse(SparseRetrieval):
     """Tantivy-backed sparse retrieval with BM25 score normalization."""
 
@@ -147,19 +239,18 @@ class TantivySparse(SparseRetrieval):
 
         Args:
             index_dir: Directory for Tantivy index persistence.
-            language: Stored from config for future tokenizer customization (not yet used).
-            stemming: Stored from config for future tokenizer customization (not yet used).
+            language: ISO 639-1 code or Tantivy language name used for stemming.
+            stemming: Whether to apply Tantivy's language-specific stemming filter.
         """
-        if language.strip() == "":
-            raise ValueError("language must not be empty")
-
         self._index_dir = index_dir
         self._index_dir.mkdir(parents=True, exist_ok=True)
-        self._language = language
+        self._language = self._normalize_language(language)
         self._stemming = stemming
+        self._settings_path = self._index_dir / _SETTINGS_FILENAME
 
         self._tantivy_module = importlib.import_module("tantivy")
         self._index = self._open_or_create_index()
+        self._register_tokenizer()
         self._writer: TantivyIndexWriter | None = None
 
         logger.info(
@@ -179,23 +270,103 @@ class TantivySparse(SparseRetrieval):
             raise RuntimeError(f"tantivy.{attribute_name} is not available")
         return getattr(self._tantivy_module, attribute_name)
 
+    def _normalize_language(self, language: str) -> str:
+        """Normalize a supported ISO code or language name for Tantivy."""
+        normalized = language.strip().casefold()
+        if normalized == "":
+            raise ValueError("language must not be empty")
+
+        try:
+            return _LANGUAGE_ALIASES[normalized]
+        except KeyError as error:
+            supported_codes = sorted(code for code in _LANGUAGE_ALIASES if len(code) == 2)
+            raise ValueError(f"unsupported Tantivy language {language!r}; use one of: {', '.join(supported_codes)}") from error
+
+    def _expected_settings(self) -> dict[str, object]:
+        """Return the persisted tokenizer settings for this adapter."""
+        return {
+            "version": _SETTINGS_VERSION,
+            "tokenizer": _TOKENIZER_NAME,
+            "language": self._language,
+            "stemming": self._stemming,
+        }
+
+    def _write_settings(self) -> None:
+        """Persist settings needed to reopen the index with the same analyzer."""
+        self._settings_path.write_text(
+            json.dumps(self._expected_settings(), indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
+    def _validate_existing_settings(self) -> None:
+        """Reject existing indexes whose tokenizer settings cannot be proven."""
+        if not self._settings_path.is_file():
+            raise IndexConfigurationError(
+                f"existing Tantivy index at {self._index_dir} has no tokenizer settings; rebuild the sparse index"
+            )
+
+        try:
+            stored_settings = json.loads(self._settings_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as error:
+            raise IndexConfigurationError(
+                f"invalid Tantivy tokenizer settings at {self._settings_path}; rebuild the sparse index"
+            ) from error
+
+        expected_settings = self._expected_settings()
+        if stored_settings != expected_settings:
+            raise IndexConfigurationError(
+                "Tantivy tokenizer settings do not match the existing index: "
+                f"expected {expected_settings}, found {stored_settings}; rebuild the sparse index"
+            )
+
+    def _build_analyzer(self) -> object:
+        """Build the configured analyzer used by both indexing and queries."""
+        tokenizer_class = cast(TantivyTokenizerClass, self._module_attribute("Tokenizer"))
+        filter_class = cast(TantivyFilterClass, self._module_attribute("Filter"))
+        builder_class = cast(
+            TantivyTextAnalyzerBuilderClass,
+            self._module_attribute("TextAnalyzerBuilder"),
+        )
+
+        builder = builder_class(tokenizer_class.simple())
+        builder = builder.filter(filter_class.remove_long(40))
+        builder = builder.filter(filter_class.lowercase())
+        if self._stemming:
+            builder = builder.filter(filter_class.stemmer(self._language))
+        return builder.build()
+
+    def _register_tokenizer(self) -> None:
+        """Register the configured analyzer after every create or reopen."""
+        self._index.register_tokenizer(_TOKENIZER_NAME, self._build_analyzer())
+
     def _open_or_create_index(self) -> TantivyIndex:
         """Open existing index, otherwise create a new one."""
         index_class = cast(TantivyIndexClass, self._module_attribute("Index"))
         index_path = str(self._index_dir)
 
         if index_class.exists(index_path):
+            self._validate_existing_settings()
             return index_class.open(index_path)
+
+        if self._settings_path.exists():
+            raise IndexConfigurationError(
+                f"Tantivy tokenizer settings exist without an index at {self._index_dir}; remove the stale directory before rebuilding"
+            )
 
         schema_builder_class = self._module_attribute("SchemaBuilder")
         schema_builder_constructor = cast(TantivySchemaBuilderClass, schema_builder_class)
         schema_builder = schema_builder_constructor()
 
         schema_builder.add_integer_field("chunk_id", stored=True, indexed=True, fast=True)
-        schema_builder.add_text_field("content", stored=True)
+        schema_builder.add_text_field(
+            "content",
+            stored=True,
+            tokenizer_name=_TOKENIZER_NAME,
+        )
         schema = schema_builder.build()
-
-        return index_class(schema, index_path, True)
+        index = index_class(schema, index_path, True)
+        self._write_settings()
+        return index
 
     def _create_document(self, chunk_id: int, content: str) -> TantivyDocument:
         """Create a Tantivy document for one indexed chunk."""

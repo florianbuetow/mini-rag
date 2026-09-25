@@ -201,6 +201,10 @@ def _build_fake_info_router() -> APIRouter:
     async def health(request: Request) -> JSONResponse:
         return success_response(status=200, data={"status": request.app.state.app_status})
 
+    @router.get("/info")
+    async def info(request: Request) -> JSONResponse:
+        return success_response(status=200, data={"config": request.app.state.config.model_dump()})
+
     @router.get("/models")
     async def models(request: Request) -> JSONResponse:
         guard = ensure_healthy(request)
@@ -314,14 +318,33 @@ class _FakeCorpusManager:
 
 
 class _FakeConfig:
+    class _SearchConfig:
+        class _Hybrid:
+            alpha = 0.73
+
+        class _Reranking:
+            enabled = False
+
+        hybrid = _Hybrid()
+        reranking = _Reranking()
+
     def model_dump(self) -> dict[str, object]:
-        return {"service": {"host": "127.0.0.1", "port": 0}}
+        return {
+            "service": {"host": "127.0.0.1", "port": 0},
+            "search": {
+                "hybrid": {"alpha": self._SearchConfig.hybrid.alpha},
+                "reranking": {"enabled": self._SearchConfig.reranking.enabled},
+            },
+        }
 
     def get_service_config(self) -> object:
         class _SC:
             reload = False
 
         return _SC()
+
+    def get_search_config(self) -> object:
+        return self._SearchConfig()
 
 
 class _FakeTitleAgent:

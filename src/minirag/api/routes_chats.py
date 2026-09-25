@@ -18,14 +18,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1")
 
 
-_DEFAULT_SEARCH_SETTINGS: dict[str, object] = {
-    "search_mode": "hybrid",
-    "top_k": 50,
-    "alpha": 0.5,
-    "reranking": True,
-}
-
-
 class CreateChatRequest(BaseModel):
     """Request body for creating a new chat."""
 
@@ -63,6 +55,25 @@ def _get_chats_dir(request: Request) -> Path:
     """Get the chats directory from app state."""
     data_dir: Path = request.app.state.data_dir
     return data_dir / "chats"
+
+
+def _default_search_settings(request: Request) -> dict[str, object]:
+    """Build new-chat defaults from the active search configuration."""
+    search_config = request.app.state.config.get_search_config()
+    return {
+        "search_mode": "hybrid",
+        "top_k": 50,
+        "alpha": search_config.hybrid.alpha,
+        "reranking": search_config.reranking.enabled,
+    }
+
+
+def _resolve_search_settings(request: Request, overrides: dict[str, object] | None) -> dict[str, object]:
+    """Merge non-null chat overrides onto the active search defaults."""
+    settings = _default_search_settings(request)
+    if overrides is not None:
+        settings.update({key: value for key, value in overrides.items() if value is not None})
+    return settings
 
 
 def _generate_chat_id() -> str:
@@ -136,7 +147,7 @@ async def create_chat(request: Request, body: CreateChatRequest) -> JSONResponse
         "model": body.model,
         "corpus": body.corpus,
         "messages": [],
-        "search_settings": body.search_settings if body.search_settings is not None else dict(_DEFAULT_SEARCH_SETTINGS),
+        "search_settings": _resolve_search_settings(request, body.search_settings),
         "created_at": now_iso,
         "updated_at": now_iso,
     }

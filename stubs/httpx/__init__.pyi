@@ -10,15 +10,35 @@ class ReadTimeout(HTTPError): ...
 class TimeoutException(HTTPError): ...
 class HTTPStatusError(HTTPError): ...
 
+class URL:
+    path: str
+
 class Request:
     method: str
-    url: Any
+    url: URL
     content: bytes
+
+    def __init__(
+        self,
+        method: str,
+        url: URL | str,
+        *,
+        params: Any = ...,
+        headers: Any = ...,
+        cookies: Any = ...,
+        content: Any = ...,
+        data: Any = ...,
+        files: Any = ...,
+        json: Any = ...,
+        stream: Any = ...,
+        extensions: Any = ...,
+    ) -> None: ...
 
 class Response:
     status_code: int
     text: str
     headers: dict[str, str]
+    request: Request
 
     def __init__(
         self,

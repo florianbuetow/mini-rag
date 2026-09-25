@@ -88,13 +88,13 @@
                     </div>
                     <div class="setting-row">
                         <label for="alpha-slider">Alpha</label>
-                        <input type="range" id="alpha-slider" data-testid="alpha-slider" min="0" max="1" step="0.1" value="0.5">
-                        <span class="alpha-value" id="alpha-value" data-testid="alpha-value">0.5</span>
+                        <input type="range" id="alpha-slider" data-testid="alpha-slider" min="0" max="1" step="any">
+                        <span class="alpha-value" id="alpha-value" data-testid="alpha-value"></span>
                     </div>
                     <div class="setting-row">
                         <label for="reranking-toggle">Reranking</label>
                         <label class="toggle-switch">
-                            <input type="checkbox" id="reranking-toggle" data-testid="reranking-toggle" checked>
+                            <input type="checkbox" id="reranking-toggle" data-testid="reranking-toggle">
                             <span class="toggle-slider"></span>
                         </label>
                     </div>
@@ -239,7 +239,9 @@
     let isStreaming = false;
     let isCreatingChat = false;
     const SEARCH_SETTINGS_STORAGE_KEY = 'minirag_search_settings';
-    let searchSettings = { search_mode: 'hybrid', top_k: 50, alpha: 0.5, reranking: true };
+    let serverSearchDefaults = null;
+    let searchSettings = null;
+    let hasExplicitSearchSettings = false;
     let corpusDescriptions = {};
 
     // --- DOM refs ---
@@ -348,18 +350,28 @@
     }
 
     function applySettingsToUI(settings) {
-        const normalized = {
-            search_mode: settings.search_mode || 'hybrid',
-            top_k: settings.top_k || 50,
-            alpha: settings.alpha != null ? settings.alpha : 0.5,
-            reranking: settings.reranking != null ? settings.reranking : true
-        };
+        const normalized = Object.assign({}, serverSearchDefaults);
+        Object.keys(settings).forEach(function(key) {
+            if (settings[key] != null) normalized[key] = settings[key];
+        });
         searchModeSelect.value = normalized.search_mode;
         topKInput.value = normalized.top_k;
         alphaSlider.value = normalized.alpha;
         alphaValue.textContent = alphaSlider.value;
         rerankingToggle.checked = normalized.reranking;
         searchSettings = normalized;
+    }
+
+    async function loadSearchDefaults() {
+        const data = await apiGet('/v1/info');
+        const search = data.data.config.search;
+        serverSearchDefaults = {
+            search_mode: 'hybrid',
+            top_k: 50,
+            alpha: search.hybrid.alpha,
+            reranking: search.reranking.enabled
+        };
+        applySettingsToUI(serverSearchDefaults);
     }
 
     function getStoredSearchSettings() {
@@ -372,7 +384,9 @@
     }
 
     function saveSearchSettings() {
+        if (!serverSearchDefaults) return;
         readSettingsFromUI();
+        hasExplicitSearchSettings = true;
         try {
             localStorage.setItem(SEARCH_SETTINGS_STORAGE_KEY, JSON.stringify(searchSettings));
         } catch (e) {
@@ -382,6 +396,21 @@
             apiPut('/v1/chats/' + currentChatId, { search_settings: searchSettings }).catch(function(e) {
                 console.error('Failed to save search settings:', e);
             });
+        }
+    }
+
+    function newChatRequest(model, corpus) {
+        const body = { model: model, corpus: corpus };
+        if (hasExplicitSearchSettings) {
+            readSettingsFromUI();
+            body.search_settings = searchSettings;
+        }
+        return body;
+    }
+
+    function applyChatSearchSettings(chat) {
+        if (chat.search_settings) {
+            applySettingsToUI(chat.search_settings);
         }
     }
 
@@ -618,6 +647,7 @@
             updateCorpusInfoPanel();
             if (chat.search_settings) {
                 applySettingsToUI(chat.search_settings);
+                hasExplicitSearchSettings = true;
             }
         } catch (e) {
             console.error('Failed to load chat:', e);
@@ -716,10 +746,10 @@
         }
 
         try {
-            readSettingsFromUI();
-            const result = await apiPost('/v1/chats', { model: model, corpus: corpus, search_settings: searchSettings });
+            const result = await apiPost('/v1/chats', newChatRequest(model, corpus));
             if (result.status === 201) {
                 const chat = result.data.data;
+                applyChatSearchSettings(chat);
                 currentChatId = chat.id;
                 currentMessages = [];
                 renderMessages();
@@ -746,6 +776,7 @@
 
     // --- Send message ---
     async function sendMessage() {
+        if (!serverSearchDefaults) return;
         const text = messageInput.value.trim();
         if (!text || isStreaming) return;
 
@@ -755,9 +786,10 @@
             const corpus = corpusSelector.value;
             if (!model || !corpus) return;
             try {
-                const result = await apiPost('/v1/chats', { model: model, corpus: corpus });
+                const result = await apiPost('/v1/chats', newChatRequest(model, corpus));
                 if (result.status === 201) {
                     const chat = result.data.data;
+                    applyChatSearchSettings(chat);
                     currentChatId = chat.id;
                     currentMessages = [];
                     await loadChatList();
@@ -1299,7 +1331,7 @@
 
     // --- B-02: Enable/disable new chat button based on selector state ---
     function updateNewChatBtnState() {
-        newChatBtn.disabled = isCreatingChat || !modelSelector.value || !corpusSelector.value;
+        newChatBtn.disabled = isCreatingChat || !serverSearchDefaults || !modelSelector.value || !corpusSelector.value;
     }
 
     modelSelector.addEventListener('change', updateNewChatBtnState);
@@ -1312,13 +1344,21 @@
     // --- Init ---
     async function init() {
         newChatBtn.disabled = true;
+        sendBtn.disabled = true;
         exportBtn.disabled = true;
-        await Promise.all([loadModels(), loadCorpora(), loadChatList()]);
+        try {
+            await Promise.all([loadSearchDefaults(), loadModels(), loadCorpora(), loadChatList()]);
+        } catch (e) {
+            console.error('Failed to load search configuration:', e);
+            return;
+        }
         const storedSettings = getStoredSearchSettings();
         if (storedSettings) {
             applySettingsToUI(storedSettings);
+            hasExplicitSearchSettings = true;
         }
         updateNewChatBtnState();
+        sendBtn.disabled = false;
 
         // Restore last active chat
         const lastChatId = getLastActiveChat();

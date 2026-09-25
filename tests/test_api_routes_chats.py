@@ -25,11 +25,30 @@ class FakeServiceConfig:
 
 
 class FakeConfig:
+    class SearchConfig:
+        class Hybrid:
+            def __init__(self, alpha: float) -> None:
+                self.alpha = alpha
+
+        class Reranking:
+            def __init__(self, enabled: bool) -> None:
+                self.enabled = enabled
+
+        def __init__(self, alpha: float, reranking_enabled: bool) -> None:
+            self.hybrid = self.Hybrid(alpha)
+            self.reranking = self.Reranking(reranking_enabled)
+
+    def __init__(self, *, alpha: float = 0.5, reranking_enabled: bool = True) -> None:
+        self._search = self.SearchConfig(alpha, reranking_enabled)
+
     def model_dump(self):
         return {"service": {"host": "127.0.0.1", "port": 9191}}
 
     def get_service_config(self):
         return FakeServiceConfig(reload=False)
+
+    def get_search_config(self):
+        return self._search
 
 
 class FakeCorpusManager:
@@ -37,7 +56,7 @@ class FakeCorpusManager:
         return ["docs"]
 
 
-def _make_app(data_dir: Path, status: str = "healthy") -> FastAPI:
+def _make_app(data_dir: Path, status: str = "healthy", config: FakeConfig | None = None) -> FastAPI:
     """Create app with chat routes.
 
     Imports the chat router that does not exist yet — will fail until implemented.
@@ -46,7 +65,7 @@ def _make_app(data_dir: Path, status: str = "healthy") -> FastAPI:
 
     app = FastAPI()
     app.state.app_status = status
-    app.state.config = FakeConfig()
+    app.state.config = config or FakeConfig()
     app.state.corpus_manager = FakeCorpusManager()
     app.state.data_dir = data_dir
     app.add_exception_handler(Exception, unhandled_exception_handler)
@@ -400,7 +419,7 @@ def test_generate_title_returns_404_for_nonexistent(tmp_path: Path):
 
 # TS-SS-1: Create chat with search settings
 def test_create_chat_with_search_settings(tmp_path: Path):
-    client = TestClient(_make_app(tmp_path))
+    client = TestClient(_make_app(tmp_path, config=FakeConfig(alpha=0.73, reranking_enabled=True)))
 
     settings = {"search_mode": "dense", "top_k": 5, "alpha": 0.3, "reranking": False}
     resp = client.post("/v1/chats", json={"model": "gemma-3-1b", "corpus": "docs", "search_settings": settings})
@@ -412,13 +431,55 @@ def test_create_chat_with_search_settings(tmp_path: Path):
 
 # TS-SS-2: Create chat without search settings gets defaults
 def test_create_chat_default_search_settings(tmp_path: Path):
-    client = TestClient(_make_app(tmp_path))
+    client = TestClient(_make_app(tmp_path, config=FakeConfig(alpha=0.73, reranking_enabled=False)))
 
     resp = client.post("/v1/chats", json={"model": "gemma-3-1b", "corpus": "docs"})
 
     assert resp.status_code == 201
     chat = resp.json()["data"]
-    assert chat["search_settings"] == {"search_mode": "hybrid", "top_k": 50, "alpha": 0.5, "reranking": True}
+    assert chat["search_settings"] == {"search_mode": "hybrid", "top_k": 50, "alpha": 0.73, "reranking": False}
+
+
+def test_create_chat_partial_search_settings_merge_configured_defaults(tmp_path: Path):
+    client = TestClient(_make_app(tmp_path, config=FakeConfig(alpha=0.73, reranking_enabled=True)))
+
+    resp = client.post(
+        "/v1/chats",
+        json={
+            "model": "gemma-3-1b",
+            "corpus": "docs",
+            "search_settings": {"top_k": 5, "alpha": None, "reranking": False},
+        },
+    )
+
+    assert resp.status_code == 201
+    assert resp.json()["data"]["search_settings"] == {
+        "search_mode": "hybrid",
+        "top_k": 5,
+        "alpha": 0.73,
+        "reranking": False,
+    }
+
+
+def test_create_chat_falsy_search_setting_overrides_are_preserved(tmp_path: Path):
+    client = TestClient(_make_app(tmp_path, config=FakeConfig(alpha=0.73, reranking_enabled=True)))
+
+    resp = client.post(
+        "/v1/chats",
+        json={
+            "model": "gemma-3-1b",
+            "corpus": "docs",
+            "search_settings": {"alpha": 0, "reranking": False},
+        },
+    )
+
+    assert resp.status_code == 201
+    assert resp.json()["data"]["search_settings"] == {
+        "search_mode": "hybrid",
+        "top_k": 50,
+        "alpha": 0,
+        "reranking": False,
+    }
 
 
 # TS-SS-3: Update search settings

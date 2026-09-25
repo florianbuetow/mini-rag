@@ -73,6 +73,28 @@ def test_config_from_yaml_and_validate_startup(tmp_path: Path) -> None:
     validate_startup_environment(config=config, project_root=tmp_path)
 
 
+@pytest.mark.parametrize(
+    ("configured", "canonical"),
+    [("IndexFlatIP", "IndexFlatIP"), ("Flat", "IndexFlatIP"), ("IVF64,Flat", "IVF64,Flat")],
+)
+def test_config_accepts_supported_faiss_index_types(tmp_path: Path, configured: str, canonical: str) -> None:
+    config_dict = _base_config_dict(str(tmp_path / "data"))
+    config_dict["index"]["faiss"]["index_type"] = configured
+
+    config = _write_and_load(tmp_path, config_dict)
+
+    assert config.get_index_config().faiss.index_type == canonical
+
+
+@pytest.mark.parametrize("index_type", ["", "IndexIVFFlat", "IVF0,Flat", "IVF64,PQ8", "HNSW32"])
+def test_config_rejects_unsupported_faiss_index_types(tmp_path: Path, index_type: str) -> None:
+    config_dict = _base_config_dict(str(tmp_path / "data"))
+    config_dict["index"]["faiss"]["index_type"] = index_type
+
+    with pytest.raises(ValidationError, match="index.faiss.index_type"):
+        _write_and_load(tmp_path, config_dict)
+
+
 def test_config_missing_file_raises(tmp_path: Path) -> None:
     """Loading missing config file should fail."""
     missing_path = tmp_path / "missing.yaml"
